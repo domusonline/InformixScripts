@@ -13,16 +13,17 @@
 ix_help()
 {
 	echo "${PROGNAME}: -V | -h | { [-a] | [session [ sessions...]] } [ -r wait ]" >&1
-	echo "               -v shows script version" >&1
+	echo "               -V shows script version" >&1
 	echo "               -h shows this help" >&1
 	echo "               -a executes for all session" >&1
+	echo "               -s no separator lines between sessions" >&1
 	echo "               session [ sessions...] session(s) number(s)" >&1
 	echo "Ex: ${PROGNAME} -r 4 23345" >&1
 }
 
 get_args()
 {
-	arg_ok='r:vhas'
+	arg_ok='r:Vhas'
 	list="$*"
 	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing                                                
@@ -39,7 +40,7 @@ get_args()
 			ix_help
 			exit 0
 			;;
-		-v)   # show version
+		-V)   # show version
 			echo "${PROGNAME} ${VERSION}" >&1
 			exit 0
 			;;
@@ -47,6 +48,7 @@ get_args()
 			ALL_SESSIONS_FLAG=1
 			;;
 		-s)   # set up the -s (no separators flag)
+			NO_SEPARATOR_FLAG=1
 			NO_SEPARATOR=1
 			;;
 		-r)   # set up the -r (repeat flag)
@@ -75,6 +77,17 @@ get_args()
 				return 1
 			else
 				ALL_SESSIONS_FLAG=1
+				shift
+			fi
+			;;
+		-s)   # set up the -s (no separators flag)
+			if [ "X${NO_SEPARATOR_FLAG}" = "X1" ]
+			then
+				echo "${PROGNAME}: Syntax error - NO SEPARATOR flag was already interpreted" >&2
+				return 1
+			else
+				NO_SEPARATOR=1
+				NO_SEPARATOR_FLAG=1
 				shift
 			fi
 			;;
