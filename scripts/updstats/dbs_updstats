@@ -1,0 +1,200 @@
+#!/bin/bash
+# Name: $RCSfile$
+# CVS file: $Source$
+# CVS id: $Header$
+# Revision: $Revision$
+# Revised on: $Date$
+# Revised by: $Author$
+# Support: Fernando Nunes - fernando.nunes@tmn.pt
+# Modified to allow:
+# - filtering
+# - Parallel execution
+# - ids.2000 (long table names)
+# Antonio Lima - 2000.11.03
+# 
+# WARNING: this script opens and uses file descriptor 3.  This has different
+# effects on different machines.  Test throughly on each platform.
+
+# This script runs the tbl_updstats script for each table in the database
+# orfor tables depending on the selection, i.e
+# dbs_updstats stores7 'and tabname like "cust%"
+# History:
+#
+# 1.0 - insercao no cvs
+#     - aplicacao das alteracoes introduzidas pelo Lima
+
+
+PROGNAME=`basename $0`
+
+get_args()
+{
+	arg_ok="hed:f:"
+	list="$*"
+	getopt "${arg_ok}" $list >/dev/null 2>&1
+	# check result of parsing                                                
+	if [ $? != 0 ]
+	then
+		return 1
+	fi
+	set -- `getopt "${arg_ok}" $list`
+
+	while [ $1 != -- ]
+	do
+		case $1 in
+		-h)   # show help
+		        echo "${PROGNAME}: [-e] { [-d] database } [ [-f] filter ]" >&2
+		        echo "               [-e] Set explain on (versoes >= a 7.31.UD2 e 9.30.UC2)" >&2
+		        echo "               [-d] database (obrigatorio)" >&2
+		        echo "               [-f] table filter (opcional)" >&2
+			exit 0
+			;;
+		-e)   # set up the -e (set explain flag)
+			EXPLAIN_FLAG=1
+			;;
+		-d)   # set up the -d (database flag)
+			DATABASE_FLAG=1
+			dbserver=$2
+			shift
+			;;
+		-f)   # set up the -f (filter flag)
+			FILTER_FLAG=1
+			sel_filter=$2
+			shift
+			;;
+		esac
+		shift
+	done
+	shift   # skip double dash
+	while [ $# -ge 1 ]
+	do
+		case $1 in
+		-e)
+			if [ "X"$EXPLAIN_FLAG = "X1" ]	
+			then
+				echo "${PROGNAME}: Erro de sintaxe - SET EXPLAIN ja foi interpretado" >&2
+				return 1
+			else
+				EXPLAIN_FLAG=1
+				shift
+			fi;;
+		-d)
+			if [ "X"$DATABASE_FLAG = "X1" ]	
+			then
+				echo "${PROGNAME}: Erro de sintaxe - DATABASE ja foi interpretado" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "${PROGNAME}: Erro de sintaxe - A opcao $1 necessita de um argumento" >&2
+					return 1
+				else
+					DATABASE_FLAG=1
+					dbserver=$2
+					shift 2
+			fi;;
+		-f)
+			if [ "X"$FILTER_FLAG = "X1" ]	
+			then
+				echo "${PROGNAME}: Erro de sintaxe - FILTER ja foi interpretado" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "${PROGNAME}: Erro de sintaxe - A opcao $1 necessita de um argumento" >&2
+					return 1
+				else
+					FILTER_FLAG=1
+					sel_filter=$2
+					shift 2
+			fi;;
+		*)
+			if [ "X"$DATABASE_FLAG != "X1" ]	
+			then
+				DATABASE_FLAG=1
+				dbserver=$1
+				shift
+				continue	
+			fi
+			if [ "X"$FILTER_FLAG != "X1" ]	
+			then
+				FILTER_FLAG=1
+				sel_filter=$1
+				shift
+				continue	
+			fi
+			echo "${PROGNAME}: Erro de sintaxe - "$1 >&2
+			return 1;;
+		esac
+	done
+}
+
+
+
+
+
+get_args $*
+if [ $? != 0 ]
+then
+	echo "Erro no parsing dos parametros" >&2
+	exit 1
+fi
+
+
+err=/tmp/dbs_updstats_${dbserver}$$.err
+exec 2>${err}
+until [ ${dbserver} ]
+do
+  echo -n "Introduza o nome da base de dados: "
+  read dbserver
+  if [ -z "${dbserver}" ]
+  then
+    echo '>> You must enter a database name. <<'
+    exit 1
+  fi
+done
+
+# 
+result=/tmp/${dbserver}.res
+tablelist=/tmp/${dbserver}.tbl
+rpt=/tmp/dbs_updstats_${dbserver}$$.rpt
+
+if [ -r ${result} ]
+then
+	echo "Existe outro `basename $0` a correr ou houve um erro numa execucao anterior" >&2
+	echo "Elimine o ficheiro ${result} e tente de novo." >&2
+	exit 1
+fi
+
+dbaccess ${dbserver} - <<EOC 1>/dev/null 2>&1
+output to pipe "cat >${result}" without headings
+select tabname||":" from systables
+where tabid > 99 $sel_filter
+order by 1;
+EOC
+
+grep ':' ${result} | cut -f1 -d:  >${tablelist}
+#
+# Start database report
+cat /dev/null >$rpt
+
+# Open and use file descriptor 3 to store the list of tables.
+exec 3<${tablelist}
+while read tblname <&3
+do
+echo 'Updating Statistics for Table: '${tblname}
+if [ "X"${EXPLAIN_FLAG} = "X1" ]
+then
+	tbl_updstats -e ${dbserver} ${tblname} 2>>${err}&
+else
+	tbl_updstats ${dbserver} ${tblname} 2>>${err}&
+fi
+T=$!
+wait
+cat /tmp/tbl_updstats_${dbserver}$T.rpt >>$rpt
+rm /tmp/tbl_updstats_${dbserver}$T.rpt
+echo '==========================================================================' >>$rpt
+echo ' ' >>$rpt
+done
+#
+rm ${tablelist}
+rm ${result}
+ 
+exit 0

@@ -1,0 +1,346 @@
+#!/bin/bash
+# Name: $RCSfile$
+# CVS file: $Source$
+# CVS id: $Header$
+# Revision: $Revision$
+# Revised on: $Date$
+# Revised by: $Author$
+# Support: Fernando Nunes - fernando.nunes@tmn.pt
+# Notes:
+# WARNING: This script opens and uses file descriptor 4.  Test throughly on
+# each platform.
+# Script to create the 'update statisics' statements as discribed in the
+# Guide to 7.1 Feature Enhancements Page 3-133
+# This script assumes all environment variables are set.
+# History:
+
+
+#-------------------------------------------------------
+# parameter processing
+#-------------------------------------------------------
+
+PROGNAME=`basename $0`
+
+get_args()
+{
+	arg_ok="hed:t:"
+	list="$*"
+	getopt "${arg_ok}" $list >/dev/null 2>&1
+	# check result of parsing                                                
+	if [ $? != 0 ]
+	then
+		return 1
+	fi
+	set -- `getopt "${arg_ok}" $list`
+
+	while [ $1 != -- ]
+	do
+		case $1 in
+		-h)   # show help
+		        echo "${PROGNAME}: [-e] { [-d] database } { [-t] table }" >&2
+		        echo "               [-e] Set explain on (versoes >= a 7.31.UD2 e 9.30.UC2)" >&2
+		        echo "               [-d] database (obrigatorio)" >&2
+		        echo "               [-t] table (obrigatorio)" >&2
+			exit 0
+			;;
+		-e)   # set up the -e (set explain flag)
+			EXPLAIN_FLAG=1
+			;;
+		-d)   # set up the -d (database flag)
+			DATABASE_FLAG=1
+			dbserver=$2
+			shift
+			;;
+		-t)   # set up the -f (filter flag)
+			TABLE_FLAG=1
+			tabname=$2
+			shift
+			;;
+		esac
+		shift
+	done
+	shift   # skip double dash
+	while [ $# -ge 1 ]
+	do
+		case $1 in
+		-e)
+			if [ "X"$EXPLAIN_FLAG = "X1" ]	
+			then
+				echo "${PROGNAME}: Erro de sintaxe - SET EXPLAIN ja foi interpretado" >&2
+				return 1
+			else
+				EXPLAIN_FLAG=1
+				shift
+			fi;;
+		-d)
+			if [ "X"$DATABASE_FLAG = "X1" ]	
+			then
+				echo "Erro de sintaxe: DATABASE ja foi interpretado" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "Erro de sintaxe: A opcao $1 necessita de um argumento" >&2
+					return 1
+				else
+					DATABASE_FLAG=1
+					dbserver=$2
+					shift 2
+			fi;;
+		-t)
+			if [ "X"$TABLE_FLAG = "X1" ]	
+			then
+				echo "Erro de sintaxe: TABLE ja foi interpretado" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "Erro de sintaxe: A opcao $1 necessita de um argumento" >&2
+					return 1
+				else
+					TABLE_FLAG=1
+					tabname=$2
+					shift 2
+			fi;;
+		*)
+			if [ "X"$DATABASE_FLAG != "X1" ]	
+			then
+				DATABASE_FLAG=1
+				dbserver=$1
+				shift
+				continue	
+			fi
+			if [ "X"$TABLE_FLAG != "X1" ]	
+			then
+				TABLE_FLAG=1
+				tabname=$1
+				shift
+				continue	
+			fi
+			echo "$0: Erro de sintaxe: "$1 >&2
+			return 1;;
+		esac
+	done
+}
+
+
+
+
+
+get_args $*
+if [ $? != 0 ]
+then
+	echo "Erro no parsing dos parametros" >&2
+	exit 1
+fi
+
+until [ ${dbserver} ]
+do
+  echo -n "Introduza o nome da base de dados: "
+  read dbserver
+done
+ 
+until [ ${tabname} ]
+do
+  echo -n "Introduza o nome da tabela: "
+  read tabname
+done
+ 
+# lower case table name
+tabname2=`echo ${tabname} | tr "[A-Z]" "[a-z]"`
+tabname=${tabname2}
+ 
+# define filenames using process id
+sqlfile=/tmp/tbl_updstats$$.sql
+result=/tmp/tbl_updstats$$.r0
+ 
+
+#--------------------------------------------------------
+# find the index header columns
+#--------------------------------------------------------
+cat /dev/null >${result}
+echo "output to ${result} without headings
+      select tabname||':'||idxname||':'||colname
+      from systables t, sysindexes i, syscolumns c
+      where tabname = '${tabname}' 
+      and t.tabid = i.tabid
+      and t.tabid = c.tabid
+      and colno = part1 
+      order by 1;" >${sqlfile}
+
+dbaccess ${dbserver} ${sqlfile}
+result1=/tmp/tbl_updstats$$.r1
+grep "\:" ${result} >${result1}
+ 
+#--------------------------------------------------------
+# find the index non-header columns
+#--------------------------------------------------------
+echo "
+ output to ${result} without headings
+ select tabname||':'||idxname||':'||colname
+ from systables t, sysindexes i, syscolumns c
+ where tabname = '${tabname}' 
+ and t.tabid = i.tabid and t.tabid = c.tabid
+ and part2 is not null and colno = part2 
+  union
+ select tabname||':'||idxname||':'||colname
+ from systables t, sysindexes i, syscolumns c
+ where tabname = '${tabname}' 
+ and t.tabid = i.tabid and t.tabid = c.tabid
+ and part3 is not null and colno = part3 
+  union
+ select tabname||':'||idxname||':'||colname
+ from systables t, sysindexes i, syscolumns c
+ where tabname = '${tabname}' 
+ and t.tabid = i.tabid and t.tabid = c.tabid
+ and part4 is not null and colno = part4 
+  union
+ select tabname||':'||idxname||':'||colname
+ from systables t, sysindexes i, syscolumns c
+ where tabname = '${tabname}' 
+ and t.tabid = i.tabid and t.tabid = c.tabid
+ and part5 is not null and colno = part5 
+  union
+ select tabname||':'||idxname||':'||colname
+ from systables t, sysindexes i, syscolumns c
+ where tabname = '${tabname}' 
+ and t.tabid = i.tabid and t.tabid = c.tabid
+ and part6 is not null and colno = part6 
+  union
+ select tabname||':'||idxname||':'||colname
+ from systables t, sysindexes i, syscolumns c
+ where tabname = '${tabname}' 
+ and t.tabid = i.tabid and t.tabid = c.tabid
+ and part7 is not null and colno = part7 
+  union
+ select tabname||':'||idxname||':'||colname
+ from systables t, sysindexes i, syscolumns c
+ where tabname = '${tabname}' 
+ and t.tabid = i.tabid and t.tabid = c.tabid
+ and part8 is not null and colno = part8 
+  union
+ select tabname||':'||idxname||':'||colname
+ from systables t, sysindexes i, syscolumns c
+ where tabname = '${tabname}' 
+ and t.tabid = i.tabid and t.tabid = c.tabid
+ and part9 is not null and colno = part9 
+  union
+ select tabname||':'||idxname||':'||colname
+ from systables t, sysindexes i, syscolumns c
+ where tabname = '${tabname}' 
+ and t.tabid = i.tabid and t.tabid = c.tabid
+ and part10 is not null and colno = part10 
+  union
+ select tabname||':'||idxname||':'||colname
+ from systables t, sysindexes i, syscolumns c
+ where tabname = '${tabname}' 
+ and t.tabid = i.tabid and t.tabid = c.tabid
+ and part11 is not null and colno = part11 
+  union
+ select tabname||':'||idxname||':'||colname
+ from systables t, sysindexes i, syscolumns c
+ where tabname = '${tabname}' 
+ and t.tabid = i.tabid and t.tabid = c.tabid
+ and part12 is not null and colno = part12 
+  union
+ select tabname||':'||idxname||':'||colname
+ from systables t, sysindexes i, syscolumns c
+ where tabname = '${tabname}' 
+ and t.tabid = i.tabid and t.tabid = c.tabid
+ and part13 is not null and colno = part13 
+  union
+ select tabname||':'||idxname||':'||colname
+ from systables t, sysindexes i, syscolumns c
+ where tabname = '${tabname}' 
+ and t.tabid = i.tabid and t.tabid = c.tabid
+ and part14 is not null and colno = part14 
+  union
+ select tabname||':'||idxname||':'||colname
+ from systables t, sysindexes i, syscolumns c
+ where tabname = '${tabname}' 
+ and t.tabid = i.tabid and t.tabid = c.tabid
+ and part15 is not null and colno = part15 
+  union
+ select tabname||':'||idxname||':'||colname
+ from systables t, sysindexes i, syscolumns c
+ where tabname = '${tabname}' 
+ and t.tabid = i.tabid and t.tabid = c.tabid
+ and part16 is not null and colno = part16 
+ ;" >${sqlfile}
+
+dbaccess ${dbserver} ${sqlfile}
+result2=/tmp/tbl_updstats$$.r2
+grep "\:" ${result} >${result2}
+x=/tmp/tbl_updstats$$.x
+cp ${result} $x
+ 
+#-------------------------------------------------------
+# Report of indexes
+#-------------------------------------------------------
+rpt=/tmp/tbl_updstats$$.rpt
+
+cat /dev/null >${rpt}
+echo TABLE: ${tabname} >>${rpt}
+date >>${rpt}
+
+lines=`wc -l ${result1} | awk '{print $1}'`
+if [ ${lines} -ge 1 ]
+then
+	echo '
+Table Name        :Index Name        :Column Name
+------------------:------------------:-----------------------' >>${rpt}
+	echo '<< Columns heading an index. >> ' >>${rpt}
+	cat ${result1} >>${rpt}
+fi
+lines=`wc -l ${result2} | awk '{print $1}'`
+if [ ${lines} -ge 1 ]
+then
+	echo '<< Columns NOT heading an index. >> ' >>${rpt}
+	cat ${result2} >>${rpt}
+fi
+echo >>${rpt}
+ 
+#-------------------------------------------------------
+# Create sql statements for medium distributions 
+#-------------------------------------------------------
+ms=/tmp/tbl_updstats$$_ms.sql
+echo > ${ms}
+
+if [ "X"${EXPLAIN_FLAG} = "X1" ]
+then
+	echo ' set explain on;' >>${ms}
+fi
+echo ' update statistics medium for table '${tabname}' distributions only;' >>${ms}
+ 
+#-------------------------------------------------------
+# Create sql statements for high distributions
+#-------------------------------------------------------
+col_high=/tmp/tbl_updstats$$_colh.sql
+cut -f3 -d: ${result1} | sort | uniq  >${col_high}
+
+#-------------------------------------------------------
+# Open and use fd 4 to store the list of columnns
+#-------------------------------------------------------
+exec 4<${col_high}
+while read colname <&4
+do
+echo ' update statistics high for table '${tabname}'('${colname}') distributions only;' >>${ms}
+done
+ 
+#-------------------------------------------------------
+# Create sql statements for low 
+#-------------------------------------------------------
+col_low=/tmp/tbl_updstats$$_coll.sql
+cut -f3 -d: ${result2} | sort | uniq  >${result}
+comm -13 ${col_high} ${result} >${col_low}
+echo ' update statistics low for table '${tabname}';' >>${ms}
+
+#-------------------------------------------------------
+# Execute SQL instrctions
+#-------------------------------------------------------
+dbaccess ${dbserver} - <${ms} 1>/dev/null #2>&1 
+cat ${ms} >>${rpt}
+ 
+mv  ${rpt} /tmp/tbl_updstats_${dbserver}$$.rpt
+rm  -f ${ms} ${x} ${sqlfile} ${result} ${result1} ${result2} ${col_high} ${col_low}
+ 
+exit 0
+
