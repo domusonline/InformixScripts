@@ -13,6 +13,8 @@
 # Guide to 7.1 Feature Enhancements Page 3-133
 # This script assumes all environment variables are set.
 # History:
+# 1.1 - Adicao da flag para establecer pdqpriority
+#     - alteracao no high para especificar as varias colunas num so statement
 
 
 #-------------------------------------------------------
@@ -20,11 +22,11 @@
 #-------------------------------------------------------
 
 PROGNAME=`basename $0`
-VERSAO="1.0"
+VERSAO="1.1"
 
 get_args()
 {
-	arg_ok="hevd:t:"
+	arg_ok="hevp:d:t:"
 	list="$*"
 	getopt "${arg_ok}" $list >/dev/null 2>&1
 	# check result of parsing                                                
@@ -38,8 +40,9 @@ get_args()
 	do
 		case $1 in
 		-h)   # show help
-		        echo "${PROGNAME}: [-e] { [-d] database } { [-t] table }" >&2
+		        echo "${PROGNAME}: [-e] [ -p priority ] { [-d] database } { [-t] table }" >&2
 		        echo "               [-e] Set explain on (versoes >= a 7.31.UD2 e 9.30.UC2)" >&2
+		        echo "               [-p] Set PDQPRIORITY (versoes >= a 7.31.UD2 e 9.30.UC2)" >&2
 		        echo "               [-d] database (obrigatorio)" >&2
 		        echo "               [-t] table (obrigatorio)" >&2
 			exit 0
@@ -61,6 +64,10 @@ get_args()
 			tabname=$2
 			shift
 			;;
+		-p)   # set up the -p ( PDQPRIORITY flag)
+			PRIORITY_FLAG=1
+			priority=$2
+			shift
 		esac
 		shift
 	done
@@ -116,6 +123,25 @@ get_args()
 					tabname=$2
 					shift 2
 			fi;;
+		-p)
+			if [ "X"$PRIORITY_FLAG = "X1" ]	
+			then
+				echo "Erro de sintaxe: PRIORITY ja foi interpretado" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "Erro de sintaxe: A opcao $1 necessita de um argumento" >&2
+					return 1
+				else
+					PRIORITY_FLAG=1
+					priority=$2
+					if [ ${priority} -lt 1 -o ${priority} -gt 100 ]
+					then
+						echo "Erro: o valor de PDQPRIORITY tem de estar entre 0 e 100" >&2
+						return 1
+					fi
+					shift 2
+			fi;;
 		*)
 			if [ "X"$DATABASE_FLAG != "X1" ]	
 			then
@@ -163,6 +189,15 @@ done
 # lower case table name
 tabname2=`echo ${tabname} | tr "[A-Z]" "[a-z]"`
 tabname=${tabname2}
+echo "PRIORITY= "$priority
+if [ "X${PRIORITY_FLAG}" = "X1" ]
+then
+	if [ 1 -gt ${priority}  -o  ${priority} -gt 100 ]
+	then
+		echo "Erro: o valor de PDQPRIORITY tem de estar entre 0 e 100" >&2
+		exit 1
+	fi
+fi
  
 # define filenames using process id
 sqlfile=/tmp/tbl_updstats$$.sql
@@ -322,7 +357,11 @@ echo > ${ms}
 
 if [ "X"${EXPLAIN_FLAG} = "X1" ]
 then
-	echo ' set explain on;' >>${ms}
+	echo "set explain on;" >>${ms}
+fi
+if [ "X"${PRIORITY_FLAG} = "X1" ]
+then
+	echo "set pdqpriority ${priority};" >>${ms}
 fi
 echo ' update statistics medium for table '${tabname}' distributions only;' >>${ms}
  
@@ -336,10 +375,20 @@ cut -f3 -d: ${result1} | sort | uniq  >${col_high}
 # Open and use fd 4 to store the list of columnns
 #-------------------------------------------------------
 exec 4<${col_high}
+echo ' update statistics high for table '${tabname}'(' >>${ms}
+${colname}
+primeiro=0
 while read colname <&4
 do
-echo ' update statistics high for table '${tabname}'('${colname}') distributions only;' >>${ms}
+if [ $primeiro -eq 1 ]
+then
+	echo ',' >>${ms}
+else
+	primeiro=1
+fi
+echo ${colname} >>${ms}
 done
+echo ') distributions only;' >>${ms}
  
 #-------------------------------------------------------
 # Create sql statements for low 

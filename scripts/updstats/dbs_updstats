@@ -20,16 +20,17 @@
 # dbs_updstats stores7 'and tabname like "cust%"
 # History:
 #
+# 1.1 - inclusao da opcao -p para establecer o PDQPRIORITY
 # 1.0 - insercao no cvs
 #     - aplicacao das alteracoes introduzidas pelo Lima
 
 
 PROGNAME=`basename $0`
-VERSAO="1.0"
+VERSAO="1.1"
 
 get_args()
 {
-	arg_ok="hved:f:"
+	arg_ok="hevp:d:f:"
 	list="$*"
 	getopt "${arg_ok}" "$list" >/dev/null 2>&1
 	# check result of parsing                                                
@@ -43,8 +44,9 @@ get_args()
 	do
 		case $1 in
 		-h)   # show help
-		        echo "${PROGNAME}: [-e] { -d database } [ -f filter ]" >&1
+		        echo "${PROGNAME}: [-e] [ -p priority ] { -d database } [ -f filter ]" >&1
 		        echo "               [-e] Set explain on (versoes >= a 7.31.UD2 e 9.30.UC2)" >&1
+		        echo "               [-p] Set pdqpriority (versoes >= a 7.31.UD2 e 9.30.UC2)" >&1
 		        echo "               -d database (obrigatorio)" >&1
 		        echo "               -f table filter (opcional)" >&1
 			echo "Ex: dbs_updstats -d stores7 -f \\\" and tabname like \\'l%\\'\\\"" >&1
@@ -62,6 +64,11 @@ get_args()
 			dbserver=$2
 			shift
 			;;
+		-p)   # set up the -p (pdqpriority flag)
+			PRIORITY_FLAG=1
+			priority=$2
+			shift
+			;;
 		-f)   # set up the -f (filter flag)
 			FILTER_FLAG=1
 			case $2 in
@@ -77,7 +84,7 @@ get_args()
 			then
 				return
 			fi
-			arg_ok="hved:f:"
+			arg_ok="hvep:d:f:"
 			set -- `getopt "${arg_ok}" $resto`
 			continue
 			;;
@@ -111,6 +118,25 @@ get_args()
 					dbserver=$2
 					shift 2
 			fi;;
+		-p)
+			if [ "X"$PRIORITY_FLAG = "X1" ]	
+			then
+				echo "${PROGNAME}: Erro de sintaxe - PRIORITY ja foi interpretado" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "${PROGNAME}: Erro de sintaxe - A opcao $1 necessita de um argumento" >&2
+					return 1
+				else
+					PRIORITY_FLAG=1
+					priority=$2
+					if [ ${priority} -lt 1 -o ${priority} -gt 100 ]
+					then
+						echo "${PROGNAME}: Erro - o valor para o PDQPRIORITY tem de estar entre 1 e 100" >&2
+						return 1
+					fi
+					shift 2
+			fi;;
 		-f)
 			if [ "X"$FILTER_FLAG = "X1" ]	
 			then
@@ -135,7 +161,7 @@ get_args()
 					then
 						return
 					fi
-					arg_ok="hved:f:"
+					arg_ok="hvep:d:f:"
 					set -- `getopt "${arg_ok}" $resto`
 					continue
 			fi;;
@@ -177,6 +203,14 @@ do
   fi
 done
 
+if [ "X${PRIORITY_FLAG}" = "X1" ]
+then
+	if [ ${priority} -lt 1 -o ${priority} -gt 100 ]
+	then
+		echo "${PROGNAME}: Erro - o valor para o PRIORITY tem de estar entre 1 e 100" >&2
+		exit 1
+	fi
+fi
 # 
 result=/tmp/${dbserver}.res
 tablelist=/tmp/${dbserver}.tbl
@@ -224,23 +258,27 @@ grep ':' ${result} | cut -f1 -d:  >${tablelist}
 # Start database report
 cat /dev/null >$rpt
 
+if [ "X"${EXPLAIN_FLAG} = "X1" ]
+then
+	CMD_FLAGS="-e"
+fi
+if [ "X${PRIORITY_FLAG}" = "X1" ]
+then
+	CMD_FLAGS="${CMD_FLAGS} -p ${priority}"
+fi
+
 # Open and use file descriptor 3 to store the list of tables.
 exec 3<${tablelist}
 while read tblname <&3
 do
-echo 'Updating Statistics for Table: '${tblname}
-if [ "X"${EXPLAIN_FLAG} = "X1" ]
-then
-	tbl_updstats -e ${dbserver} ${tblname} 2>>${err}&
-else
-	tbl_updstats ${dbserver} ${tblname} 2>>${err}&
-fi
-T=$!
-wait
-cat /tmp/tbl_updstats_${dbserver}$T.rpt >>$rpt
-rm /tmp/tbl_updstats_${dbserver}$T.rpt
-echo '==========================================================================' >>$rpt
-echo ' ' >>$rpt
+	echo 'Updating Statistics for Table: '${tblname}
+	tbl_updstats ${CMD_FLAGS} -d ${dbserver} -t ${tblname} 2>>${err}&
+	T=$!
+	wait
+	cat /tmp/tbl_updstats_${dbserver}$T.rpt >>$rpt
+	rm /tmp/tbl_updstats_${dbserver}$T.rpt
+	echo '==========================================================================' >>$rpt
+	echo ' ' >>$rpt
 done
 
 rm -f ${tablelist}
