@@ -30,7 +30,7 @@ VERSAO="1.0"
 get_args()
 {
 	arg_ok="hved:f:"
-	list=$@
+	list="$*"
 	getopt "${arg_ok}" "$list" >/dev/null 2>&1
 	# check result of parsing                                                
 	if [ $? != 0 ]
