@@ -7,6 +7,7 @@
 # Revised by: $Author$ 
 # Support: Fernando Nunes - fernando.nunes@tmn.pt
 # History:
+# 8.8 - Alteracao das localizacoes dos ficheiros de configuracao
 # 8.7 - Correccao de bug que fazia aparecer sempre a ultima versao do motor
 # 8.6 - Correccao de debug para fm.tmp
 #     - Preparacao para IIF ($INFORMIXDIR/etc/IIF-cr)
@@ -15,7 +16,7 @@
 # 8.5 - Code review
 #     - Minor chages in conf variables
 
-VERSION="8.7"
+VERSION="8.8"
 INFX_CONF="infx_env.lst"
 INFX_PARAMS="setinfx.params"
 
@@ -23,13 +24,9 @@ function set_clean_path {
 	old_path="$1"
 	# base directory of informix products on this machine
 	# check if params file exists
-	if [ "$INFX_ETC" = "" ]
-	then 
-		export INFX_ETC=/usr/bin/scripts
-	fi
+	
 
-	export INFX_ETC=/usr/bin/scripts
-	if [ -r ${INFX_ETC}/$INFX_PARAMS ]
+	if [ -r ${INFX_ETC}/${INFX_PARAMS} ]
 	then
 		a=1
 	else
@@ -85,6 +82,23 @@ export AWK
 tty 1>/dev/null 2>/dev/null
 not_a_tty=$?
 
+
+INFORMIX_HOME=`grep "^informix:" /etc/passwd | $AWK -F':' '{print $6}'`
+CONF_DIRS="${INFORMIX_HOME}/etc /usr/bin/utils /usr/bin/scripts"
+for DIR in ${CONF_DIRS}
+do
+	if [ -r ${DIR}/${INFX_CONF} ]
+	then
+		INFX_ETC=${DIR}
+		export INFX_ETC
+	fi
+done
+if [ "X${INFX_ETC}" = "X" ]
+then
+	echo "Configuration files not found" >&2
+	return 1
+fi
+
 user=`id | $AWK -F"[()]" ' { print $2 } '`
 
 if [ $user = "informix" -o $user = "root" ]
@@ -96,11 +110,6 @@ fi
 
 server_ok=0
 
-# check if params file exists
-if [ "$INFX_ETC" = "" ]
-then 
-	export INFX_ETC=/usr/bin/scripts
-fi
 
 #-----------------------------------------
 # Real number of environments in this file
@@ -119,7 +128,7 @@ $1 !~ "#" && $0 !~ "^$" \
 			invalid_list=sprintf("%s%d ", invalid_list,lnnum);
 	}
 	} 
-END { print lnnum "+" invalid_list } ' $INFX_ETC/$INFX_CONF`
+END { print lnnum "+" invalid_list } ' ${INFX_ETC}/${INFX_CONF}`
 
 
 maxsrv=`echo "$fmaux" | cut -f1 -d'+'`
