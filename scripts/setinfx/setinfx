@@ -1,0 +1,419 @@
+#!/usr/bin/ksh
+# Name: $RCSfile$
+# CVS file: $Source$ 
+# CVS id: $Header$ 
+# Revision: $Revision$ 
+# Revised on: $Date$
+# Revised by: $Author$ 
+# Support: Fernando Nunes - fernando.nunes@tmn.pt
+# History:
+# 8.5 - Code review
+#     - Minor chages in conf variables
+
+VERSION="8.5"
+INFX_CONF="infx_env.lst"
+INFX_PARAMS="setinfx.params"
+
+function set_clean_path {
+	old_path="$1"
+	# base directory of informix products on this machine
+	# check if params file exists
+	if [ "$INFX_ETC" = "" ]
+	then 
+		export INFX_ETC=/usr/bin/scripts
+	fi
+
+	export INFX_ETC=/usr/bin/scripts
+	if [ -r ${INFX_ETC}/$INFX_PARAMS ]
+	then
+		a=1
+	else
+		echo "cannot locate file $INFX_ETC/$INFX_PARAMS"
+		return 1
+	fi
+	new_path=`echo "$old_path" | $AWK -F: ' \
+	BEGIN {  a=0;idx=0;
+		params_file=sprintf("%s/'$INFX_PARAMS'","'$INFX_ETC'");
+		printf params_file > "fm.tmp";
+		while ( getline ifmxpath[++idx] < params_file ) {
+			a=1;
+		} #while
+		if ( a == 0 ) { print "NO param lines !";exit (-1) ; }
+	} #BEGIN 
+	{ 
+		for ( wrd=1;wrd <=NF;wrd++) {
+	# print "wrd: ",$wrd >> "toto" ;
+			if ( $wrd == " " ) next ;
+			dontprint=0;
+			for ( jdx=1;jdx<=idx;jdx++ ) {
+				pathlength=length(ifmxpath[jdx]);
+				if ( substr($wrd,1,pathlength) == ifmxpath[jdx] )  {
+					dontprint=1;
+					jdx=idx;
+				# break;
+				}
+			} #FOR
+			if ( dontprint == 0 && $wrd != "" ) { printf("%s:",$wrd); } 
+		} #FOR
+	} '`
+	echo $new_path
+} 
+
+argc=$#
+clear
+
+# conn_srvr reads the server list for choosing
+# returns server line number
+###################################################################################################
+# special config for this machine
+export AWK=nawk     # very important for sun solaris 
+
+# test tty if run by background
+tty 1>/dev/null 2>/dev/null
+not_a_tty=$?
+
+user=`id | $AWK -F"[()]" ' { print $2 } '`
+
+if [ $user = "informix" -o $user = "root" ]
+then
+	usertype="adm"
+else
+	usertype="prg"
+fi
+
+server_ok=0
+
+# check if params file exists
+if [ "$INFX_ETC" = "" ]
+then 
+	export INFX_ETC=/usr/bin/scripts
+fi
+
+#-----------------------------------------
+# Real number of environments in this file
+# Create a list of "inactive" environments
+#-----------------------------------------
+fmaux=`$AWK -F"|" ' BEGIN { usertype="'$usertype'";lnum=0 }
+$1 !~ "#" && $0 !~ "^$" \
+{
+	if ( "'$usertype'" != "adm" && $7 == "S" ) next ;
+	lnnum++;
+	if ( $1 !~ "^inactivo")
+	{
+	}
+	else
+	{
+			invalid_list=sprintf("%s%d ", invalid_list,lnnum);
+	}
+	} 
+END { print lnnum "+" invalid_list } ' $INFX_ETC/$INFX_CONF`
+
+
+maxsrv=`echo "$fmaux" | cut -f1 -d'+'`
+INVALID_LIST=`echo $fmaux | cut -f2 -d'+'`
+
+# checking params
+if [ $argc -ne 1 ]
+then
+	echo "Usage: . setinfx [ l(ist) | [ 1-$maxsrv ]"
+	return 1
+fi
+
+if [ $1 = "l" ]
+then
+	option="list"
+else
+	if [ $1 -ge 1 -a $1 -le $maxsrv ]
+	then
+		for f in $INVALID_LIST
+		do
+			if [ $1 -eq $f ]
+			then
+				echo "Invalid environment selected"
+				return 1
+			fi
+		done
+		option="chosen"
+		server_num=$1
+	else
+		echo "Usage: . setinfx [ l(ist) | [ 1-$maxsrv ]"
+		return 1
+	fi
+fi
+
+clean_path=`set_clean_path $PATH`
+
+if [ $option = "list" ]
+then
+	attempts=0
+	while [ $server_ok -eq 0 ]
+	do
+		## clear
+		attempts=`expr $attempts + 1`
+		if [ $attempts -gt 5 ]
+		then
+			echo "too many attempts, exiting"
+			return 1
+		fi
+		$AWK -F"|" ' BEGIN \
+			{ 
+			"hostname" | getline HOSTNAME
+			printf("List of available INFORMIX environments on %s      (setinfx version '$VERSION')\n\n",HOSTNAME) > "/dev/tty" ;
+			usertype="'$usertype'"
+			} #BEGIN
+			$1 !~ "#" && $0 !~ "^$" \
+			{ 
+				if ( "'$usertype'" != "adm" && $7 == "S" ) next ;
+				if ( NF < 7 ) 
+				{ 
+					printf ("line # %d in configuration file has incorrect format\n",
+					FNR) > "/dev/tty";
+					exit -1;
+				}	
+				if ( $1 !~ "^inactivo")
+				{
+					cmd="";
+					if ( $7 !~ "[SsDdY]" ) { 
+						printf("line %d : INVALID envtype %s\n",lnnum+1,$7);
+						exit -1;
+					}
+
+					if ( $7 ~ "[Ss]" ) cmd=sprintf("cat %s/etc/IDS*-cr",$4);
+	            if ( $7 ~ "[Dd]" ) {
+						cmd1=sprintf("ls -1t %s/etc/*-cr | egrep \"I4GL|ClientSDK|ISQL\" | head -1",$4)
+						cmd1 | getline file;
+						cmd=sprintf("cat %s",file);
+					}
+					if ( $7 == "Y" )  cmd=sprintf("cat %s/etc/D4GL-cr",$5);
+					cmd | getline vers;
+					close(cmd);
+					printf("%2d) %-30s (%s)\n",++lnnum,$1,vers) > "/dev/tty" 
+				}
+				else
+				{
+					lnnum=lnnum+1;
+				}
+			} 
+			END {
+				printf("\nChoose an environment number (1-%d q to quit) : ",lnnum) \
+				> "/dev/tty"  }  \
+				' $INFX_ETC/$INFX_CONF
+
+			if [ $? -ne 0 ]
+			then
+				echo "Configuration file has incorrect format"
+				return 1
+			fi
+			read server_num
+			case $server_num in
+			[Qq] )
+				echo "Exiting without choosing an environment"
+				# if [ $is_dec_alfa -eq 1 ] 
+				# then
+					# # shift 2>/dev/null
+				# fi
+				return 1;;
+			[0-9]*)
+				a=1;;
+			*)
+				echo "No way"
+				server_ok=0 ;;
+			esac
+			if [ $server_num -gt 0 ] && [ $server_num -le $maxsrv ]
+			then
+				server_ok=1
+				for f in $INVALID_LIST
+				do
+					if [ $server_num -eq $f ]
+					then
+						server_ok=0
+					fi
+				done
+			else
+				server_ok=0
+			fi	
+		done
+	fi
+
+	the_fnr=`$AWK -F"|" ' BEGIN {line_num=0;server_num='$server_num' } \
+	$1 !~ "#" && $0 !~ "^$" \
+	{ 
+		if ( "'$usertype'" != "adm" && $7 == "S" ) next ; # s = hidden server
+		if (++line_num == server_num) 
+		{ 
+			if ( '$not_a_tty' == 0 ) printf("\nWelcome to %s\n",$1) > "/dev/tty";
+			print FNR;exit
+		}
+	}
+' $INFX_ETC/$INFX_CONF`
+# now we export ALL the environment
+
+export ENVTYPE=\
+`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
+NR == the_fnr \
+{ if ( $7 ~ "[SsDY]" ) { print $7 ; exit 0 } } ' $INFX_ETC/$INFX_CONF`
+
+export INFORMIXSERVER=\
+`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
+NR == the_fnr { print $2 ; exit } ' $INFX_ETC/$INFX_CONF`
+#echo "INFORMIXSERVER $INFORMIXSERVER"
+
+export ONCONFIG=\
+`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
+NR == the_fnr { print $3 ; exit } ' $INFX_ETC/$INFX_CONF`
+# echo "ONCONFIG $ONCONFIG"
+
+export INFORMIXDIR=\
+`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
+NR == the_fnr { print $4 ; exit } ' $INFX_ETC/$INFX_CONF`
+#echo "INFORMIXDIR $INFORMIXDIR"
+
+export IFMXDIR=$INFORMIXDIR
+
+if test -d $INFORMIXDIR
+then
+	a=1
+else
+	echo "INFORMIXDIR not valid $INFORMIXDIR"
+	return 1
+fi
+if [ "$ONCONFIG" != "" ]
+
+then
+	if test -r $INFORMIXDIR/etc/$ONCONFIG
+	then
+		a=1
+	else
+		echo "ONCONFIG not valid $ONCONFIG"
+		return 1
+	fi
+fi
+export lnk_dir=\
+`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
+NR == the_fnr { print $5 ; exit } ' $INFX_ETC/$INFX_CONF`
+
+if [ $ENVTYPE = "D" -o $ENVTYPE = "Y" ]
+then
+	clean_ld_library_path=`set_clean_path $LD_LIBRARY_PATH`
+
+	LD_LIBRARY_PATH=`find $INFORMIXDIR/lib -type d | \
+	$AWK ' { if ( ld_l_p != "" ) ld_l_p=sprintf("%s:%s",ld_l_p,$1); \
+	else ld_l_p=$1;} END { printf("%s:%s",ld_l_p,"'$clean_ld_library_path'") } `
+	export LD_LIBRARY_PATH
+
+	if [ $ENVTYPE = "D" ]
+	then
+		# Making aliases with servers utilities
+		# building pseudo tools in $INFORMIXDIR
+		export IFMXSRVRDIR=$lnk_dir
+		for cmd in dbschema dbaccess dbload onstat onpload
+		do
+			if [ "$lnk_dir" != "=" ]
+			then
+				pseudo_cmd=$INFORMIXDIR/bin/$cmd
+				is_original=`file $pseudo_cmd | grep -c executable`
+				if  [ $is_original -eq 0  -a ! -x $pseudo_cmd  ]
+				then
+					cmd_ctnt="INFORMIXDIR=\$IFMXSRVRDIR;export INFORMIXDIR;\$IFMXSRVRDIR/bin/${cmd} \$*;INFORMIXDIR=$IFMXDIR"
+					echo $cmd_ctnt > $INFORMIXDIR/bin/${cmd}
+					chmod 755 $INFORMIXDIR/bin/${cmd}
+				fi
+			fi
+		done 
+	fi
+	if [ $ENVTYPE = "Y" ] 
+	then
+		LINE=`tty | sed -e "s/^.*tty//"`
+		# preparing FGLSERVER
+		USERNAME=`who am i | $AWK '{ print $1 }'`
+		[ -z "$FGLSERVER" ] && FGLSERVER=`w | egrep "^$USERNAME .* $LINE " | $AWK '{ print $3 }'`
+		export FGLSERVER
+		FGLGUI=1
+		export FGLGUI
+		export FGLDIR=`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' } \
+		NR == the_fnr { print $5 ; exit } ' $INFX_ETC/$INFX_CONF`
+		# echo "FGLDIR $FGLDIR"
+		export clean_path=$FGLDIR/bin:$clean_path
+		#------- Database frontend version
+
+		FGLDBS="ix711"
+		export FGLDBS
+
+		#------- Informix SQL libraries
+
+		FGLLIBSQL="-L$INFORMIXDIR/lib/tools \
+				-lfesql \
+				-los \
+				-lasf \
+				$INFORMIXDIR/lib/tools/libasf.a \
+				-los \
+				-lasf \
+				-lgen \
+				$INFORMIXDIR/lib/tools/libgls.a \
+				$INFORMIXDIR/lib/tools/libglx.a"
+		export FGLLIBSQL
+
+
+		#------- System libraries
+
+		FGLLIBSYS="-ltli \
+				-lxti \
+				-lc \
+				-lm"
+		export FGLLIBSYS
+		export LD_LIBRARY="zz"
+	fi 
+fi
+
+export INFORMIXSQLHOSTS=\
+`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
+NR == the_fnr { print $6 ; exit } ' $INFX_ETC/$INFX_CONF`
+# echo "INFORMIXSQLHOSTS $INFORMIXSQLHOSTS"
+if test -f $INFORMIXSQLHOSTS
+then
+	a=1
+else
+	export INFORMIXSQLHOSTS=$INFORMIXDIR/etc/sqlhosts
+	if test -f "$INFORMIXSQLHOSTS"
+	then
+		a=1
+	else
+		echo "sqlhosts file not found, cannot connect"
+		# if [ $is_dec_alfa -eq 1 ] 
+		# then
+			# shift 2>/dev/null
+		# fi
+		return 1
+	fi
+fi
+sqlhok=\
+`$AWK ' $1 == "'$INFORMIXSERVER'" { ok++ } END { print ok }' $INFORMIXSQLHOSTS`
+if [ "$sqlhok" = "1" ]
+then
+	a=1
+else
+	echo "$INFORMIXSERVER not found in sqlhosts, cannot connect"
+	# if [ $is_dec_alfa -eq 1 ] 
+	# then
+		# shift 2>/dev/null
+	# fi
+	return 1
+fi
+
+
+export PATH="$INFORMIXDIR/bin:$clean_path"
+	
+export onconf=$INFORMIXDIR/etc/$ONCONFIG
+if [ "$ENVTYPE" = "S" ] || [ "$ENVTYPE" = "s" ]
+then
+	export MSGPATH=`$AWK ' $1 == "MSGPATH" { print $2 } ' $onconf`
+	alias vm='vi $MSGPATH'
+	alias tm='echo tail -f log of $INFORMIXSERVER;tail -n 20 -f $MSGPATH'
+	alias vo='vi $onconf'
+	alias vs='vi $INFORMIXSQLHOSTS'
+	export IFMXETC=~informix/etc
+fi
+if [ $usertype = "adm" ]
+then
+	export PS1="${INFORMIXSERVER}@`hostname`:${LOGNAME}-> "
+fi
