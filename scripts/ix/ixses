@@ -1,0 +1,321 @@
+#!/bin/sh
+# CVS id: $Header$
+# Revision: $Revision$ 
+# Revised on: $Date$
+# Support: Fernando Nunes - fernando.nunes@tmn.pt
+# History:
+# 1.0 Primeira versao
+
+VERSION="1.0"
+
+SO=`uname -s | tr "A-Z" "a-z"`
+case $SO in
+sunos*)
+	PS_CMD="ps -o \"time,comm\""
+	AWK=nawk
+	;;
+osf*)
+	PS_CMD="ps -o \"time,cmd\""
+	AWK=gawk
+	;;
+linux|*)
+	PS_CMD="ps -o \"time,cmd\""
+	AWK=awk
+	;;
+esac
+
+PROC=$$
+HOSTNAME=`hostname | cut -f1 -d'.'`
+
+
+onstat -g ses $1 | ${AWK} -v "PS_CMD=$PS_CMD" -v "SESSION=$1" -v "HOST=$HOSTNAME" -v "PROC=$PROC" ' 
+#-------------------------------------------------------------
+# Init vars
+#-------------------------------------------------------------
+	function max_length(value, size)
+	{
+		currentsize=length(value);
+		if ( currentsize <= size )
+			return(value);
+		targetsize=size-2;
+		resp="";
+		if ( targetsize <= 0)
+		{
+			for (f=1;f<=size;f++)
+				resp=sprintf("%s%c",resp,"*");
+			return(resp);
+		}
+		else
+		{
+			exponent=currentsize - targetsize;
+			targetvalue=value / (10**(exponent));
+			resp=substr(targetvalue,1,targetsize) "e" exponent;
+			return(resp);
+		}
+			
+	}
+	BEGIN {
+		TMP_DIR="/tmp/";
+		FILE_PREFIX="sstat_";
+		FILE_HEX_CONV=sprintf("%s%stmp_%s.aux", TMP_DIR,FILE_PREFIX,PROC);
+		FILE_HEX_CONV_OUT=sprintf("%s%stmp_%s_1.aux", TMP_DIR,FILE_PREFIX,PROC);
+		FILE_THREAD_SQL=sprintf("%s%sthread_%s.sql", TMP_DIR,FILE_PREFIX,PROC);
+		FILE_THREAD_UNL=sprintf("%s%sthread_%s.unl", TMP_DIR,FILE_PREFIX,PROC);
+		FILE_TMP_UNL=sprintf("%s%stmp_%s.unl", TMP_DIR,FILE_PREFIX,PROC);
+		FILE_SESSION_UNL=sprintf("%s%sses%s.unl", TMP_DIR,FILE_PREFIX,PROC);
+		FILE_SQL_UNL=sprintf("%s%s_sql%s.unl", TMP_DIR,FILE_PREFIX,PROC);
+		first=1;
+		SES_STR=sprintf("unload to \"%s\" delimiter \" \" select local, cwd, hostname, extend(\"2001-09-09 02:46:39\", year to second) + (connected - 999999999) units second from sysmaster:sysscblst where sid = %s;\n", FILE_SESSION_UNL, SESSION);
+		TEMP_STR=sprintf("unload to \"%s\" delimiter \" \" select p.partnum, p.nrows, t.tabname from sysmaster:sysptnhdr p, sysmaster:systabnames t where p.partnum=t.partnum and p.partnum in ( ", FILE_TMP_UNL);
+	} 
+
+#-------------------------------------------------------------
+# Session and user ID
+#-------------------------------------------------------------
+	/^id/ { getline; my_user=$2; my_tty=$3; my_pid=$4;
+		pos=match($5,"\\.");
+		if (pos == 0)
+		{
+			my_hostname=$5;
+		}
+		else
+		{
+			my_hostname=substr($5,1,pos-1);
+		}
+		my_nthreads=$6;
+	} 
+
+#-------------------------------------------------------------
+# Thread identification lines
+#-------------------------------------------------------------
+	/^tid *name/ { for (f=1; f<= my_nthreads; f++)
+		{ 
+			getline; my_tid[f]=$1; my_thread_name[f]=$2;my_rstcb[f]=$3;my_flags[f]=$4;my_status[f]=$6 " " $7 " " $8 " " $9 " " $10; 
+		} 
+	}
+
+#-------------------------------------------------------------
+# Session characteristics and SQL statement type
+#-------------------------------------------------------------
+	/^Id *St/ {
+		getline;
+		my_stmt_type=$2;
+		my_database=$3;
+		my_iso_level=$4;
+		my_lock_mode=$5;
+		if ( my_lock_mode == "Not")
+		{
+			my_lock_mode = my_lock_mode " " $6;
+			my_sql_err=$7;
+			my_isam_err=$8;
+			my_fe_version=$9;
+		}
+		else
+		{
+			my_fe_version=$9;
+			if ( my_fe_version == "" )
+			{
+				my_fe_version=$8;
+				my_isam_err=$7;
+				my_sql_err=$6;
+				my_lock_mode=$5;
+			}
+			else
+			{
+				my_isam_err=$8;
+				my_sql_err=$7;
+				my_lock_mode=$5 " " $6;
+			}
+		}
+	}
+
+#-------------------------------------------------------------
+# Current executing SQL statement
+#-------------------------------------------------------------
+	/^Current SQL/,/^$/ {my_sql=sprintf("%s\n%s", my_sql, $0); } \
+
+#-------------------------------------------------------------
+# Last parsed SQL statement
+#-------------------------------------------------------------
+	/^Last /,/^$/ {my_last_sql=sprintf("%s\n%s", my_last_sql, $0); } \
+
+#-------------------------------------------------------------
+# Temp tables processing
+#-------------------------------------------------------------
+	/partnum/,/END/ {
+		if ( $1 ~ "partnum" || $1 == "" )
+		{
+			next
+		}
+		else
+		{
+			partnum=toupper($1);tabname=$2;
+			printf("ibase = 16\n%s\nquit\n",partnum) >FILE_HEX_CONV;
+			comando=sprintf("bc %s > %s; rm -f %s", FILE_HEX_CONV, FILE_HEX_CONV_OUT,FILE_HEX_CONV);
+			system(comando);
+			close(comando);
+			close(FILE_HEX_CONV);
+			getline dec_partnum <FILE_HEX_CONV_OUT;
+			close(FILE_HEX_CONV_OUT);
+			comando=sprintf("rm -f %s", FILE_HEX_CONV_OUT);
+			system(comando);
+			close(comando);
+			if ( first == 1 )
+			{
+				TEMP_STR=sprintf("%s %s", TEMP_STR,dec_partnum);
+			}
+			else
+			{
+				TEMP_STR=sprintf("%s , %s ",TEMP_STR,dec_partnum);
+			}
+		}
+		partnums[first]=dec_partnum;
+		first++;
+	}
+
+   END {
+		#-------------------------------------------------------------
+		# Getting PID is user is local
+		#-------------------------------------------------------------
+		command=sprintf("dbaccess sysmaster %s 1>/dev/null 2>/dev/null", FILE_THREAD_SQL);
+		printf("set isolation to dirty read;unload to \"%s\" delimiter \" \" select  upf_rqlock, upf_wtlock, \n", FILE_THREAD_UNL) >FILE_THREAD_SQL;
+		printf("upf_deadlk, upf_lktouts, \n") >>FILE_THREAD_SQL; 
+		printf("upf_lgrecs, upf_isread, \n") >>FILE_THREAD_SQL;
+		printf("upf_iswrite, upf_isrwrite, \n") >>FILE_THREAD_SQL;
+		printf("upf_isdelete, upf_iscommit, \n") >>FILE_THREAD_SQL;
+		printf("upf_isrollback, upf_longtxs, \n") >>FILE_THREAD_SQL;
+		printf("upf_bufreads, upf_bufwrites, \n") >>FILE_THREAD_SQL;
+		printf("upf_logspuse, upf_logspmax, \n") >>FILE_THREAD_SQL;
+		printf("upf_seqscans, upf_totsorts, \n") >>FILE_THREAD_SQL;
+		printf("upf_dsksorts, upf_srtspmax, \n") >>FILE_THREAD_SQL;
+		printf("nlocks as num_locks, lktout \n") >>FILE_THREAD_SQL;
+		printf("from sysmaster:sysrstcb \n") >>FILE_THREAD_SQL;
+		printf("where tid in ( ") >>FILE_THREAD_SQL;
+		for (f=1; f<=my_nthreads; f++ )
+			if ( f == 1 )
+			{
+				printf("%s", my_tid[f]) >>FILE_THREAD_SQL;
+			}
+			else
+			{
+				printf(", %s", my_tid[f]) >>FILE_THREAD_SQL;
+			}
+		printf(" );\n") >>FILE_THREAD_SQL;
+		if (first > 1)
+		{
+			TEMP_STR=sprintf("%s );", TEMP_STR);
+			printf("%s",TEMP_STR) >>FILE_THREAD_SQL;
+		}
+		printf("%s", SES_STR) >>FILE_THREAD_SQL;
+		SQL_STR=sprintf("unload to \"%s\" delimiter \" \" select sqx_bufreads, sqx_bufwrites, sqx_pagereads, sqx_pagewrites, sqx_totsorts, sqx_dsksorts, sqx_estcost, sqx_estrows, sqx_seqscan, sqx_srtscan, sqx_autoindex, sqx_index, sqx_remsql, sqx_mrgjoin, sqx_dynhashjoin, sqx_keyonly, sqx_tempfile, sqx_executions from sysmaster:syssqexplain p where p.sqx_sessionid = %s and sqx_iscurrent = \"Y\" ;\n", FILE_SQL_UNL, SESSION);
+		printf("%s", SQL_STR)>>FILE_THREAD_SQL;
+		system(command);
+
+		getline < FILE_SESSION_UNL;
+		dummy = gsub("\\\\", NULO);
+		my_islocal = $1;
+		my_cwd = $2;
+		my_hostname = $3;
+		my_connected = sprintf("%s %s",$4,$5);
+
+		close(FILE_SESSION_UNL);
+		if ( my_islocal == 1)
+		{
+			command=sprintf("%s -p %s", PS_CMD, my_pid);
+			command | getline;
+			command | getline;
+			my_time=$1;
+			my_process=$2 " " $3 " " $4;
+			close(command); 
+			if (length(my_process) > 24)
+			{
+				my_process = ".." substr(my_process,length(my_process) - 22);
+			}
+		}
+		print "SESSION  USER     TTY    HOSTNAME           CONNECTED           NTHR PID    PROCESS                 CWD";
+		printf("%-8s %-8s %-6s %-18s %-19s %-4s %-6s %-23s %s\n", SESSION, my_user, my_tty, my_hostname, my_connected, my_nthreads, my_pid, substr(my_process,1,24), my_cwd);
+		print "";
+		print "DATABASE           FE VERSION  STMT TYPE  ISOLATION  LOCK MODE  SQL ERROR  ISAM ERROR"
+		printf("%-18s %-11s %-10s %-10s %-10s %-10s %-10s\n", my_database, my_fe_version,
+		my_stmt_type, my_iso_level, my_lock_mode, my_sql_err, my_isam_err);
+		print "";
+		print "TID     THREAD NAME  RSTCB      FLAGS    STATUS";
+		for (f=1; f<=my_nthreads; f++ )
+		{
+			printf("%-7s %-12s %-10s %-7s %s\n", my_tid[f], my_thread_name[f], my_rstcb[f], my_flags[f], my_status[f] );
+			getline < FILE_THREAD_UNL;
+			my_lock_req = $1; my_lock_wait = $2; my_dead_locks = $3; my_lock_touts = $4; my_log_rec_w = $5;
+			my_isam_reads = $6; my_isam_writes = $7; my_isam_rewrites = $8;
+			my_isam_deletes = $9; my_isam_commits = $10;
+			my_isam_rollback = $11; my_isam_longtx = $12;
+			my_buf_read = $13; my_buf_waits = $14;
+			my_logs_puse = $15; my_logs_pmax = $16;
+			my_seq_scans = $17; my_sort_tot = $18;
+			my_sort_dsk = $19; my_sorts_pmax = $20;
+			my_lock_held = $21; my_lock_tout = $22;
+			print "LKREQ   LKWAI DL TO LOGW   IREAD    IWRIT   IRW   IDEL  CMMT RB LT BREAD    BWAI    LSU LSM SSCN    TSRT DSRT SRTM LKHELD LTOUT"
+			printf("%-8s%-6s%-3s%-3s%-7s%-9s%-8s%-6s%-6s%-5s%-3s%-3s%-9s%-8s%-4s%-4s%-8s%-5s%-5s%-5s%-7s%-5s",
+			max_length(my_lock_req,7), max_length(my_lock_wait,5), max_length(my_dead_locks,2), max_length(my_lock_touts,2),
+			max_length(my_log_rec_w,6), max_length(my_isam_reads,8), max_length(my_isam_writes,7), max_length(my_isam_rewrites,5),
+			max_length(my_isam_deletes,5), max_length(my_isam_commits,4), max_length(my_isam_rollback,2),
+			max_length(my_isam_longtx,2), max_length(my_buf_read,8), max_length(my_buf_waits,7),
+			max_length(my_logs_puse,3), max_length(my_logs_pmax,3), max_length(my_seq_scans,7), max_length(my_sort_tot,4),
+			max_length(my_sort_dsk,4), max_length(my_sorts_pmax,4), max_length(my_lock_held,6), max_length(my_lock_tout,4));
+			printf("\n");
+		}
+		if (first > 1)
+		{
+			printf("\npartnum numrows tabname\n");
+			prev_line="--";
+			for(f=1;f<first;f++)
+			{
+				getline < FILE_TMP_UNL;
+				if ( $0 == prev_line)
+				{
+					printf("%-7s %-7s %s\n", "--", "--", "--");
+				}
+				else
+					printf("%-7s %-7s %s\n", $1, $2, $3);
+				prev_line=$0;
+			}
+		}
+		printf("%s\n", my_sql);
+		if ( my_sql == "")
+		{
+			printf("\n");
+			printf("%s\n", my_last_sql);
+		}
+		prev_line = $0;
+		getline < FILE_SQL_UNL;
+		if ( $0 != prev_line)
+		{
+		my_sql_bf = $1;
+		my_sql_bw = $2;
+		my_sql_pr = $3;
+		my_sql_pw = $4;
+		my_sql_tsrt = $5;
+		my_sql_dsrt = $6;
+		my_sql_ecost = $7;
+		my_sql_erows = $8;
+		my_sql_sscan = $9;
+		my_sql_srtscn = $10;
+		my_sql_aindex = $11;
+		my_sql_index = $12;
+		my_sql_rsql = $13;
+		my_sql_mrgj = $14;
+		my_sql_dhsh = $15;
+		my_sql_konly = $16;
+		my_sql_tfile = $17;
+		my_sql_executions = $18;
+		printf("BUF READ  BUF WRIT  PG RDS   PG WRI   TSRT DSRT ECOST  EROWS SSCAN SRTSCN AIDX IDX  RSQL MRGJ DHSHJ KONLY TFILE NEXEC\n");
+		printf("%-9s %-9s %-8s %-8s %-4s %-4s %-6s %-5s %-5s %-6s %-4s %-4s %-4s %-4s %-5s %-5s %-5s %-5s\n",
+		max_length(my_sql_bf, 9), max_length(my_sql_bw,9), max_length(my_sql_pr,8), max_length(my_sql_pw,8),
+		max_length(my_sql_tsrt,4), max_length(my_sql_dsrt,4), max_length(my_sql_ecost,6), max_length(my_sql_erows,5),
+		max_length(my_sql_sscan,5), max_length(my_sql_srtscn,6), max_length(my_sql_aindex,4),
+		max_length(my_sql_index,4), max_length(my_sql_rsql,4), max_length(my_sql_mrgj,4), max_length(my_sql_dhsh,5),
+		max_length(my_sql_konly,5), max_length(my_sql_tfile,5), max_length(my_sql_executions,5) );
+		}
+		close(FILE_SQL_UNL);
+		command=sprintf("rm -f %s %s %s %s %s", FILE_THREAD_SQL, FILE_SESSION_UNL, FILE_THREAD_UNL, FILE_TMP_UNL, FILE_SQL_UNL);
+		system(command);
+}'
