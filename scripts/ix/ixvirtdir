@@ -49,9 +49,17 @@ case $# in
 	exit 1
 esac
 
-IX_VERSION=$3
 
-MY_USER=`id | $AWK -F"[()]" ' { print $2 } '`
+MY_USER=`id | awk -F"[()]" ' { print $2 } '`
+
+case $MY_USER in
+informix|root)
+        ;;
+*)
+        echo "This utility must be run as root or informix" >&2
+        exit 1
+        ;;
+esac
 
 
 if [ ! -d $EXISTING_IXDIR ]
@@ -75,6 +83,7 @@ do
 	fi
 done
 
+
 if [ ! -w $NEW_IXDIR ]
 then
 	mkdir $NEW_IXDIR
@@ -82,6 +91,10 @@ then
 	then
 		echo "Error creating non existing new INFORMIXDIR: $NEW_IXDIR" >&2
 		exit 1
+	fi
+	if [ $MY_USER != "informix" ]
+	then
+		chown informix:informix $NEW_IXDIR
 	fi
 fi
 
@@ -91,10 +104,11 @@ cd $NEW_IXDIR
 
 for dir in $IX_DIRS
 do
-	ln -s $EXISTING_IXDIR/$dir .
 	if [ $MY_USER != "informix" ]
 	then
-		chown informix:informix $dir
+		su informix -c "ln -s $EXISTING_IXDIR/$dir ."
+	else
+		ln -s $EXISTING_IXDIR/$dir .
 	fi
 done
 
@@ -105,9 +119,6 @@ cp -pR $EXISTING_IXDIR/dbssodir/* $NEW_IXDIR/dbssodir
 
 if [ $MY_USER != "informix" ]
 then
-	chown informix:informix $NEW_IXDIR
 	chown informix:informix $NEW_IXDIR/dbssodir
 	chown informix:informix $NEW_IXDIR/etc
 fi
-	
-
