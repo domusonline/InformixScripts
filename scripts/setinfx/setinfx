@@ -439,6 +439,9 @@ else
 fi
 
 
+#Set current infx env number
+export SETINFX_CURRENT=${server_num}
+
 export PATH="$INFORMIXDIR/bin:$clean_path"
 	
 export onconf=$INFORMIXDIR/etc/$ONCONFIG
