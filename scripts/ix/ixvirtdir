@@ -12,7 +12,7 @@
 usage()
 {
 	echo "$PROGNAME Usage:" >&2
-	echo "$PROGNAME <existing INFORMIXDIR> <new virt INFORMIXDIR> [version]" >&2
+	echo "$PROGNAME <existing INFORMIXDIR> <new virt INFORMIXDIR> <version>" >&2
 }
 
 
@@ -21,11 +21,6 @@ PROGNAME=`basename $0`
 VERSION=1.2
 
 case $# in
-2)
-	EXISTING_IXDIR=$1
-	NEW_IXDIR=$2
-	IX_VERSION=7
-	;;
 3)
 	EXISTING_IXDIR=$1
 	NEW_IXDIR=$2
