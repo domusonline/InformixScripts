@@ -17,7 +17,7 @@
 # 8.5 - Code review
 #     - Minor chages in conf variables
 
-VERSION="8.9"
+VERSION="8.10"
 INFX_CONF="infx_env.lst"
 INFX_PARAMS="setinfx.params"
 
