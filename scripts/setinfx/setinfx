@@ -126,14 +126,24 @@ server_ok=0
 # Real number of environments in this file
 # Create a list of "inactive" environments
 #-----------------------------------------
-fmaux=`$AWK -F"|" ' BEGIN { usertype="'$usertype'";lnum=0 }
+fmaux=`$AWK -F"|" ' BEGIN { usertype="'$usertype'";lnnum=0 }
 $1 !~ "#" && $0 !~ "^$" \
 {
-	if ( "'$usertype'" != "adm" && $7 == "S" ) next ;
-	lnnum++;
-	if ( $1 ~ "^inactivo")
+	if ( NF < 7)
 	{
+		if ( $1 ~ "^inactivo")
+		{
+				invalid_list=sprintf("%s%d ", invalid_list,++lnnum);
+		}
+	}
+	else
+	{
+		if ( "'$usertype'" != "adm" && $7 == "S" ) {next} ;
+		lnnum++
+		if ( $1 ~ "^inactivo")
+		{
 			invalid_list=sprintf("%s%d ", invalid_list,lnnum);
+		}
 	}
 } 
 END { print lnnum "+" invalid_list } ' ${INFX_ETC}/${INFX_CONF}`
@@ -180,22 +190,37 @@ then
 		fi
 		$AWK -F"|" ' BEGIN \
 			{ 
+			
 			"hostname" | getline HOSTNAME
 			printf("List of available INFORMIX environments on %s      (setinfx version '$VERSION')\n\n",HOSTNAME) > "/dev/tty" ;
-			usertype="'$usertype'"
+			usertype="'$usertype'";
+			lnnum=0;
 			} #BEGIN
 			$1 !~ "#" && $0 !~ "^$" \
 			{ 
-				if ( $1 !~ "^inactivo")
-				{
 					if ( NF < 7 ) 
 					{ 
-						printf ("Line # %d in configuration file has incorrect format\n",
-						FNR) > "/dev/tty";
-						exit -1;
+						if ( $1 !~ "^inactivo")
+						{
+							printf ("Line # %d in configuration file has incorrect format\n",
+							FNR) > "/dev/tty";
+							exit -1;
+						}
+						else
+						{
+							lnnum++;
+							next
+						}
 					}	
 					if ( "'$usertype'" != "adm" && $7 == "S" ) next ;
+					if ( $1 ~ "^inactivo")
+					{
+						lnnum++;
+						next
+					}
+						
 					cmd="";
+
 					if ( $7 !~ "[SsDdY]" ) { 
 						printf("Line %d : INVALID envtype %s\n",lnnum+1,$7);
 						exit -1;
@@ -217,14 +242,10 @@ then
 						cmd=sprintf("cat %s",file);
 					}
 					if ( $7 == "Y" )  cmd=sprintf("cat %s/etc/D4GL-cr",$5);
+
 					cmd | getline vers;
 					close(cmd);
 					printf("%2d) %-30s (%s)\n",++lnnum,$1,vers) > "/dev/tty" 
-				}
-				else
-				{
-					lnnum=lnnum+1;
-				}
 			} 
 			END {
 				printf("\nChoose an environment number (1-%d q to quit) : ",lnnum) \
