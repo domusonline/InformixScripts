@@ -1,0 +1,113 @@
+#!/bin/sh
+# Name: $RCSfile$
+# CVS file: $Source$
+# CVS id: $Header$
+# Revision: $Revision$
+# Revised on: $Date$
+# Revised by: $Author$
+# Support: Fernando Nunes - domusonline@domus.online.pt
+# Licence: This script is licenced as GPL ( http://www.gnu.org/licenses/gpl.html )
+# History:
+
+usage()
+{
+	echo "$PROGNAME Usage:" >&2
+	echo "$PROGNAME <existing INFORMIXDIR> <new virt INFORMIXDIR> [version]" >&2
+}
+
+
+
+PROGNAME=`basename $0`
+VERSION=$Revision$
+
+case $# in
+2)
+	EXISTING_IXDIR=$1
+	NEW_IXDIR=$2
+	IX_VERSION=7
+	;;
+3)
+	EXISTING_IXDIR=$1
+	NEW_IXDIR=$2
+	IX_VERSION=$3
+	case $IX_VERSION in
+	7)
+		IX_SUB_DIRS="aaodir bin dbssodir demo etc forms gls help incl ism lib msg release snmp"
+		IX_DIRS="aaodir bin demo forms gls help incl ism lib msg release snmp"
+		;;
+	9)
+		IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp"
+		IX_DIRS="aaodir bin demo doc extend forms gls help incl ism lib msg release snmp"
+		;;
+	*)
+		echo "Version can only be 7 or 9" >&2
+		usage
+		exit 1
+	;;
+*)
+	usage
+	exit 1
+esac
+
+IX_VERSION=$3
+
+MY_USER=`id | $AWK -F"[()]" ' { print $2 } '`
+
+
+if [ ! -d $EXISTING_IXDIR ]
+then
+	echo "$EXISTING_IXDIR is not an existing dir!" >&2
+	exit 1
+else
+	CURR_DIR=`pwd`
+	cd $EXISTING_IXDIR
+	EXISTING_IXDIR=`pwd`
+	cd $CURR_DIR
+fi
+
+
+for dir in $IX_SUB_DIRS
+do
+	if [ ! -d $EXISTING_IXDIR/$dir ]
+	then
+		echo "$EXISTING_IXDIR/$dir does not exist!... Aborting..." >&2
+		exit 1	
+	fi
+done
+
+if [ ! -w $NEW_IXDIR ]
+then
+	mkdir $NEW_IXDIR
+	if  [ $? != 0 ]
+	then
+		echo "Error creating non existing new INFORMIXDIR: $NEW_IXDIR" >&2
+		exit 1
+	fi
+fi
+
+cd $NEW_IXDIR
+NEW_IXDIR=`pwd`
+cd $NEW_IXDIR
+
+for dir in $IX_DIRS
+do
+	ln -s $EXISTING_IXDIR/$dir .
+	if [ $MY_USER != "informix" ]
+	then
+		chown informix:informix $dir
+	fi
+done
+
+mkdir dbssodir
+mkdir etc
+cp -pR $EXISTING_IXDIR/etc/* $NEW_IXDIR/etc
+cp -pR $EXISTING_IXDIR/dbssodir/* $NEW_IXDIR/dbssodir
+
+if [ $MY_USER != "informix" ]
+then
+	chown informix:informix $NEW_IXDIR
+	chown informix:informix $NEW_IXDIR/dbssodir
+	chown informix:informix $NEW_IXDIR/etc
+fi
+	
+
