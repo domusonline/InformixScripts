@@ -283,7 +283,7 @@ NR == the_fnr { print $10 ; exit } ' $INFX_ETC/$INFX_CONF`
 
 if [ "X${ENV_FILE}" != "X" ]
 then
-	source ${INFX_ETC}/${ENV_FILE}
+	. ${INFX_ETC}/${ENV_FILE}
 fi
 
 export ENVTYPE=\
