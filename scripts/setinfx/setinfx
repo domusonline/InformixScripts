@@ -34,7 +34,6 @@ function set_clean_path {
 	new_path=`echo "$old_path" | $AWK -F: ' \
 	BEGIN {  a=0;idx=0;
 		params_file=sprintf("%s/'$INFX_PARAMS'","'$INFX_ETC'");
-		printf params_file > "fm.tmp";
 		while ( getline ifmxpath[++idx] < params_file ) {
 			a=1;
 		} #while
