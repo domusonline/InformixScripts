@@ -20,10 +20,11 @@
 #-------------------------------------------------------
 
 PROGNAME=`basename $0`
+VERSAO="1.0"
 
 get_args()
 {
-	arg_ok="hed:t:"
+	arg_ok="hevd:t:"
 	list="$*"
 	getopt "${arg_ok}" $list >/dev/null 2>&1
 	# check result of parsing                                                
@@ -41,6 +42,10 @@ get_args()
 		        echo "               [-e] Set explain on (versoes >= a 7.31.UD2 e 9.30.UC2)" >&2
 		        echo "               [-d] database (obrigatorio)" >&2
 		        echo "               [-t] table (obrigatorio)" >&2
+			exit 0
+			;;
+		-v)   # show version
+			echo "${PROGNAME} versao ${VERSAO}"
 			exit 0
 			;;
 		-e)   # set up the -e (set explain flag)
@@ -72,6 +77,17 @@ get_args()
 				EXPLAIN_FLAG=1
 				shift
 			fi;;
+		-h)   # show help
+		        echo "${PROGNAME}: [-e] { [-d] database } { [-t] table }" >&2
+		        echo "               [-e] Set explain on (versoes >= a 7.31.UD2 e 9.30.UC2)" >&2
+		        echo "               [-d] database (obrigatorio)" >&2
+		        echo "               [-t] table (obrigatorio)" >&2
+			exit 0
+			;;
+		-v)   # show version
+			echo "${PROGNAME} versao ${VERSION}"
+			exit 0
+			;;
 		-d)
 			if [ "X"$DATABASE_FLAG = "X1" ]	
 			then
@@ -115,7 +131,7 @@ get_args()
 				shift
 				continue	
 			fi
-			echo "$0: Erro de sintaxe: "$1 >&2
+			echo "${PROGNAME}: Erro de sintaxe: "$1 >&2
 			return 1;;
 		esac
 	done

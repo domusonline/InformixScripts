@@ -25,12 +25,13 @@
 
 
 PROGNAME=`basename $0`
+VERSAO="1.0"
 
 get_args()
 {
-	arg_ok="hed:f:"
-	list="$*"
-	getopt "${arg_ok}" $list >/dev/null 2>&1
+	arg_ok="hved:f:"
+	list=$@
+	getopt "${arg_ok}" "$list" >/dev/null 2>&1
 	# check result of parsing                                                
 	if [ $? != 0 ]
 	then
@@ -42,10 +43,15 @@ get_args()
 	do
 		case $1 in
 		-h)   # show help
-		        echo "${PROGNAME}: [-e] { [-d] database } [ [-f] filter ]" >&2
-		        echo "               [-e] Set explain on (versoes >= a 7.31.UD2 e 9.30.UC2)" >&2
-		        echo "               [-d] database (obrigatorio)" >&2
-		        echo "               [-f] table filter (opcional)" >&2
+		        echo "${PROGNAME}: [-e] { -d database } [ -f filter ]" >&1
+		        echo "               [-e] Set explain on (versoes >= a 7.31.UD2 e 9.30.UC2)" >&1
+		        echo "               -d database (obrigatorio)" >&1
+		        echo "               -f table filter (opcional)" >&1
+			echo "Ex: dbs_updstats -d stores7 -f \\\" and tabname like \\'l%\\'\\\"" >&1
+			exit 0
+			;;
+		-v)   # show version
+			echo "${PROGNAME} versao ${VERSAO}" >&1
 			exit 0
 			;;
 		-e)   # set up the -e (set explain flag)
@@ -58,8 +64,22 @@ get_args()
 			;;
 		-f)   # set up the -f (filter flag)
 			FILTER_FLAG=1
-			sel_filter=$2
-			shift
+			case $2 in
+			\"*)
+				sel_filter="`echo $@ | cut -f2 -d'\"' | sed 's/--//'`"
+				resto="`echo $* | cut -f3- -d'\"'`"
+				;;
+			*)
+				echo "${PROGNAME}: Erro de sintaxe - Argumento da opcao '-f' tem de ser envolto em aspas" >&2
+				return 1
+			esac
+			if [ "X$resto" = "X" ]
+			then
+				return
+			fi
+			arg_ok="hved:f:"
+			set -- `getopt "${arg_ok}" $resto`
+			continue
 			;;
 		esac
 		shift
@@ -102,21 +122,28 @@ get_args()
 					return 1
 				else
 					FILTER_FLAG=1
-					sel_filter=$2
-					shift 2
+					case $2 in
+					\"*)
+						sel_filter="`echo $@ | cut -f2 -d'\"' | sed 's/--//'`"
+						resto="`echo $* | cut -f3- -d'\"'`"
+						;;
+					*)
+						echo "${PROGNAME}: Erro de sintaxe - Argumento da opcao! '-f' tem de ser envolto em aspas" >&2
+						return 1
+					esac
+					if [ "X$resto" = "X" ]
+					then
+						return
+					fi
+					arg_ok="hved:f:"
+					set -- `getopt "${arg_ok}" $resto`
+					continue
 			fi;;
 		*)
 			if [ "X"$DATABASE_FLAG != "X1" ]	
 			then
 				DATABASE_FLAG=1
 				dbserver=$1
-				shift
-				continue	
-			fi
-			if [ "X"$FILTER_FLAG != "X1" ]	
-			then
-				FILTER_FLAG=1
-				sel_filter=$1
 				shift
 				continue	
 			fi
@@ -137,9 +164,8 @@ then
 	exit 1
 fi
 
-
 err=/tmp/dbs_updstats_${dbserver}$$.err
-exec 2>${err}
+
 until [ ${dbserver} ]
 do
   echo -n "Introduza o nome da base de dados: "
@@ -158,20 +184,43 @@ rpt=/tmp/dbs_updstats_${dbserver}$$.rpt
 
 if [ -r ${result} ]
 then
-	echo "Existe outro `basename $0` a correr ou houve um erro numa execucao anterior" >&2
+	echo "Existe outro ${PROGNAME} a correr ou houve um erro numa execucao anterior" >&2
 	echo "Elimine o ficheiro ${result} e tente de novo." >&2
 	exit 1
 fi
 
-dbaccess ${dbserver} - <<EOC 1>/dev/null 2>&1
-output to pipe "cat >${result}" without headings
+dbaccess ${dbserver} - <<EOC 1>&2 2>${err}
+output to pipe "cat  | grep -v '^$' >${result}" without headings
 select tabname||":" from systables
 where tabid > 99 $sel_filter
 order by 1;
 EOC
 
+res=$?
+
+if [ ${res} != 0  -o ! -r ${result} ]
+then
+	echo "${PROGNAME}: Erro ao obter a lista de tabelas:" >&2
+	cat < ${err} >&2
+	rm -f ${tablelist}
+	rm -f ${result}
+	rm -f ${err}
+	exit 1
+fi
+
+linhas=`wc -l ${result} | awk '{print $1}'`
+
+if [ ${linhas} = 0 ]
+then
+	echo "${PROGNAME}: Nao foram encontradas tabelas que verifiquem o criterio." >&2
+	rm -f ${tablelist}
+	rm -f ${result}
+	rm -f ${err}
+	exit 1
+fi
+
 grep ':' ${result} | cut -f1 -d:  >${tablelist}
-#
+
 # Start database report
 cat /dev/null >$rpt
 
@@ -193,8 +242,9 @@ rm /tmp/tbl_updstats_${dbserver}$T.rpt
 echo '==========================================================================' >>$rpt
 echo ' ' >>$rpt
 done
-#
-rm ${tablelist}
-rm ${result}
+
+rm -f ${tablelist}
+rm -f ${result}
+rm -f ${err}
  
 exit 0
