@@ -26,10 +26,13 @@
 # This script sends email and pages the systems group when necessary.
 #
 # History:
+#   v 1.1:
+#          - Introducao de backups dos logs pelo On-Bar
+#          - Activacao das variaveis IFMX_ALARM_CLASS_MAIL e IFMX_ALARM_CLASS_SMS
 #   v 1.0:
 #          - Retirou-se mensagens de debug
 
-VERSION="1.0"
+VERSION="1.1"
 
 send_sms()
 {
@@ -70,6 +73,8 @@ Informacao adicional: $see_also
 !
 }
 
+flag_send_mail=0
+flag_send_sms=0
 ALARM_BASE_DIR=`dirname $0`
 exec 1>&2
 exec 2>>${ALARM_BASE_DIR}/alarm.err
@@ -116,30 +121,7 @@ else
         exit 1
 fi
 
-if [ $severity -ge ${IFMX_ALARM_SEV_MAIL} ]
-then
-   LAST_EVENT_FILE=${ALARM_BASE_DIR}/${INFORMIXSERVER}_last_event
-   if [ -r ${LAST_EVENT_FILE} ]
-   then
-     LAST_EVENT_STATUS=`tail -1 ${LAST_EVENT_FILE}`
-     LAST_EVENT_TYPE=`echo ${LAST_EVENT_STATUS} | cut -f1 -d' '`
-     LAST_EVENT_TSTAMP=`echo ${LAST_EVENT_STATUS} | cut -f2 -d' '`
-   else
-     LAST_EVENT_TYPE=-1
-   fi
-
-   if [ ${LAST_EVENT_TYPE} -eq ${class_id} ]
-   then
-     diff_t1_t2 $timestamp ${LAST_EVENT_TSTAMP} ${TSTAMP_INTERVAL}
-     res=$?
-     echo "${class_id} ${timestamp}" >> ${LAST_EVENT_FILE}
-     if [ $res -eq 0 ]
-     then
-       exit 0
-     fi
-   fi
-
-   case $severity in
+case $severity in
       1) sev_msg="Nivel do evento: DESCRICAO";
          ;;
       2) sev_msg="Nivel do evento: INFORMACAO";
@@ -152,9 +134,9 @@ then
          ;;
       *) sev_msg="Nivel do evento: DESCONHECIDO - $severity - ";
 	 ;;
-   esac
+esac
  
-   case $class_id in
+case $class_id in
       1)
          class_text="Table failure: $class_msg"
          ;;
@@ -215,7 +197,6 @@ then
      20)
          class_text="Logical Logs are FULL"
 	 # Handle special case for full logs
-         send_sms
          ;;
      21)
          class_text="OnLine resource overflow: $class_msg"
@@ -225,18 +206,83 @@ then
          ;;
      23)
          class_text="Logical Log $class_msg Complete"
+			if [ ${IFMX_BAR_LOG_BACKUP} -eq 1 ]
+			then
+				$INFORMIXDIR/bin/onbar -l
+				rc=$?
+				class_text="${class_text}: Return code de onbar -l: ${rc}"
+			fi
          ;;
      24)
          class_text="Unable to Allocate Memory"
          ;;
+     25)
+			class_text="Internal Subsystem started: $class_msg"
+			;;
+     26)
+			class_text="Dynamically added log file ($class_msg)."
+			;;
+     27)
+			class_text="Log file required."
+			;;
+     28)
+			class_text="No space for dynamic log file."
+			;;
+     29)
+			class_text="Internal Subsystem: $class_msg"
+			;;
+
    esac
  
-   # Send email to those who may be interested
+for check_class in ${IFMX_ALARM_CLASS_MAIL}
+do
+	if [ ${class_id} -eq ${check_class} ]
+	then
+     flag_send_mail=1
+   fi
+done
+
+
+for check_class in ${IFMX_ALARM_CLASS_SMS}
+do
+	if [ ${class_id} -eq ${check_class} ]
+	then
+     flag_send_sms=1
+   fi
+done
+
+
+
+
+# Send email to those who may be interested
  
+if [ $severity -ge ${IFMX_ALARM_SEV_MAIL} -o ${flag_send_mail} -eq 1 ]
+then
+   LAST_EVENT_FILE=${ALARM_BASE_DIR}/${INFORMIXSERVER}_last_event
+   if [ -r ${LAST_EVENT_FILE} ]
+   then
+     LAST_EVENT_STATUS=`tail -1 ${LAST_EVENT_FILE}`
+     LAST_EVENT_TYPE=`echo ${LAST_EVENT_STATUS} | cut -f1 -d' '`
+     LAST_EVENT_TSTAMP=`echo ${LAST_EVENT_STATUS} | cut -f2 -d' '`
+   else
+     LAST_EVENT_TYPE=-1
+   fi
+
+   if [ ${LAST_EVENT_TYPE} -eq ${class_id} ]
+   then
+     diff_t1_t2 $timestamp ${LAST_EVENT_TSTAMP} ${TSTAMP_INTERVAL}
+     res=$?
+     echo "${class_id} ${timestamp}" >> ${LAST_EVENT_FILE}
+     if [ $res -eq 0 ]
+     then
+       exit 0
+     fi
+   fi
+
    send_mail
 fi
  
-if [ $severity -ge $IFMX_ALARM_SEV_SMS ]
+if [ $severity -ge ${IFMX_ALARM_SEV_SMS}  -o ${flag_send_sms} -eq 1 ]
 then
 	# Emergency or worse
 	# Send a page to the systems group
