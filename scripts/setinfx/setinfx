@@ -7,6 +7,7 @@
 # Revised by: $Author$ 
 # Support: Fernando Nunes - fernando.nunes@tmn.pt
 # History:
+# 8.12 - Introducao da variavel SETINFX_SILENT. Tera de ser revisto numa futura versao
 # 8.11 - Eliminacao do processamento dos utilitarios de servidor nos ambientes de ferramentas
 # 8.10 - Optimizacao das leituras dos ficheiros
 # 8.9  - Introducao de campo com script SHELL a executar
@@ -79,8 +80,13 @@ esac
 export AWK
 
 # test tty if run by background
-tty 1>/dev/null 2>/dev/null
-not_a_tty=$?
+if [ "X$SETINFX_SILENT" = "X" ]
+then
+        tty 1>/dev/null 2>/dev/null
+        not_a_tty=$?
+else
+        not_a_tty=1
+fi
 
 
 INFORMIX_HOME=`grep "^informix:" /etc/passwd | cut -f6 -d':'`
@@ -404,7 +410,7 @@ fi
 }
 
 
-VERSION=8.11
+VERSION=8.12
 INFX_CONF=infx_env.lst
 INFX_PARAMS=setinfx.params
 argc=$#
