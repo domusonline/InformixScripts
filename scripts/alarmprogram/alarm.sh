@@ -26,6 +26,10 @@
 # This script sends email and pages the systems group when necessary.
 #
 # History:
+#   v 1.0:
+#          - Retirou-se mensagens de debug
+
+VERSION="1.0"
 
 send_sms()
 {
@@ -120,9 +124,6 @@ then
      LAST_EVENT_STATUS=`tail -1 ${LAST_EVENT_FILE}`
      LAST_EVENT_TYPE=`echo ${LAST_EVENT_STATUS} | cut -f1 -d' '`
      LAST_EVENT_TSTAMP=`echo ${LAST_EVENT_STATUS} | cut -f2 -d' '`
-     echo $LAST_EVENT_STATUS >>${ALARM_BASE_DIR}/alarm.err
-     echo $LAST_EVENT_TYPE >>${ALARM_BASE_DIR}/alarm.err
-     echo $LAST_EVENT_TSTAMP >>${ALARM_BASE_DIR}/alarm.err
    else
      LAST_EVENT_TYPE=-1
    fi

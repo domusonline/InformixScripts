@@ -7,8 +7,13 @@
 # Revised by: $Author$
 # Support: Fernando Nunes - fernando.nunes@tmn.pt
 # Projecto: alarmprogram
+# History:
+#    v 1.0:
+#           - Correccao dos headers de mail
+#           - Export do TSTAMP
 
 
+VERSION="1.0"
 if [ "X" = "X${INFORMIXSERVER}" ]
 then
 	echo "`basename $0`: INFORMIXSERVER nao definido" >&2
@@ -37,18 +42,16 @@ host=`hostname`
 IFMX_ALARM_HEADER_FROM="Informix Admin <informix@${host}>"
 
 #---- Mails separados por ","
-#IFMX_ALARM_HEADER_TO="Paulo Nunes <pnunes@tmn.pt>, Daniel Valente <daniel.valente@tmn.pt>"
-IFMX_ALARM_HEADER_TO="Fernando Nunes <fernando.nunes@tmn.pt>"
+IFMX_ALARM_HEADER_TO="Paulo Nunes <pnunes@tmn.pt>, Daniel Valente <daniel.valente@tmn.pt>"
 
 #---- Mails separados por ","
-#IFMX_ALARM_HEADER_CC="Fernando Nunes <fernando.nunes@tmn.pt>"
-IFMX_ALARM_HEADER_CC=""
+IFMX_ALARM_HEADER_CC="Fernando Nunes <fernando.nunes@tmn.pt>"
 
 #---- Numeros de telefone separados por espacos
 IFMX_ALARM_NUM_SMS="964018888 966400151"
 
 #---- Minimo 'severity level' para enviar mail
-IFMX_ALARM_SEV_MAIL=2
+IFMX_ALARM_SEV_MAIL=3
 
 #---- Minimo 'severity level' para enviar sms
 IFMX_ALARM_SEV_SMS=4
@@ -70,3 +73,4 @@ export IFMX_ALARM_HEADER_CC
 export IFMX_ALARM_NUM_SMS
 export IFMX_ALARM_SEV_SMS
 export IFMX_ALARM_SEV_MAIL
+export TSTAMP_INTERVAL

@@ -110,6 +110,8 @@ t1=$1
 t2=$2
 intervalo=$3
 
+VERSION="1.0"
+
 if [ $t1 -lt $t2 ]
 then
   return -1
