@@ -7,6 +7,7 @@
 # Revised by: $Author$ 
 # Support: Fernando Nunes - fernando.nunes@tmn.pt
 # History:
+# 8.13 - Troca da execucao de scripts SHELL para o fim do setinfx
 # 8.12 - Introducao da variavel SETINFX_SILENT. Tera de ser revisto numa futura versao
 # 8.11 - Eliminacao do processamento dos utilitarios de servidor nos ambientes de ferramentas
 # 8.10 - Optimizacao das leituras dos ficheiros
@@ -97,6 +98,7 @@ do
 	then
 		INFX_ETC=${DIR}
 		export INFX_ETC
+		break
 	fi
 done
 if [ "X${INFX_ETC}" = "X" ]
@@ -271,15 +273,11 @@ then
 ' $INFX_ETC/$INFX_CONF`
 # now we export ALL the environment
 
-ENV_FILE=""
-ENV_FILE=\
-`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
-NR == the_fnr { print $10 ; exit } ' $INFX_ETC/$INFX_CONF`
+#ENV_FILE=""
+#ENV_FILE=\
+#`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
+#NR == the_fnr { print $10 ; exit } ' $INFX_ETC/$INFX_CONF`
 
-if [ "X${ENV_FILE}" != "X" ]
-then
-	. ${INFX_ETC}/${ENV_FILE}
-fi
 
 LINHA_CONF=\
 `$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
@@ -293,6 +291,8 @@ INFORMIXDIR=`echo $LINHA_CONF | cut -f4 -d'|'`
 LNK_DIR=`echo $LINHA_CONF | cut -f5 -d'|'`
 INFORMIXSQLHOSTS=`echo $LINHA_CONF | cut -f6 -d'|'`
 IFMXDIR=$INFORMIXDIR
+ENV_FILE=""
+ENV_FILE=`echo $LINHA_CONF | cut -f10 -d'|'`
 
 export ENVTYPE
 export INFORMIXSERVER
@@ -407,10 +407,15 @@ then
 	PS1="${INFORMIXSERVER}@`hostname`:${LOGNAME}-> "
 	export PS1
 fi
+
+if [ "X${ENV_FILE}" != "X" ]
+then
+	. ${INFX_ETC}/${ENV_FILE}
+fi
 }
 
 
-VERSION=8.12
+VERSION=8.13
 INFX_CONF=infx_env.lst
 INFX_PARAMS=setinfx.params
 argc=$#
