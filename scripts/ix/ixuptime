@@ -1,0 +1,328 @@
+#!/bin/sh
+# Name: $RCSfile$
+# CVS file: $Source$
+# CVS id: $Header$
+# Revision: $Revision$
+# Revised on: $Date$
+# Revised by: $Author$
+# Support: Fernando Nunes - fernando.nunes@tmn.pt
+# Notes:
+# Script to measure IDS uptime/downtime time given an online.log
+# History:
+
+
+#-------------------------------------------------------
+# parameter processing
+#-------------------------------------------------------
+
+PROGNAME=`basename $0`
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
+OFFLINE_FILE=/tmp/ixuptime_offline_$$.unl
+ONLINE_FILE=/tmp/ixuptime_online_$$.unl
+
+get_args()
+{
+	arg_ok="l:d:hvV"
+	list="$*"
+	getopt ${arg_ok} $list >/dev/null 2>&1
+	# check result of parsing                                                
+	if [ $? != 0 ]
+	then
+		return 1
+	fi
+	set -- `getopt "${arg_ok}" $list`
+
+	while [ $1 != -- ]
+	do
+		case $1 in
+		-h)   # show help
+			echo
+		        echo "${PROGNAME}: [-h] | [-v] | [ -V ] [-l log] [ -d <days>%<HH>:<mm>:<ss> ]"
+			echo
+			echo "    -h            : this help"
+			echo "    -V            : script version"
+			echo "    -v            : Verbose mode"
+			echo "    -l <log>      : alternative log file"
+			echo "    -d <downtime> : to indicate machine downtime"
+			echo
+			echo "EX:	${PROGNAME} -l /usr/informix/logs/db.log -d 0%08:32:00"
+			echo
+			exit 0
+			;;
+                -V)   # show version
+                        echo "${PROGNAME} ${VERSION}"
+                        exit 0
+                        ;;
+                -v)   # Verbose
+                        VERBOSE_FLAG=1
+                        ;;
+                -l)   # log file
+			LOG_FILE_FLAG=1
+			LOG_FILE=$2
+			shift
+			;;
+                -d)   # log file
+			MACHINE_DOWNTIME_FLAG=1
+			MACHINE_DOWNTIME=$2
+			shift
+			;;
+		esac
+		shift
+	done
+	shift   # skip double dash
+	while [ $# -ge 1 ]
+	do
+		case $1 in
+		-l)
+			if [ "X"$LOG_FILE_FLAG = "X1" ]	
+			then
+				echo "${PROGNAME}: Syntax error: - LOG already interpreted" >&2
+				return 1
+			else
+				LOF_FILE_FLAG=1
+				LOF_FILE=$2
+				shift
+			fi;;
+                -d)   # log file
+                        if [ "X"$MACHINE_DOWNTIME_FLAG = "X1" ]
+			then
+				echo "${PROGNAME}: Syntax error: - Machine Downtime already interpreted" >&2
+				return 1
+			else
+				MACHINE_DOWNTIME_FLAG=1
+				MACHINE_DOWNTIME=$2
+				shift
+			fi
+			;;
+		-h)   # show help
+			echo
+		        echo "${PROGNAME}: [-h] | [-v] | [ -V ] [-l log] [ -d <days>%<HH>:<mm>:<ss> ]"
+			echo
+			echo "   	-h : this help"
+			echo "   	-v : script version"
+			echo "   	-V : Verbose mode"
+			echo
+			echo "EX:	${PROGNAME} -l /usr/informix/logs/db.log -d 0%08:32:00"
+			echo
+			exit 0
+			;;
+		-V)   # show version
+			echo "${PROGNAME} versao ${VERSION}"
+			exit 0
+			;;
+                -v)   # Verbose
+			if [ "X"${VERBOSE_FLAG} = "X1" ]
+			then
+				echo "${PROGNAME}: Error - Verbose flag already processed" >&2
+				return 1
+			else	
+	                        VERBOSE_FLAG=1
+			fi
+                        ;;
+		*)
+			echo "${PROGNAME}: Syntax error: "$1 >&2
+			return 1;;
+		esac
+	done
+}
+
+
+
+
+
+get_args $*
+if [ $? != 0 ]
+then
+	echo "Error parsing parameters. Exiting..." >&2
+	exit 1
+fi
+
+
+#-----------------------------------------------------------
+# Validate environment
+#-----------------------------------------------------------
+
+SCRIPT_DIR=`dirname $0`
+EXCLUSION_FILE=${SCRIPT_DIR}/ixuptime_neg_patt.txt
+AWK_FILE=${SCRIPT_DIR}/ixuptime.awk
+
+#----- exclusion file --------------------------------------
+if [ ! -r  ${EXCLUSION_FILE} ]
+then
+	echo "${PROGNAME}: Error - Cannot read pattern exclusion file ( ${EXCLUSION_FILE} )" >&2
+	exit 1
+fi
+#----- AWK file       --------------------------------------
+if [ ! -r  ${AWK_FILE} ]
+then
+	echo "${PROGNAME}: Error - Cannot read AWK file ( ${AWK_FILE} )" >&2
+	exit 1
+fi
+
+
+#----- Machine Downtime ------------------------------------
+
+if [ "X"${MACHINE_DOWNTIME_FLAG} = "X1" ]
+then
+	echo ${MACHINE_DOWNTIME} | grep -E "^[0-9]{1,3}%[0-2][0-9]:[0-5][0-9]:[0-5][0-9]" >/dev/null 2>/dev/null
+	if [ $? != 0 ]
+	then
+		echo "${PROGNAME}: Error - Invalid format for machine downtime ( ${MACHINE_DOWNTIME} )" >&2
+		exit 1
+	fi
+	MACHINE_DOWNTIME=`echo ${MACHINE_DOWNTIME} | sed 's/%/ /'`
+else
+	MACHINE_DOWNTIME="0 00:00:00"
+fi
+
+#----- Verbose flag ----------------------------------------
+
+if [ "X"${VERBOSE_FLAG} = "X" ]
+then
+	VERBOSE_FLAG=0
+fi
+
+if [ "X${LOG_FILE_FLAG}" != "X1" ]
+then
+	which onstat | grep "^no onstat" >/dev/null 2>/dev/null
+	if [ $? = 0 ]
+	then
+		echo "${PROGNAME}: Error - Log file not specified and onstat not available" >&2
+		exit 1
+	fi
+
+	LOG_FILE=`onstat -m | grep "^Message Log File" | cut -f2 -d':'`
+
+	if [ $? != 0 ]
+	then
+		echo "${PROGNAME}: Error - Log file not specified and unable to get it with onstat" >&2
+		exit 1
+	fi
+fi
+
+cat ${LOG_FILE} | grep -v -f ${EXCLUSION_FILE} | ${AWK} -v "VERBOSE_FLAG=${VERBOSE_FLAG}" -v "OFFLINE_FILE=${OFFLINE_FILE}" -v "ONLINE_FILE=${ONLINE_FILE}" -f ${AWK_FILE}
+
+dbaccess sysutils <<EOF 2>>/dev/null
+
+
+create temp table offline
+(
+        ini datetime year to second,
+        fim datetime year to second
+) with no log;
+load from ${OFFLINE_FILE} insert into offline;
+
+create temp table online
+(
+        ini datetime year to second,
+        fim datetime year to second
+) with no log;
+load from ${ONLINE_FILE} insert into online;
+
+create temp table gaps
+(
+        tstamp datetime year to second
+) with no log;
+
+insert into gaps
+select min(ini) from offline;
+insert into gaps
+select min(ini) from online;
+
+insert into gaps
+select max(fim) from offline;
+insert into gaps
+select max(fim) from online;
+
+create temp table aux_table
+(
+	inicio datetime year to second,
+	fim    datetime year to second,
+	dias   char(200),
+	offline char(200),
+	online char(200),
+	machine_off char(200),
+	dias_online char(200)
+) with no log;
+insert into aux_table
+select (select min(tstamp) from gaps) inicio, (select max(tstamp) from gaps) fim, (select max(tstamp)-min(tstamp) from gaps) ndias, ( select sum(fim - ini) offline from offline) offline, ( select sum(fim - ini) online from online) online, "${MACHINE_DOWNTIME}", ""
+from systables
+where tabid = 1;
+
+select
+	lpad(trim(inicio||""),25) Start, lpad(trim(fim||""),25) End, lpad(trim(dias),25) days, lpad(trim(machine_off),25) hardware_offline, lpad(trim(offline),25) bd_offline, lpad(trim(online),25) bd_online,
+	lpad(trunc(
+	(
+		(
+ 		substr(trim(online),1,length(trim(online)) - 8)	 -- Dias
+		* 86400                                          -- Segundos
+		)
+		+
+		(
+		substr(trim(online), length(trim(online)) - 7,2) -- Horas
+		* 3600
+		)
+		+
+		(
+		substr(trim(online), length(trim(online)) - 4,2) -- Minutos
+		* 60                                            -- Segundos
+		)
+		+
+		(
+		substr(trim(online), length(trim(online)) - 1,2) -- Segundos
+		)
+	)
+	* 100 /
+	(
+	(
+		(
+ 		substr(trim(dias),1,length(trim(dias)) - 8)	 -- Dias
+		* 86400                                          -- Segundos
+		)
+		+
+		(
+		substr(trim(dias), length(trim(dias)) - 7,2) -- Horas
+		* 3600
+		)
+		+
+		(
+		substr(trim(dias), length(trim(dias)) - 4,2) -- Minutos
+		* 60                                            -- Segundos
+		)
+		+
+		(
+		substr(trim(dias), length(trim(dias)) - 1,2) -- Segundos
+		)
+	)
+
+		-
+	(
+
+		(
+ 		substr(trim(machine_off),1,length(trim(machine_off)) - 8)	 -- Dias
+		* 86400                                          -- Segundos
+		)
+		+
+		(
+		substr(trim(machine_off), length(trim(machine_off)) - 7,2) -- Horas
+		* 3600
+		)
+		+
+		(
+		substr(trim(machine_off), length(trim(machine_off)) - 4,2) -- Minutos
+		* 60                                            -- Segundos
+		)
+		+
+		(
+		substr(trim(machine_off), length(trim(machine_off)) - 1,2) -- Segundos
+		)
+	)
+	)
+	,5),25) uptime_percent
+from
+	aux_table;
+EOF
+
+
+rm -f ${ONLINE_FILE}
+rm -f ${OFFLINE_FILE}

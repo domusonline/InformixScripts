@@ -1,0 +1,39 @@
+# Name: $RCSfile$
+# CVS file: $Source$
+# CVS id: $Header$
+# Revision: $Revision$
+# Revised on: $Date$
+# Revised by: $Author$
+# Notes:
+# History:
+#
+#Checkpoint Completed:
+Checkpoint loguniq
+listener-thread: err
+Warning: Invalid dbspace
+Password Validation for user
+Check for password aging/account lock-out
+WARNING: Next backup of DBspace
+Space '.*' added.
+Space '.*' dropped
+Maximum server connections
+Chunk '.*' added to space '.*'.
+Process exited with return code 
+Level [0-2] Archive started on
+Archive on .* ABORTED.
+Aborted by client.
+Archive on .* Completed
+chunk reserve page extent is allocated from non-root chunk
+connection rejected - no calls allowed for
+Onconfig parameter
+Logical Log [0-9][0-9]* Complete
+Warning: Invalid (non-existent/blobspace/disabled) dbspace listed
+in DBSPACETEMP:
+Dynamically allocated new virtual shared memory segment
+Requested shared memory segment size rounded from
+System error =
+Attempting to free unused operating system segments.  This
+operation may take several minutes.
+Chunk '*' dropped from space '.*'.
+^timestamp:
+^$
