@@ -1,35 +1,207 @@
 #!/bin/sh
+# Name: $RCSfile$
+# CVS file: $Source$
 # CVS id: $Header$
-# Revision: $Revision$ 
+# Revision: $Revision$
 # Revised on: $Date$
-# Support: Fernando Nunes - fernando.nunes@tmn.pt
+# Revised by: $Author$
+# Support: Fernando Nunes - domusonline@domus.online.pt
+# Licence: This script is licensed as GPL ( http://www.gnu.org/licenses/gpl.html )
 # History:
-# 1.0 Primeira versao
 
-VERSION="1.0"
 
-SO=`uname -s | tr "A-Z" "a-z"`
+ix_help()
+{
+	echo "${PROGNAME}: -V | -h | { [-a] | [session [ sessions...]] } [ -r wait ]" >&1
+	echo "               -v shows script version" >&1
+	echo "               -h shows this help" >&1
+	echo "               -a executes for all session" >&1
+	echo "               session [ sessions...] session(s) number(s)" >&1
+	echo "Ex: ${PROGNAME} -r 4 23345" >&1
+}
+
+get_args()
+{
+	arg_ok='r:vhas'
+	list="$*"
+	getopt ${arg_ok} $list >/dev/null 2>&1
+	# check result of parsing                                                
+	if [ $? != 0 ]
+	then
+		return 1
+	fi
+	set -- `getopt "${arg_ok}" $list`
+
+	while [ $1 != -- ]
+	do
+		case $1 in
+		-h)   # show help
+			ix_help
+			exit 0
+			;;
+		-v)   # show version
+			echo "${PROGNAME} ${VERSION}" >&1
+			exit 0
+			;;
+		-a)   # set up the -a (all sessions flag)
+			ALL_SESSIONS_FLAG=1
+			;;
+		-s)   # set up the -s (no separators flag)
+			NO_SEPARATOR=1
+			;;
+		-r)   # set up the -r (repeat flag)
+			REPEAT_FLAG=1
+			REPEAT_WAIT=$2
+			echo ${REPEAT_WAIT} | grep "^[0-9][0-9]*$" 1>/dev/null 2>/dev/null
+			RES=$?
+			if [ "X${RES}" != "X0" ]
+			then
+				echo "${PROGNAME}: Syntax error - Wait time must be numeric" >&2
+				return 1
+			fi
+			shift
+			;;
+		esac
+		shift
+	done
+	shift   # skip double dash
+	while [ $# -ge 1 ]
+	do
+		case $1 in
+		-a)
+			if [ "X${ALL_SESSIONS_FLAG}" = "X1" ]	
+			then
+				echo "${PROGNAME}: Syntax error - ALL SESSIONS flag was already interpreted" >&2
+				return 1
+			else
+				ALL_SESSIONS_FLAG=1
+				shift
+			fi
+			;;
+		-r)
+			if [ "X${REPEAT_FLAG}" = "X1" ]	
+			then
+				echo "${PROGNAME}: Syntax error - REPEAT flag was already interpreted" >&2
+				return 1
+			else
+				if [ $# = 2 ]
+				then
+					REPEAT_FLAG=1
+					shift
+					REPEAT_WAIT=$2
+					echo ${REPEAT_WAIT} | grep "^[0-9][0-9]*$" 1>/dev/null 2>/dev/null
+					RES=$?
+					if [ "X${RES}" != "X0" ]
+					then
+						echo "${PROGNAME}: Syntax error - Wait time must be numeric" >&2
+						return 1
+					fi
+				else
+					echo "${PROGNAME}: Syntax error - REPEAT flag requires a value" >&2
+					return 1
+				fi
+			fi
+			;;
+		*)
+			echo $1 | grep "^[0-9][0-9]*$" 1>/dev/null 2>/dev/null
+			RES=$?
+			if [ ${RES} != 0 ]
+			then
+				echo "${PROGNAME}: Syntax error - Invalid parameter for session number" >&2
+				return 1
+			else
+				SESSION_LIST="${SESSION_LIST} $1"
+				shift
+				continue
+			fi
+			;;
+		esac
+	done
+}
+
+#INIT
+
+PROGNAME=`basename $0`
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
+SESSION_LIST=""
+
+
+get_args $*
+if [ $? != 0 ]
+then
+	echo "Error parsing parameters" >&2
+	exit 1
+fi
+
+
+
+SO=`uname -s | tr A-Z a-z`
 case $SO in
 sunos*)
-	PS_CMD="ps -o \"time,comm\""
 	AWK=nawk
+	PS_CMD="ps -o \"time,comm\""
 	;;
 osf*)
 	PS_CMD="ps -o \"time,cmd\""
-	AWK=gawk
+	AWK=nawk
 	;;
 linux|*)
 	PS_CMD="ps -o \"time,cmd\""
-	AWK=awk
+	AWK=gawk
 	;;
 esac
+
+#fallback to an existing awk
+
+type ${AWK} 2>/dev/null 1>/dev/null
+RES=$?
+if [ ${RES} != 0 ]
+then
+	AWK=awk
+fi
+
+
 
 PROC=$$
 HOSTNAME=`hostname | cut -f1 -d'.'`
 
+# timezone delta for connect value
+TZ_LOCAL_HOUR=`date +"%H"`
+TZ_GMT_HOUR=`date -u +"%H"`
+TZ_DIFF=`expr ${TZ_LOCAL_HOUR} - ${TZ_GMT_HOUR}`
 
-onstat -g ses $1 | ${AWK} -v "PS_CMD=$PS_CMD" -v "SESSION=$1" -v "HOST=$HOSTNAME" -v "PROC=$PROC" ' 
+if [ "X${ALL_SESSIONS_FLAG}" = "X1" ]
+then
+	SESSION_LIST="${SESSION_LIST} `onstat -u | ${AWK} '{if ( $2 ~ /.*([DF]$|active)/ ) {next} else {print $3}}' | grep '^[0-9]'`"
+fi
+
+if [ "X${SESSION_LIST}" = "X" ]
+then
+	echo "${PROGNAME}: Error - No sessions to process" >&2
+	exit 1
+fi
+
+while true
+do
+	for session in ${SESSION_LIST}
+	do
+		echo ${session} | grep "^[0-9][0-9]*$" 1>/dev/null 2>/dev/null
+		RES=$?
+		if [ ${RES} != 0 ]
+		then
+			continue
+		fi
+
+
+		# obtaining last read/write timestamps on session
+		line=`onstat -g ntt | ${AWK} -v "SESSION=${session}" '$3 ~ SESSION { print $0}'`
+		CONN_TIMESTAMP=`echo $line | cut -f4 -d' '`
+		READ_TIMESTAMP=`echo $line | cut -f5 -d' '`
+		WRITE_TIMESTAMP=`echo $line | cut -f6 -d' '`
+
+		onstat -g ses ${session} | awk -v "TZ_DIFF=${TZ_DIFF}" -v "PS_CMD=${PS_CMD}" -v "SESSION=${session}" -v "HOST=${HOSTNAME}" -v "PROC=${PROC}" -v "CONN_TIMESTAMP=${CONN_TIMESTAMP}" -v "READ_TIMESTAMP=${READ_TIMESTAMP}" -v "WRITE_TIMESTAMP=${WRITE_TIMESTAMP}" '
 #-------------------------------------------------------------
+# BEGIN AWK script
 # Init vars
 #-------------------------------------------------------------
 	function max_length(value, size)
@@ -55,6 +227,7 @@ onstat -g ses $1 | ${AWK} -v "PS_CMD=$PS_CMD" -v "SESSION=$1" -v "HOST=$HOSTNAME
 			
 	}
 	BEGIN {
+		my_no_session=1;
 		TMP_DIR="/tmp/";
 		FILE_PREFIX="sstat_";
 		FILE_HEX_CONV=sprintf("%s%stmp_%s.aux", TMP_DIR,FILE_PREFIX,PROC);
@@ -65,8 +238,19 @@ onstat -g ses $1 | ${AWK} -v "PS_CMD=$PS_CMD" -v "SESSION=$1" -v "HOST=$HOSTNAME
 		FILE_SESSION_UNL=sprintf("%s%sses%s.unl", TMP_DIR,FILE_PREFIX,PROC);
 		FILE_SQL_UNL=sprintf("%s%s_sql%s.unl", TMP_DIR,FILE_PREFIX,PROC);
 		first=1;
-		SES_STR=sprintf("unload to \"%s\" delimiter \" \" select local, cwd, hostname, extend(\"2001-09-09 02:46:39\", year to second) + (connected - 999999999) units second from sysmaster:sysscblst where sid = %s;\n", FILE_SESSION_UNL, SESSION);
+		my_sql_lines=1;
+		SES_STR=sprintf("unload to \"%s\" delimiter \" \" select local, cwd, hostname, (extend(date(trunc(connected/86400) +  25568), year to second) + (connected - (trunc(connected/86400) * 86400)) units second) + ( %s ) UNITS HOUR from sysmaster:sysscblst where sid = %s;\n", FILE_SESSION_UNL, TZ_DIFF, SESSION);
+
 		TEMP_STR=sprintf("unload to \"%s\" delimiter \" \" select p.partnum, p.nrows, t.tabname from sysmaster:sysptnhdr p, sysmaster:systabnames t where p.partnum=t.partnum and p.partnum in ( ", FILE_TMP_UNL);
+
+		my_optofc="n/a";
+		my_pdq_priority="n/a";
+		my_sqlstats="n/a";
+		my_optcompind="n/a";
+		my_directives="n/a";
+		my_conn_timestamp=CONN_TIMESTAMP;
+		my_read_timestamp=READ_TIMESTAMP;
+		my_write_timestamp=WRITE_TIMESTAMP;
 	} 
 
 #-------------------------------------------------------------
@@ -83,6 +267,7 @@ onstat -g ses $1 | ${AWK} -v "PS_CMD=$PS_CMD" -v "SESSION=$1" -v "HOST=$HOSTNAME
 			my_hostname=substr($5,1,pos-1);
 		}
 		my_nthreads=$6;
+		my_no_session=0;
 	} 
 
 #-------------------------------------------------------------
@@ -95,49 +280,80 @@ onstat -g ses $1 | ${AWK} -v "PS_CMD=$PS_CMD" -v "SESSION=$1" -v "HOST=$HOSTNAME
 	}
 
 #-------------------------------------------------------------
+# 9.4 extras
+#-------------------------------------------------------------
+#scb              sqscb            optofc   pdqpriority sqlstats optcompind  directives
+#2445a1118        24529f028        0        0           1        2           1
+
+	/^scb *sqscb/ {
+		getline;
+		my_optofc=$3;
+		my_pdq_priority=$4;
+		my_sqlstats=$5;
+		my_optcompind=$6;
+		my_directives=$7;
+	}
+#-------------------------------------------------------------
 # Session characteristics and SQL statement type
 #-------------------------------------------------------------
 	/^Id *St/ {
 		getline;
-		my_stmt_type=$2;
-		my_database=$3;
-		my_iso_level=$4;
-		my_lock_mode=$5;
-		if ( my_lock_mode == "Not")
-		{
-			my_lock_mode = my_lock_mode " " $6;
-			my_sql_err=$7;
-			my_isam_err=$8;
-			my_fe_version=$9;
-		}
-		else
-		{
-			my_fe_version=$9;
-			if ( my_fe_version == "" )
-			{
-				my_fe_version=$8;
-				my_isam_err=$7;
-				my_sql_err=$6;
-				my_lock_mode=$5;
-			}
-			else
-			{
-				my_isam_err=$8;
-				my_sql_err=$7;
-				my_lock_mode=$5 " " $6;
-			}
+		linha=$0;
+		sub("^[0-9][0-9]*  *","",linha)
+		n=split(linha,a,"   *");
+		my_stmt_type=a[1];
+		my_database=a[2];
+		my_iso_level=a[3];
+		my_lock_mode=a[4];
+		my_sql_err=a[5];
+		my_isam_err=a[6];
+		my_fe_version=a[7];
+                pos=match(my_fe_version," ");
+                if ( pos != 0 )
+                {
+                        my_set_explain=substr(my_fe_version,pos + 1,length(my_fe_version));
+                        my_fe_version=substr(my_fe_version,1,pos-1);
+                }
+                else
+                {
+                        my_set_explain="n/a"
 		}
 	}
 
 #-------------------------------------------------------------
 # Current executing SQL statement
 #-------------------------------------------------------------
-	/^Current SQL/,/^$/ {my_sql=sprintf("%s\n%s", my_sql, $0); } \
+	/^Current SQL/,/^$/ { my_sql_length=length(my_sql[my_sql_lines]);
+				my_line_length=length(); 
+				if ((my_sql_length + my_line_length) < 3000)
+					my_sql[my_sql_lines]=sprintf("%s\n%s", my_sql[my_sql_lines], $0)
+				else
+				{
+					my_sql_lines++;
+					my_sql[my_sql_lines]=sprintf("%s\n",$0);
+				}
+			} \
+
+#-------------------------------------------------------------
+# Host variables ( 9.4 and up)
+#-------------------------------------------------------------
+
+	/^Host variables :/,/^$/ { if ( $0 ~ /(address|----------)/ )
+					{ my_host_variables="";next; }
+				else
+				{
+					my_host_variables=sprintf("%s%-15s %-10s",my_host_variables,$2, $3);
+					for(i=4;i<=NF;i++)
+						my_host_variables=sprintf("%s %s",my_host_variables, $i);
+					my_host_variables=sprintf("%s%s",my_host_variables, "\n");
+				}
+			}
+			
 
 #-------------------------------------------------------------
 # Last parsed SQL statement
 #-------------------------------------------------------------
-	/^Last /,/^$/ {my_last_sql=sprintf("%s\n%s", my_last_sql, $0); } \
+	/^Last /,/^$/ {my_last_sql_length=length(my_last_sql);my_line_length=length();if ((my_last_sql_length + + my_line_length) < 3000) my_last_sql=sprintf("%s\n%s", my_last_sql, $0); } \
 
 #-------------------------------------------------------------
 # Temp tables processing
@@ -174,6 +390,10 @@ onstat -g ses $1 | ${AWK} -v "PS_CMD=$PS_CMD" -v "SESSION=$1" -v "HOST=$HOSTNAME
 	}
 
    END {
+		if ( my_no_session == 1 )
+		{
+			exit 255;
+		}
 		#-------------------------------------------------------------
 		# Getting PID is user is local
 		#-------------------------------------------------------------
@@ -207,7 +427,7 @@ onstat -g ses $1 | ${AWK} -v "PS_CMD=$PS_CMD" -v "SESSION=$1" -v "HOST=$HOSTNAME
 			printf("%s",TEMP_STR) >>FILE_THREAD_SQL;
 		}
 		printf("%s", SES_STR) >>FILE_THREAD_SQL;
-		SQL_STR=sprintf("unload to \"%s\" delimiter \" \" select sqx_bufreads, sqx_bufwrites, sqx_pagereads, sqx_pagewrites, sqx_totsorts, sqx_dsksorts, sqx_estcost, sqx_estrows, sqx_seqscan, sqx_srtscan, sqx_autoindex, sqx_index, sqx_remsql, sqx_mrgjoin, sqx_dynhashjoin, sqx_keyonly, sqx_tempfile, sqx_executions from sysmaster:syssqexplain p where p.sqx_sessionid = %s and sqx_iscurrent = \"Y\" ;\n", FILE_SQL_UNL, SESSION);
+		SQL_STR=sprintf("unload to \"%s\" delimiter \" \" select sqx_bufreads, sqx_bufwrites, sqx_pagereads, sqx_pagewrites, sqx_totsorts, sqx_dsksorts, sqx_estcost, sqx_estrows, sqx_seqscan, sqx_srtscan, sqx_autoindex, sqx_index, sqx_remsql, sqx_mrgjoin, sqx_dynhashjoin, sqx_keyonly, sqx_tempfile, sqx_executions, sqx_selflag from sysmaster:syssqexplain p where p.sqx_sessionid = %s and sqx_iscurrent = \"Y\" ;\n", FILE_SQL_UNL, SESSION);
 		printf("%s", SQL_STR)>>FILE_THREAD_SQL;
 		system(command);
 
@@ -235,14 +455,21 @@ onstat -g ses $1 | ${AWK} -v "PS_CMD=$PS_CMD" -v "SESSION=$1" -v "HOST=$HOSTNAME
 		print "SESSION  USER     TTY    HOSTNAME           CONNECTED           NTHR PID    PROCESS                 CWD";
 		printf("%-8s %-8s %-6s %-18s %-19s %-4s %-6s %-23s %s\n", SESSION, my_user, my_tty, my_hostname, my_connected, my_nthreads, my_pid, substr(my_process,1,24), my_cwd);
 		print "";
-		print "DATABASE           FE VERSION  STMT TYPE  ISOLATION  LOCK MODE  SQL ERROR  ISAM ERROR"
-		printf("%-18s %-11s %-10s %-10s %-10s %-10s %-10s\n", my_database, my_fe_version,
-		my_stmt_type, my_iso_level, my_lock_mode, my_sql_err, my_isam_err);
+		print "DATABASE           FE VERSION  STMT TYPE          ISOLATION  LOCK MODE  SQL ERROR  ISAM ERROR EXPL OFC PDQ STATS OPTCMPIND DIR"
+		printf("%-18s %-11s %-18s %-10s %-10s %-10s %-10s %-4s %-3s %-3s %-5s %-9s %-3s\n", my_database, my_fe_version,
+		my_stmt_type, my_iso_level, my_lock_mode, my_sql_err, my_isam_err, my_set_explain,my_optofc,my_pdq_priority,my_sqlstats, my_optcompind, my_directives);
 		print "";
-		print "TID     THREAD NAME  RSTCB      FLAGS    STATUS";
+		print "TID      THREAD NAME  RSTCB      FLAGS   STATUS                    LAST READ  LAST WRITE";
 		for (f=1; f<=my_nthreads; f++ )
 		{
-			printf("%-7s %-12s %-10s %-7s %s\n", my_tid[f], my_thread_name[f], my_rstcb[f], my_flags[f], my_status[f] );
+			if ( f == 1 )
+			{
+				printf("%-8s %-12s %-10s %-7s %-25s %-10s %-9s\n", my_tid[f], my_thread_name[f], my_rstcb[f], my_flags[f], my_status[f], my_read_timestamp, my_write_timestamp );
+			}
+			else
+			{
+				printf("%-8s %-12s %-10s %-7s %s\n", my_tid[f], my_thread_name[f], my_rstcb[f], my_flags[f], my_status[f] );
+			}
 			getline < FILE_THREAD_UNL;
 			my_lock_req = $1; my_lock_wait = $2; my_dead_locks = $3; my_lock_touts = $4; my_log_rec_w = $5;
 			my_isam_reads = $6; my_isam_writes = $7; my_isam_rewrites = $8;
@@ -279,15 +506,28 @@ onstat -g ses $1 | ${AWK} -v "PS_CMD=$PS_CMD" -v "SESSION=$1" -v "HOST=$HOSTNAME
 				prev_line=$0;
 			}
 		}
-		printf("%s\n", my_sql);
-		if ( my_sql == "")
+		for(f=1;f<=my_sql_lines;f++)
+		{
+			printf("%s\n", my_sql[f]);
+		}
+		if ( my_sql[1] == "")
 		{
 			printf("\n");
 			printf("%s\n", my_last_sql);
 		}
+
+		if ( my_host_variables != "" )
+		{
+			printf("\n");
+			printf("Host variables:\n");
+			printf("\n");
+			printf("Data Type       Flags      Value\n");
+			printf("--------------- ---------- --------------------------------------------------\n");
+			printf("%s\n", my_host_variables);
+		}
 		prev_line = $0;
 		getline < FILE_SQL_UNL;
-		if ( $0 != prev_line)
+		while( $0 != prev_line)
 		{
 		my_sql_bf = $1;
 		my_sql_bw = $2;
@@ -314,8 +554,33 @@ onstat -g ses $1 | ${AWK} -v "PS_CMD=$PS_CMD" -v "SESSION=$1" -v "HOST=$HOSTNAME
 		max_length(my_sql_sscan,5), max_length(my_sql_srtscn,6), max_length(my_sql_aindex,4),
 		max_length(my_sql_index,4), max_length(my_sql_rsql,4), max_length(my_sql_mrgj,4), max_length(my_sql_dhsh,5),
 		max_length(my_sql_konly,5), max_length(my_sql_tfile,5), max_length(my_sql_executions,5) );
+		prev_line = $0;
+		getline < FILE_SQL_UNL;
 		}
 		close(FILE_SQL_UNL);
 		command=sprintf("rm -f %s %s %s %s %s", FILE_THREAD_SQL, FILE_SESSION_UNL, FILE_THREAD_UNL, FILE_TMP_UNL, FILE_SQL_UNL);
 		system(command);
 }'
+		RES=$?
+
+		if [ "X${RES}" != "X255" -a "X${NO_SEPARATOR}" = "X" ]
+		then
+			echo ""
+			echo "#----------------- session ------------------"
+			echo ""
+		fi
+	done
+
+	if [ "X${REPEAT_FLAG}" = "X" ]
+	then
+		break
+	else
+		if [ "X${NO_SEPARATOR}" = "X" ]
+		then
+			echo
+			echo  "#------------------- LOOP -------------------"
+			echo
+		fi
+		sleep ${REPEAT_WAIT}
+	fi
+done
