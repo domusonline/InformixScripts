@@ -1,0 +1,202 @@
+#!/bin/sh
+# CVS id: $Header$
+# Revision: $Revision$ 
+# Revised on: $Date$
+# Support: Fernando Nunes - fernando.nunes@tmn.pt
+# History:
+# 1.0 Primeira versao
+
+show_help()
+{
+	echo "${PROGNAME}:  ${PROGNAME} [ [ -h | -v ] | [ -n <interactions>] [ -c <min-runs> ] ] " >&2
+	echo "      <interactions> : nuber of onstat -g act to trace [default=20]" >&2
+	echo "      <min-runs>     : minimum ocurrences of the thread in the active list [default=2]" >&2
+}
+
+show_version()
+{
+	echo "${PROGNAME}: Version ${VERSION}"
+}
+get_args()
+{
+	arg_ok="hvn:c:"
+	list="$*"
+	getopt "${arg_ok}" $list >/dev/null 2>&1
+	# check result of parsing
+	if [ $? != 0 ]
+	then
+		return 1
+	fi
+	set -- `getopt "${arg_ok}" $list`
+
+	while [ $1 != -- ]
+	do
+		case $1 in
+		-h)   # show help
+			if [ "X${HELP_FLAG}" = "X1" ]
+			then
+				echo "${PROGNAME}: Erro - Opcao -h ja foi processada" >&2
+				exit 1
+			fi
+			HELP_FLAG=1
+			show_help
+			exit 0
+			;;
+		-v)	#show version
+			if [ "X${VERSION_FLAG}" = "X1" ]
+			then
+				echo "${PROGNAME}: Erro - Opcao -v ja foi processada" >&2
+				exit 1
+			fi
+			VERSION_FLAG=1
+			show_version
+			exit 0
+			;;
+		-n)	#define number of interactions
+			if [ "X"$INTERACTION_FLAG = "X1" ]
+			then
+				echo "${PROGNAME}: Erro - Opcao -n ja foi processada" >&2
+				exit 1
+			elif [ $# -le 1 ]
+			then
+				echo "${PROGNAME}: Erro - A opcao $1 necessita de um argumento" >&2
+				exit 1
+			else
+				INTERACTIONS=$2
+				shift
+			fi
+			INTERACTION_FLAG=1
+			;;
+		-c)	#define minimum number of ocurrences
+			if [ "X"$OCURR_FLAG = "X1" ]
+			then
+				echo "${PROGNAME}: Erro - Opcao -c ja foi processada" >&2
+				exit 1
+			elif [ $# -le 1 ]
+			then
+				echo "${PROGNAME}: Erro - A opcao $1 necessita de um argumento" >&2
+				exit 1
+			else
+				OCURRENCES=$2
+				shift
+			fi
+			OCURR_FLAG=1
+			;;
+		esac
+		shift
+	done
+}
+
+VERSION="1.0"
+PROGNAME=`basename $0`
+
+TEMP_DIR=/tmp
+TEMP_FILE=${TEMP_DIR}/ixtop$$.tmp
+INTERACTIONS=20
+OCURRENCES=2
+
+get_args $*
+if [ $? != 0 ]
+then
+	echo "${PROGNAME}: Error - Erro no processamento dos parametros" >&2
+	exit 1
+fi
+SO=`uname -s | tr A-Z a-z`
+case $SO in
+	sunos*)
+		AWK=nawk
+		PS_CMD="ps -o \"time,comm\""
+	;;
+	osf*)
+		PS_CMD="ps -o \"time,cmd\""
+		AWK=nawk
+	;;
+	linux|*)
+		PS_CMD="ps -o \"time,cmd\""
+		AWK=awk
+	;;
+esac
+HOSTNAME=`hostname | cut -f1 -d'.'`
+
+cat /dev/null > ${TEMP_FILE}
+
+CONT=1
+while true
+do
+	if [ ${CONT} -gt ${INTERACTIONS} ]
+	then
+		break
+	fi
+
+	onstat -g act | ${AWK} '$1 ~ "^ *[1-9]" { if ( $3 != 0) print $1 "|" }' >> ${TEMP_FILE}
+
+	CONT=`expr $CONT + 1`
+done
+
+dbaccess sysmaster <<EOF 2>/dev/null
+
+CREATE TEMP TABLE tmp_ixtop (col1 char(10)) WITH NO LOG;
+LOAD FROM ${TEMP_FILE} INSERT INTO tmp_ixtop;
+UNLOAD TO ${TEMP_FILE} DELIMITER " " SELECT
+	TRUNC(COUNT(*)) Exec,
+	a.sid,
+	a.username as user,
+	a.pid,
+	a.hostname as host
+FROM
+	tmp_ixtop x, sysscblst a, sysrstcb b
+WHERE
+	a.address = b.scb AND
+--	a.addresspad = b.scbpad AND
+	bitval(b.flags, '0x80000') = 1 AND
+	b.tid = x.col1
+	GROUP BY 2,3,4,5 HAVING COUNT(*)>=${OCURRENCES} ORDER BY 1 DESC
+EOF
+
+cat ${TEMP_FILE} | ${AWK} -v "PS_CMD=$PS_CMD" -v "HOSTNAME=$HOSTNAME" ' \
+
+BEGIN {
+	first=1;
+}
+{
+
+	if ( first == 1)
+	{
+		printf "Seen  SessionID Username           PID    Hostname           Process\n";
+		printf "----- --------- ------------------ ------ ------------------ --------------------------------------------------\n";
+		first=0;
+	}
+
+	my_seen=int($1);
+	my_sessionid=$2;
+	my_username=$3;
+	my_pid=$4;
+	my_hostname=$5;
+	pos=match(my_hostname,"\\.");
+	if (pos == 0)
+	{
+		my_host=$5;
+	}
+	else
+	{
+		my_host=substr(my_hostname,1,pos-1);
+	}
+
+
+	if (HOSTNAME == my_host)
+	{
+		command=sprintf("%s -p %s", PS_CMD, my_pid);
+		command | getline;
+		command | getline;
+		my_time=$1;
+		my_command=$2 " " $3 " " $4;
+		close(command);
+	}
+	else
+	{
+		my_command="Remote command";
+	}
+
+	printf("%-5s %-9s %-18s %-6s %-18s %s\n", my_seen, my_sessionid, my_username, my_pid, my_hostname, my_command);
+}'
+rm -f ${TEMP_FILE}
