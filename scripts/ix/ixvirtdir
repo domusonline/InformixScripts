@@ -43,6 +43,8 @@ case $# in
 		echo "Version can only be 7 or 9" >&2
 		usage
 		exit 1
+		;;
+	esac
 	;;
 *)
 	usage
