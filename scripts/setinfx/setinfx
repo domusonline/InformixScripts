@@ -7,6 +7,7 @@
 # Revised by: $Author$ 
 # Support: Fernando Nunes - fernando.nunes@tmn.pt
 # History:
+# 8.11 - Eliminacao do processamento dos utilitarios de servidor nos ambientes de ferramentas
 # 8.10 - Optimizacao das leituras dos ficheiros
 # 8.9  - Introducao de campo com script SHELL a executar
 # 8.8  - Alteracao das localizacoes dos ficheiros de configuracao
@@ -30,27 +31,32 @@ set_clean_path()
 		return 1
 	fi
 	new_path=`echo "$old_path" | $AWK -F: ' \
-	BEGIN {  a=0;idx=0;
+	BEGIN { a=0;
+		idx=0;
 		params_file=sprintf("%s/'$INFX_PARAMS'","'$INFX_ETC'");
 		while ( getline ifmxpath[++idx] < params_file ) {
 			a=1;
-		} #while
-		if ( a == 0 ) { print "NO param lines !";exit (-1) ; }
-	} #BEGIN 
+		}
+		if ( a == 0 ) {
+			print "NO param lines !";
+			exit (-1);
+		}
+	}
 	{ 
-		for ( wrd=1;wrd <=NF;wrd++) {
-			if ( $wrd == " " ) next ;
+		for ( wrd=1; wrd<=NF; wrd++) {
+			if ( $wrd == " " )
+				next;
 			dontprint=0;
 			for ( jdx=1;jdx<=idx;jdx++ ) {
-				pathlength=length(ifmxpath[jdx]);
-				if ( substr($wrd,1,pathlength) == ifmxpath[jdx] )  {
+				if ( $wrd ~ "^"ifmxpath[jdx] ) {
 					dontprint=1;
-					jdx=idx;
-				# break;
+					jdx=idx+1;
 				}
-			} #FOR
-			if ( dontprint == 0 && $wrd != "" ) { printf("%s:",$wrd); } 
-		} #FOR
+			}
+			if ( dontprint == 0 && $wrd != "" ) {
+				printf("%s:",$wrd);
+			} 
+		}
 	} '`
 	echo $new_path
 } 
@@ -77,7 +83,7 @@ tty 1>/dev/null 2>/dev/null
 not_a_tty=$?
 
 
-INFORMIX_HOME=`grep "^informix:" /etc/passwd | $AWK -F':' '{print $6}'`
+INFORMIX_HOME=`grep "^informix:" /etc/passwd | cut -f6 -d':'`
 CONF_DIRS="${INFORMIX_HOME}/etc /usr/bin/utils /usr/bin/scripts"
 for DIR in ${CONF_DIRS}
 do
@@ -322,20 +328,6 @@ then
 		# building pseudo tools in $INFORMIXDIR
 		IFMXSRVRDIR=$LNK_DIR
 		export IFMXSRVRDIR
-		for cmd in dbschema dbaccess dbload onstat onpload
-		do
-			if [ "$LNK_DIR" != "=" ]
-			then
-				pseudo_cmd=$INFORMIXDIR/bin/$cmd
-				is_original=`file $pseudo_cmd | grep -c executable`
-				if  [ $is_original -eq 0  -a ! -x $pseudo_cmd  ]
-				then
-					cmd_ctnt="INFORMIXDIR=\$IFMXSRVRDIR;export INFORMIXDIR;\$IFMXSRVRDIR/bin/${cmd} \$*;INFORMIXDIR=$IFMXDIR"
-					echo $cmd_ctnt > $INFORMIXDIR/bin/${cmd}
-					chmod 755 $INFORMIXDIR/bin/${cmd}
-				fi
-			fi
-		done 
 	fi
 	if [ $ENVTYPE = "Y" ] 
 	then
@@ -401,7 +393,7 @@ onconf=$INFORMIXDIR/etc/$ONCONFIG
 export onconf
 if [ "$ENVTYPE" = "S" ] || [ "$ENVTYPE" = "s" ]
 then
-	IFMXETC=~informix/etc
+	IFMXETC=${INFORMIX_HOME}/etc
 	export IFMXETC
 fi
 if [ $usertype = "adm" ]
@@ -412,7 +404,7 @@ fi
 }
 
 
-VERSION=8.10
+VERSION=8.11
 INFX_CONF=infx_env.lst
 INFX_PARAMS=setinfx.params
 argc=$#
@@ -422,7 +414,7 @@ clear
 case $argc in
 1)
 	main $1
-shift
+	shift
 	;;
 0)
 	main l
