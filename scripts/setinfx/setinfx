@@ -7,6 +7,7 @@
 # Revised by: $Author$ 
 # Support: Fernando Nunes - fernando.nunes@tmn.pt
 # History:
+# 8.7 - Correccao de bug que fazia aparecer sempre a ultima versao do motor
 # 8.6 - Correccao de debug para fm.tmp
 #     - Preparacao para IIF ($INFORMIXDIR/etc/IIF-cr)
 #     - Impedir que de erros depois de atingir o limite de entradas invalidas
@@ -14,7 +15,7 @@
 # 8.5 - Code review
 #     - Minor chages in conf variables
 
-VERSION="8.6"
+VERSION="8.7"
 INFX_CONF="infx_env.lst"
 INFX_PARAMS="setinfx.params"
 
@@ -193,6 +194,7 @@ then
                                         if ( $7 ~ "[Ss]" ) {
                                                 cmd1=sprintf("ls -1t %s/etc/*-cr | egrep \"IDS|IIF\" | head -1",$4)
                                                 cmd1 | getline file;
+						close(cmd1);
                                                 cmd=sprintf("cat %s",file);
                                         }
 
@@ -201,6 +203,7 @@ then
 					{
 						cmd1=sprintf("ls -1t %s/etc/*-cr | egrep \"I4GL|ClientSDK|ISQL\" | head -1",$4)
 						cmd1 | getline file;
+						close(cmd1);
 						cmd=sprintf("cat %s",file);
 					}
 					if ( $7 == "Y" )  cmd=sprintf("cat %s/etc/D4GL-cr",$5);
