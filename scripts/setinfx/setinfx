@@ -7,6 +7,9 @@
 # Revised by: $Author$ 
 # Support: Fernando Nunes - fernando.nunes@tmn.pt
 # History:
+# 1.16 - Numero de versao passou a ser o do CVS
+#      - Retirou-se o "clear" quando esta posicionado o SETINFX_SILENT
+#      - as linhas "inactivas" nao precisam de ter formato correcto
 # 8.13 - Troca da execucao de scripts SHELL para o fim do setinfx
 # 8.12 - Introducao da variavel SETINFX_SILENT. Tera de ser revisto numa futura versao
 # 8.11 - Eliminacao do processamento dos utilitarios de servidor nos ambientes de ferramentas
@@ -183,15 +186,15 @@ then
 			} #BEGIN
 			$1 !~ "#" && $0 !~ "^$" \
 			{ 
-				if ( "'$usertype'" != "adm" && $7 == "S" ) next ;
-				if ( NF < 7 ) 
-				{ 
-					printf ("Line # %d in configuration file has incorrect format\n",
-					FNR) > "/dev/tty";
-					exit -1;
-				}	
 				if ( $1 !~ "^inactivo")
 				{
+					if ( NF < 7 ) 
+					{ 
+						printf ("Line # %d in configuration file has incorrect format\n",
+						FNR) > "/dev/tty";
+						exit -1;
+					}	
+					if ( "'$usertype'" != "adm" && $7 == "S" ) next ;
 					cmd="";
 					if ( $7 !~ "[SsDdY]" ) { 
 						printf("Line %d : INVALID envtype %s\n",lnnum+1,$7);
@@ -415,11 +418,14 @@ fi
 }
 
 
-VERSION=8.13
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
 INFX_CONF=infx_env.lst
 INFX_PARAMS=setinfx.params
 argc=$#
-clear
+if [ "X$SETINFX_SILENT" = "X" ]
+then
+	clear
+fi
 
 # checking params
 case $argc in
