@@ -13,6 +13,8 @@
 # Guide to 7.1 Feature Enhancements Page 3-133
 # This script assumes all environment variables are set.
 # History:
+# 1.2 - Adicao de -r e -c para resolution e confidence
+#     - Adicao de -D para display apenas
 # 1.1 - Adicao da flag para establecer pdqpriority
 #     - alteracao no high para especificar as varias colunas num so statement
 
@@ -22,13 +24,14 @@
 #-------------------------------------------------------
 
 PROGNAME=`basename $0`
-VERSAO="1.1"
+VERSAO="1.2"
+DEFAULT_RESOLUTION=2.5
 
 get_args()
 {
-	arg_ok="hevp:d:t:"
+	arg_ok="d:t:p:r:c:hevD"
 	list="$*"
-	getopt "${arg_ok}" $list >/dev/null 2>&1
+	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing                                                
 	if [ $? != 0 ]
 	then
@@ -40,11 +43,14 @@ get_args()
 	do
 		case $1 in
 		-h)   # show help
-		        echo "${PROGNAME}: [-e] [ -p priority ] { [-d] database } { [-t] table }" >&2
-		        echo "               [-e] Set explain on (versoes >= a 7.31.UD2 e 9.30.UC2)" >&2
-		        echo "               [-p] Set PDQPRIORITY (versoes >= a 7.31.UD2 e 9.30.UC2)" >&2
+		        echo "${PROGNAME}: { [-d] database } { [-t] table }[-e] [ -p priority ] [ -r resolution ] [ -c confidence ]" >&2
 		        echo "               [-d] database (obrigatorio)" >&2
 		        echo "               [-t] table (obrigatorio)" >&2
+		        echo "               [-p] Set PDQPRIORITY (versoes >= a 7.31.UD2 e 9.30.UC2)" >&2
+			echo "               [-r] Set resolution" >&2
+			echo "               [-c] Set confidence" >&2
+		        echo "               [-e] Set explain on (versoes >= a 7.31.UD2 e 9.30.UC2)" >&2
+			echo "               [-D] Display only. Don't execute" >&2
 			exit 0
 			;;
 		-v)   # show version
@@ -53,6 +59,9 @@ get_args()
 			;;
 		-e)   # set up the -e (set explain flag)
 			EXPLAIN_FLAG=1
+			;;
+		-D)   # set up the -D (set DISPLAY_ONLY flag)
+			DISPLAY_FLAG=1
 			;;
 		-d)   # set up the -d (database flag)
 			DATABASE_FLAG=1
@@ -68,6 +77,17 @@ get_args()
 			PRIORITY_FLAG=1
 			priority=$2
 			shift
+			;;
+		-r)   # set up the -r (resolution flag)
+			RESOLUTION_FLAG=1
+			resolution=$2
+			shift
+			;;
+		-c)   # set up the -c (confidence flag)
+			CONFIDENCE_FLAG=1
+			confidence=$2
+			shift
+			;;
 		esac
 		shift
 	done
@@ -75,6 +95,15 @@ get_args()
 	while [ $# -ge 1 ]
 	do
 		case $1 in
+		-D)
+			if [ "X"$DISPLAY_FLAG = "X1" ]	
+			then
+				echo "${PROGNAME}: Erro de sintaxe - DISPLAY ja foi interpretado" >&2
+				return 1
+			else
+				DISPLAY_FLAG=1
+				shift
+			fi;;
 		-e)
 			if [ "X"$EXPLAIN_FLAG = "X1" ]	
 			then
@@ -142,6 +171,49 @@ get_args()
 					fi
 					shift 2
 			fi;;
+		-r)
+			if [ "X"$RESOLUTION_FLAG = "X1" ]
+			then
+				echo "Erro de sintaxe: Resolution ja foi interpretado" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "Erro de sintaxe: A opcao $1 necessita de um argumento" >&2
+					return 1
+				else
+					RESOLUTION_FLAG=1
+                                        resolution=$2
+					echo ${resolution} | grep '^[0-9]\{0,3\}\.\{0,1\}[0-9]\{1,\}$' 2>&1 >/dev/null
+					RESULT=$?
+                                        if [ ${RESULT} != 0 -o ${resolution} -gt 100 ]
+                                        then
+                                                echo "Erro: o valor de resolution tem de ser numerico e menor ou igual a 100" >&2
+                                                return 1
+                                        fi
+                                        shift 2
+                        fi;;
+		-c)
+			if [ "X"$CONFIDENCE_FLAG = "X1" ]
+			then
+				echo "Erro de sintaxe: Confidence ja foi interpretado" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "Erro de sintaxe: A opcao $1 necessita de um argumento" >&2
+					return 1
+				else
+					CONFIDENCE_FLAG=1
+					confidence=$2
+					echo ${confidence} | grep "0\.[89][0-9]*" 2>&1 >/dev/null
+					RESULT=$?
+					if [ ${RESULT} != 0 ]
+					then
+						
+						echo "Erro: o valor de confidence tem de estar entre 0.80 e 0.99" >&2
+						return 1
+				fi
+				shift 2
+			fi;;
 		*)
 			if [ "X"$DATABASE_FLAG != "X1" ]	
 			then
@@ -189,7 +261,6 @@ done
 # lower case table name
 tabname2=`echo ${tabname} | tr "[A-Z]" "[a-z]"`
 tabname=${tabname2}
-echo "PRIORITY= "$priority
 if [ "X${PRIORITY_FLAG}" = "X1" ]
 then
 	if [ 1 -gt ${priority}  -o  ${priority} -gt 100 ]
@@ -198,7 +269,28 @@ then
 		exit 1
 	fi
 fi
+
+if [ "X${RESOLUTION_FLAG}" = "X1" ]
+then
+	echo ${resolution} | grep '^[0-9]\{0,3\}\.\{0,1\}[0-9]\{1,\}$' 2>&1 >/dev/null
+	RESULT=$?
+	if [ ${RESULT} != 0 -o ${resolution} -gt 100 ]
+	then
+		echo "Erro: o valor de resolution tem de ser numerico e menor ou igual a 100" >&2
+		exit 1
+	fi
+fi
  
+if [ "X${CONFIDENCE_FLAG}" = "X1" ]
+then
+	echo ${confidence} | grep "0\.[89][0-9]*" 2>&1 >/dev/null
+	RESULT=$?
+	if [ ${RESULT} != 0 ]
+	then
+		echo "Erro: O valor da confidence tem de estar entre 0.80 e 0.99" >&2
+		exit 1
+	fi
+fi
 # define filenames using process id
 sqlfile=/tmp/tbl_updstats$$.sql
 result=/tmp/tbl_updstats$$.r0
@@ -363,7 +455,17 @@ if [ "X"${PRIORITY_FLAG} = "X1" ]
 then
 	echo "set pdqpriority ${priority};" >>${ms}
 fi
-echo ' update statistics medium for table '${tabname}' distributions only;' >>${ms}
+if [ "X${RESOLUTION_FLAG}" = "X1" -o "X${CONFIDENCE_FLAG}" = "X1" ]
+then
+	if [ "X${RESOLUTION_FLAG}" != "X1" ]
+	then
+		resolution_clause_medium=" resolution ${DEFAULT_RESOLUTION} ${confidence} "
+	else
+		resolution_clause_medium=" resolution ${resolution} ${confidence} "
+		resolution_clause_high=" resolution ${resolution} "
+	fi
+fi
+echo "update statistics medium for table ${tabname} ${resolution_clause_medium} distributions only;" >>${ms}
  
 #-------------------------------------------------------
 # Create sql statements for high distributions
@@ -375,20 +477,22 @@ cut -f3 -d: ${result1} | sort | uniq  >${col_high}
 # Open and use fd 4 to store the list of columnns
 #-------------------------------------------------------
 exec 4<${col_high}
-echo ' update statistics high for table '${tabname}'(' >>${ms}
-${colname}
-primeiro=0
+primeiro=1
 while read colname <&4
 do
 if [ $primeiro -eq 1 ]
 then
-	echo ',' >>${ms}
+	echo "update statistics high for table ${tabname} (" >>${ms}
+	primeiro=0
 else
-	primeiro=1
+	echo ',' >>${ms}
 fi
 echo ${colname} >>${ms}
 done
-echo ') distributions only;' >>${ms}
+if [ $primeiro != 1 ]
+then
+	echo ")  ${resolution_clause_high} distributions only;" >>${ms}
+fi
  
 #-------------------------------------------------------
 # Create sql statements for low 
@@ -396,13 +500,18 @@ echo ') distributions only;' >>${ms}
 col_low=/tmp/tbl_updstats$$_coll.sql
 cut -f3 -d: ${result2} | sort | uniq  >${result}
 comm -13 ${col_high} ${result} >${col_low}
-echo ' update statistics low for table '${tabname}';' >>${ms}
+echo 'update statistics low for table '${tabname}';' >>${ms}
 
 #-------------------------------------------------------
 # Execute SQL instrctions
 #-------------------------------------------------------
-dbaccess ${dbserver} - <${ms} 1>/dev/null #2>&1 
-cat ${ms} >>${rpt}
+if [ "X${DISPLAY_FLAG}" = "X1" ]
+then
+	cat ${ms}
+else
+	dbaccess ${dbserver} - <${ms} 1>/dev/null #2>&1 
+	cat ${ms} >>${rpt}
+fi
  
 mv  ${rpt} /tmp/tbl_updstats_${dbserver}$$.rpt
 rm  -f ${ms} ${x} ${sqlfile} ${result} ${result1} ${result2} ${col_high} ${col_low}

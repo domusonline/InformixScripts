@@ -20,19 +20,21 @@
 # dbs_updstats stores7 'and tabname like "cust%"
 # History:
 #
+# 1.2 - inclusao de -P para fazer o update statistics as procedures
+#     - inclusao de -c e -r para confidence e resolution
 # 1.1 - inclusao da opcao -p para establecer o PDQPRIORITY
 # 1.0 - insercao no cvs
 #     - aplicacao das alteracoes introduzidas pelo Lima
 
 
 PROGNAME=`basename $0`
-VERSAO="1.1"
+VERSAO="1.2"
 
 get_args()
 {
-	arg_ok="hevp:d:f:"
+	arg_ok='p:d:f:r:c:ePNvh'
 	list="$*"
-	getopt "${arg_ok}" "$list" >/dev/null 2>&1
+	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing                                                
 	if [ $? != 0 ]
 	then
@@ -44,11 +46,15 @@ get_args()
 	do
 		case $1 in
 		-h)   # show help
-		        echo "${PROGNAME}: [-e] [ -p priority ] { -d database } [ -f filter ]" >&1
-		        echo "               [-e] Set explain on (versoes >= a 7.31.UD2 e 9.30.UC2)" >&1
-		        echo "               [-p] Set pdqpriority (versoes >= a 7.31.UD2 e 9.30.UC2)" >&1
+		        echo "${PROGNAME}: { -d database } [ -f filter ] [-e] [ -p priority ] [ -P | -N ] [ -r resolution ] [ -c confidence ]" >&1
 		        echo "               -d database (obrigatorio)" >&1
 		        echo "               -f table filter (opcional)" >&1
+		        echo "               [-e] Set explain on (versoes >= a 7.31.UD2 e 9.30.UC2)" >&1
+		        echo "               [-p] Set pdqpriority (versoes >= a 7.31.UD2 e 9.30.UC2)" >&1
+		        echo "               [-P] efectuar tambem update statistics for procedures (default sem filtro)" >&1
+		        echo "               [-N] nao efectuar update statistics for procedures" >&1
+                        echo "               [-r] Set resolution" >&2
+                        echo "               [-c] Set confidence" >&2
 			echo "Ex: dbs_updstats -d stores7 -f \\\" and tabname like \\'l%\\'\\\"" >&1
 			exit 0
 			;;
@@ -69,6 +75,22 @@ get_args()
 			priority=$2
 			shift
 			;;
+		-P)   # set up the -P (for procedures flag)
+			PROCEDURES_FLAG=1
+			;;
+		-N)   # set up the -N (NO procedures flag)
+			PROCEDURES_FLAG=0
+			;;
+		-r)   # set up the -r (resolution flag)
+			RESOLUTION_FLAG=1
+			resolution=$2
+			shift
+			;;
+		-c)   # set up the -c (confidence flag)
+			CONFIDENCE_FLAG=1
+			confidence=$2
+			shift
+			;;
 		-f)   # set up the -f (filter flag)
 			FILTER_FLAG=1
 			case $2 in
@@ -84,7 +106,7 @@ get_args()
 			then
 				return
 			fi
-			arg_ok="hvep:d:f:"
+			arg_ok='p:d:f:r:c:ePNvh'
 			set -- `getopt "${arg_ok}" $resto`
 			continue
 			;;
@@ -102,6 +124,22 @@ get_args()
 				return 1
 			else
 				EXPLAIN_FLAG=1
+				shift
+			fi;;
+		-P)	if [ "X"$PROCEDURES_FLAG = "X1" -o "X"$PROCEDURES_FLAG = "X0" ]
+			then
+				echo "${PROGNAME}: Erro de sintaxe - as opcoes -P e -N sao exlusivas e nao podem ser repetidas" >&2
+				return 1
+			else
+				PROCEDURES_FLAG=1
+				shift
+			fi;;
+		-N)	if [ "X"$PROCEDURES_FLAG = "X1" -o "X"$PROCEDURES_FLAG = "X0" ]
+			then
+				echo "${PROGNAME}: Erro de sintaxe - as opcoes -P e -N sao exlusivas e nao podem ser repetidas" >&2
+				return 1
+			else
+				PROCEDURES_FLAG=0
 				shift
 			fi;;
 		-d)
@@ -137,6 +175,49 @@ get_args()
 					fi
 					shift 2
 			fi;;
+		-r)
+			if [ "X"$RESOLUTION_FLAG = "X1" ]
+			then
+				echo "Erro de sintaxe: Resolution ja foi interpretado" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "Erro de sintaxe: A opcao $1 necessita de um argumento" >&2
+					return 1
+				else
+					RESOLUTION_FLAG=1
+                                        resolution=$2
+					echo ${resolution} | grep '^[0-9]\{0,3\}\.\{0,1\}[0-9]\{1,\}$' 2>&1 >/dev/null
+					RESULT=$?
+                                        if [ ${RESULT} != 0 -o ${resolution} -gt 100 ]
+                                        then
+                                                echo "Erro: o valor de resolution tem de ser numerico e menor ou igual a 100" >&2
+                                                return 1
+                                        fi
+                                        shift 2
+                        fi;;
+		-c)
+			if [ "X"$CONFIDENCE_FLAG = "X1" ]
+			then
+				echo "Erro de sintaxe: Confidence ja foi interpretado" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "Erro de sintaxe: A opcao $1 necessita de um argumento" >&2
+					return 1
+				else
+					CONFIDENCE_FLAG=1
+					confidence=$2
+					echo ${confidence} | grep "0\.[89][0-9]*" 2>&1 >/dev/null
+					RESULT=$?
+					if [ ${RESULT} != 0 ]
+					then
+						
+						echo "Erro: o valor de confidence tem de estar entre 0.80 e 0.99" >&2
+						return 1
+				fi
+				shift 2
+			fi;;
 		-f)
 			if [ "X"$FILTER_FLAG = "X1" ]	
 			then
@@ -161,7 +242,7 @@ get_args()
 					then
 						return
 					fi
-					arg_ok="hvep:d:f:"
+					arg_ok='p:d:f:r:c:ePNvh'
 					set -- `getopt "${arg_ok}" $resto`
 					continue
 			fi;;
@@ -209,6 +290,42 @@ then
 	then
 		echo "${PROGNAME}: Erro - o valor para o PRIORITY tem de estar entre 1 e 100" >&2
 		exit 1
+	fi
+fi
+
+if [ "X${RESOLUTION_FLAG}" = "X1" ]
+then
+	echo ${resolution} | grep '^[0-9]\{0,3\}\.\{0,1\}[0-9]\{1,\}$' 2>&1 >/dev/null
+	RESULT=$?
+	if [ ${RESULT} != 0 -o ${resolution} -gt 100 ]
+	then
+		echo "Erro: o valor de resolution tem de ser numerico e menor ou igual a 100" >&2
+		exit 1
+	else
+		resolution_clause=" -r ${resolution} "
+	fi
+fi
+
+if [ "X${CONFIDENCE_FLAG}" = "X1" ]
+then
+	echo ${confidence} | grep "0\.[89][0-9]*" 2>&1 >/dev/null
+	RESULT=$?
+	if [ ${RESULT} != 0 ]
+	then
+		echo "Erro: O valor da confidence tem de estar entre 0.80 e 0.99" >&2
+		exit 1
+	else
+		confidence_clause=" -c ${confidence} "
+	fi
+fi
+
+if [ "X"$PROCEDURES_FLAG = "X" ]
+then
+	if [ "X"$FILTER_FLAG != "X1" ]
+	then
+		PROCEDURES_FLAG=1
+	else
+		PROCEDURES_FLAG=0
 	fi
 fi
 # 
@@ -272,14 +389,37 @@ exec 3<${tablelist}
 while read tblname <&3
 do
 	echo 'Updating Statistics for Table: '${tblname}
-	tbl_updstats ${CMD_FLAGS} -d ${dbserver} -t ${tblname} 2>>${err}&
+	tbl_updstats -d ${dbserver} -t ${tblname} ${resolution_clause} ${confidence_clause} ${CMD_FLAGS} 2>>${err}&
 	T=$!
 	wait
-	cat /tmp/tbl_updstats_${dbserver}$T.rpt >>$rpt
-	rm /tmp/tbl_updstats_${dbserver}$T.rpt
+	if [ -f /tmp/tbl_updstats_${dbserver}$T.rpt ]
+	then
+		cat /tmp/tbl_updstats_${dbserver}$T.rpt >>$rpt
+		rm /tmp/tbl_updstats_${dbserver}$T.rpt
+	fi
 	echo '==========================================================================' >>$rpt
 	echo ' ' >>$rpt
 done
+
+if [ "X"$PROCEDURES_FLAG = "X1" ]
+then
+	if [ "X"$EXPLAIN_FLAG = "X1" ]
+	then
+		dbaccess ${dbserver} <<!EOF
+		set explain on;
+		update statistics for procedure;
+!EOF
+	else
+		dbaccess ${dbserver} <<!EOF
+		update statistics for procedure;
+!EOF
+	fi
+
+	RESULT=$?
+
+	echo "Update statistics for procedure result: " $RESULT >>$rpt
+	echo '==========================================================================' >>$rpt
+fi
 
 rm -f ${tablelist}
 rm -f ${result}
