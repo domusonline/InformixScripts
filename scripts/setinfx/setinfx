@@ -313,7 +313,7 @@ then
 
 	LD_LIBRARY_PATH=`find $INFORMIXDIR/lib -type d | \
 	$AWK ' { if ( ld_l_p != "" ) ld_l_p=sprintf("%s:%s",ld_l_p,$1); \
-	else ld_l_p=$1;} END { printf("%s:%s",ld_l_p,"'$clean_ld_library_path'") } `
+	else ld_l_p=$1;} END { printf("%s:%s",ld_l_p,"'$clean_ld_library_path'") }' `
 	export LD_LIBRARY_PATH
 
 	if [ $ENVTYPE = "D" ]
