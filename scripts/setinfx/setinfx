@@ -1,4 +1,4 @@
-#!/usr/bin/ksh
+#!/bin/sh
 # Name: $RCSfile$
 # CVS file: $Source$ 
 # CVS id: $Header$ 
@@ -7,31 +7,26 @@
 # Revised by: $Author$ 
 # Support: Fernando Nunes - fernando.nunes@tmn.pt
 # History:
-# 8.9 - Introducao de campo com script SHELL a executar
-# 8.8 - Alteracao das localizacoes dos ficheiros de configuracao
-# 8.7 - Correccao de bug que fazia aparecer sempre a ultima versao do motor
-# 8.6 - Correccao de debug para fm.tmp
-#     - Preparacao para IIF ($INFORMIXDIR/etc/IIF-cr)
-#     - Impedir que de erros depois de atingir o limite de entradas invalidas
-#     - Ajustar a utilizao do awk ou nawk conforme o SO
-# 8.5 - Code review
-#     - Minor chages in conf variables
+# 8.10 - Optimizacao das leituras dos ficheiros
+# 8.9  - Introducao de campo com script SHELL a executar
+# 8.8  - Alteracao das localizacoes dos ficheiros de configuracao
+# 8.7  - Correccao de bug que fazia aparecer sempre a ultima versao do motor
+# 8.6  - Correccao de debug para fm.tmp
+#      - Preparacao para IIF ($INFORMIXDIR/etc/IIF-cr)
+#      - Impedir que de erros depois de atingir o limite de entradas invalidas
+#      - Ajustar a utilizao do awk ou nawk conforme o SO
+# 8.5  - Code review
+#      - Minor chages in conf variables
 
-VERSION="8.10"
-INFX_CONF="infx_env.lst"
-INFX_PARAMS="setinfx.params"
-
-function set_clean_path {
+set_clean_path()
+{
 	old_path="$1"
-	# base directory of informix products on this machine
-	# check if params file exists
-	
 
 	if [ -r ${INFX_ETC}/${INFX_PARAMS} ]
 	then
 		a=1
 	else
-		echo "cannot locate file $INFX_ETC/$INFX_PARAMS"
+		echo "Cannot locate file $INFX_ETC/$INFX_PARAMS" >&2
 		return 1
 	fi
 	new_path=`echo "$old_path" | $AWK -F: ' \
@@ -60,12 +55,10 @@ function set_clean_path {
 	echo $new_path
 } 
 
-argc=$#
-clear
 
-# conn_srvr reads the server list for choosing
-# returns server line number
-###################################################################################################
+
+main()
+{
 
 SO=`uname -s | tr "[A-Z]" "[a-z]"`
 case $SO in
@@ -121,26 +114,16 @@ $1 !~ "#" && $0 !~ "^$" \
 {
 	if ( "'$usertype'" != "adm" && $7 == "S" ) next ;
 	lnnum++;
-	if ( $1 !~ "^inactivo")
-	{
-	}
-	else
+	if ( $1 ~ "^inactivo")
 	{
 			invalid_list=sprintf("%s%d ", invalid_list,lnnum);
 	}
-	} 
+} 
 END { print lnnum "+" invalid_list } ' ${INFX_ETC}/${INFX_CONF}`
 
 
 maxsrv=`echo "$fmaux" | cut -f1 -d'+'`
 INVALID_LIST=`echo $fmaux | cut -f2 -d'+'`
-
-# checking params
-if [ $argc -ne 1 ]
-then
-	echo "Usage: . setinfx [ l(ist) | [ 1-$maxsrv ]"
-	return 1
-fi
 
 if [ $1 = "l" ]
 then
@@ -152,14 +135,14 @@ else
 		do
 			if [ $1 -eq $f ]
 			then
-				echo "Invalid environment selected"
+				echo "Invalid environment selected" >&2
 				return 1
 			fi
 		done
 		option="chosen"
 		server_num=$1
 	else
-		echo "Usage: . setinfx [ l(ist) | [ 1-$maxsrv ]"
+		echo "Usage: . setinfx < l(ist) |  1-$maxsrv >"
 		return 1
 	fi
 fi
@@ -189,7 +172,7 @@ then
 				if ( "'$usertype'" != "adm" && $7 == "S" ) next ;
 				if ( NF < 7 ) 
 				{ 
-					printf ("line # %d in configuration file has incorrect format\n",
+					printf ("Line # %d in configuration file has incorrect format\n",
 					FNR) > "/dev/tty";
 					exit -1;
 				}	
@@ -197,19 +180,19 @@ then
 				{
 					cmd="";
 					if ( $7 !~ "[SsDdY]" ) { 
-						printf("line %d : INVALID envtype %s\n",lnnum+1,$7);
+						printf("Line %d : INVALID envtype %s\n",lnnum+1,$7);
 						exit -1;
 					}
 
-                                        if ( $7 ~ "[Ss]" ) {
-                                                cmd1=sprintf("ls -1t %s/etc/*-cr | egrep \"IDS|IIF\" | head -1",$4)
-                                                cmd1 | getline file;
+					if ( $7 ~ "[Ss]" ) {
+						cmd1=sprintf("ls -1t %s/etc/*-cr | egrep \"IDS|IIF\" | head -1",$4)
+						cmd1 | getline file;
 						close(cmd1);
-                                                cmd=sprintf("cat %s",file);
-                                        }
+						cmd=sprintf("cat %s",file);
+					}
 
 
-	            			if ( $7 ~ "[Dd]" )
+					if ( $7 ~ "[Dd]" )
 					{
 						cmd1=sprintf("ls -1t %s/etc/*-cr | egrep \"I4GL|ClientSDK|ISQL\" | head -1",$4)
 						cmd1 | getline file;
@@ -233,7 +216,7 @@ then
 
 			if [ $? -ne 0 ]
 			then
-				echo "Configuration file has incorrect format"
+				echo "Configuration file has incorrect format" >&2
 				return 1
 			fi
 			read server_num
@@ -266,7 +249,7 @@ then
 	the_fnr=`$AWK -F"|" ' BEGIN {line_num=0;server_num='$server_num' } \
 	$1 !~ "#" && $0 !~ "^$" \
 	{ 
-		if ( "'$usertype'" != "adm" && $7 == "S" ) next ; # s = hidden server
+		if ( "'$usertype'" != "adm" && $7 == "S" ) next;
 		if (++line_num == server_num) 
 		{ 
 			if ( '$not_a_tty' == 0 ) printf("\nWelcome to %s\n",$1) > "/dev/tty";
@@ -286,49 +269,43 @@ then
 	. ${INFX_ETC}/${ENV_FILE}
 fi
 
-export ENVTYPE=\
+LINHA_CONF=\
 `$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
 NR == the_fnr \
-{ if ( $7 ~ "[SsDY]" ) { print $7 ; exit 0 } } ' $INFX_ETC/$INFX_CONF`
+{ if ( $7 ~ "[SsDY]" ) { print $0 ; exit 0 } } ' $INFX_ETC/$INFX_CONF`
 
-export INFORMIXSERVER=\
-`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
-NR == the_fnr { print $2 ; exit } ' $INFX_ETC/$INFX_CONF`
-#echo "INFORMIXSERVER $INFORMIXSERVER"
+ENVTYPE=`echo $LINHA_CONF | cut -f7 -d'|'`
+INFORMIXSERVER=`echo $LINHA_CONF | cut -f2 -d'|'`
+ONCONFIG=`echo $LINHA_CONF | cut -f3 -d'|'`
+INFORMIXDIR=`echo $LINHA_CONF | cut -f4 -d'|'`
+LNK_DIR=`echo $LINHA_CONF | cut -f5 -d'|'`
+INFORMIXSQLHOSTS=`echo $LINHA_CONF | cut -f6 -d'|'`
+IFMXDIR=$INFORMIXDIR
 
-export ONCONFIG=\
-`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
-NR == the_fnr { print $3 ; exit } ' $INFX_ETC/$INFX_CONF`
-# echo "ONCONFIG $ONCONFIG"
+export ENVTYPE
+export INFORMIXSERVER
+export INFORMIXSQLHOSTS
+export ONCONFIG
+export INFORMIXDIR
+export IFMXDIR
+export LNK_DIR
 
-export INFORMIXDIR=\
-`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
-NR == the_fnr { print $4 ; exit } ' $INFX_ETC/$INFX_CONF`
-#echo "INFORMIXDIR $INFORMIXDIR"
 
-export IFMXDIR=$INFORMIXDIR
 
-if test -d $INFORMIXDIR
+if [ ! -d $INFORMIXDIR ]
 then
-	a=1
-else
 	echo "INFORMIXDIR not valid $INFORMIXDIR"
 	return 1
 fi
 if [ "$ONCONFIG" != "" ]
 
 then
-	if test -r $INFORMIXDIR/etc/$ONCONFIG
+	if [ ! -r $INFORMIXDIR/etc/$ONCONFIG ]
 	then
-		a=1
-	else
 		echo "ONCONFIG not valid $ONCONFIG"
 		return 1
 	fi
 fi
-export lnk_dir=\
-`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
-NR == the_fnr { print $5 ; exit } ' $INFX_ETC/$INFX_CONF`
 
 if [ $ENVTYPE = "D" -o $ENVTYPE = "Y" ]
 then
@@ -343,10 +320,11 @@ then
 	then
 		# Making aliases with servers utilities
 		# building pseudo tools in $INFORMIXDIR
-		export IFMXSRVRDIR=$lnk_dir
+		IFMXSRVRDIR=$LNK_DIR
+		export IFMXSRVRDIR
 		for cmd in dbschema dbaccess dbload onstat onpload
 		do
-			if [ "$lnk_dir" != "=" ]
+			if [ "$LNK_DIR" != "=" ]
 			then
 				pseudo_cmd=$INFORMIXDIR/bin/$cmd
 				is_original=`file $pseudo_cmd | grep -c executable`
@@ -371,7 +349,8 @@ then
 		export FGLDIR=`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' } \
 		NR == the_fnr { print $5 ; exit } ' $INFX_ETC/$INFX_CONF`
 		# echo "FGLDIR $FGLDIR"
-		export clean_path=$FGLDIR/bin:$clean_path
+		clean_path=$FGLDIR/bin:$clean_path
+		export clean_path
 		#------- Database frontend version
 
 		FGLDBS="ix711"
@@ -379,82 +358,75 @@ then
 
 		#------- Informix SQL libraries
 
-		FGLLIBSQL="-L$INFORMIXDIR/lib/tools \
-				-lfesql \
-				-los \
-				-lasf \
-				$INFORMIXDIR/lib/tools/libasf.a \
-				-los \
-				-lasf \
-				-lgen \
-				$INFORMIXDIR/lib/tools/libgls.a \
-				$INFORMIXDIR/lib/tools/libglx.a"
+		FGLLIBSQL="-L$INFORMIXDIR/lib/tools -lfesql -los -lasf $INFORMIXDIR/lib/tools/libasf.a -los -lasf \
+				-lgen $INFORMIXDIR/lib/tools/libgls.a $INFORMIXDIR/lib/tools/libglx.a"
 		export FGLLIBSQL
 
 
 		#------- System libraries
 
-		FGLLIBSYS="-ltli \
-				-lxti \
-				-lc \
-				-lm"
+		FGLLIBSYS="-ltli -lxti -lc -lm"
 		export FGLLIBSYS
-		export LD_LIBRARY="zz"
+		LD_LIBRARY="zz"
+		export LD_LIBRARY
 	fi 
 fi
 
-export INFORMIXSQLHOSTS=\
-`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
-NR == the_fnr { print $6 ; exit } ' $INFX_ETC/$INFX_CONF`
-# echo "INFORMIXSQLHOSTS $INFORMIXSQLHOSTS"
-if test -f $INFORMIXSQLHOSTS
+
+if [ ! -f $INFORMIXSQLHOSTS ]
 then
-	a=1
-else
-	export INFORMIXSQLHOSTS=$INFORMIXDIR/etc/sqlhosts
-	if test -f "$INFORMIXSQLHOSTS"
+	INFORMIXSQLHOSTS=$INFORMIXDIR/etc/sqlhosts
+	export INFORMIXSQLHOSTS
+	if [ ! -f "$INFORMIXSQLHOSTS" ]
 	then
-		a=1
-	else
 		echo "sqlhosts file not found, cannot connect"
-		# if [ $is_dec_alfa -eq 1 ] 
-		# then
-			# shift 2>/dev/null
-		# fi
 		return 1
 	fi
 fi
 sqlhok=\
 `$AWK ' $1 == "'$INFORMIXSERVER'" { ok++ } END { print ok }' $INFORMIXSQLHOSTS`
-if [ "$sqlhok" = "1" ]
+if [ "$sqlhok" != "1" ]
 then
-	a=1
-else
 	echo "$INFORMIXSERVER not found in sqlhosts, cannot connect"
-	# if [ $is_dec_alfa -eq 1 ] 
-	# then
-		# shift 2>/dev/null
-	# fi
 	return 1
 fi
 
 
-#Set current infx env number
-export SETINFX_CURRENT=${server_num}
-
-export PATH="$INFORMIXDIR/bin:$clean_path"
+SETINFX_CURRENT=${server_num}
+export SETINFX_CURRENT
+PATH="$INFORMIXDIR/bin:$clean_path"
+export PATH
 	
-export onconf=$INFORMIXDIR/etc/$ONCONFIG
+onconf=$INFORMIXDIR/etc/$ONCONFIG
+export onconf
 if [ "$ENVTYPE" = "S" ] || [ "$ENVTYPE" = "s" ]
 then
-	export MSGPATH=`$AWK ' $1 == "MSGPATH" { print $2 } ' $onconf`
-	alias vm='vi $MSGPATH'
-	alias tm='echo tail -f log of $INFORMIXSERVER;tail -n 20 -f $MSGPATH'
-	alias vo='vi $onconf'
-	alias vs='vi $INFORMIXSQLHOSTS'
-	export IFMXETC=~informix/etc
+	IFMXETC=~informix/etc
+	export IFMXETC
 fi
 if [ $usertype = "adm" ]
 then
-	export PS1="${INFORMIXSERVER}@`hostname`:${LOGNAME}-> "
+	PS1="${INFORMIXSERVER}@`hostname`:${LOGNAME}-> "
+	export PS1
 fi
+}
+
+
+VERSION=8.10
+INFX_CONF=infx_env.lst
+INFX_PARAMS=setinfx.params
+argc=$#
+clear
+
+# checking params
+case $argc in
+1)
+	main $1
+shift
+	;;
+0)
+	main l
+	;;
+*)
+	echo "Usage: . setinfx < l(ist) | 1-$maxsrv >"
+esac
