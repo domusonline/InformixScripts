@@ -67,7 +67,7 @@ clear
 # returns server line number
 ###################################################################################################
 
-SO=`uname -s | tr A-Z a-z`
+SO=`uname -s | tr "[A-Z]" "[a-z]"`
 case $SO in
 sunos*|osf*)
 	AWK=nawk
