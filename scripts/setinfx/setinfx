@@ -440,7 +440,10 @@ fi
 
 
 VERSION=`echo "$Revision$" | cut -f2 -d' '`
-INFX_CONF=infx_env.lst
+if [ -z "${INFX_CONF}" ]
+then
+	INFX_CONF=infx_env.lst
+fi
 INFX_PARAMS=setinfx.params
 argc=$#
 if [ "X$SETINFX_SILENT" = "X" ]
