@@ -1,0 +1,11 @@
+# id: $Header$
+# Ficheiro de config para exploracao do alarmprogram
+alarm.sh /usr/informix/etc informix adriatico,antarctico,arrabida,caramulo,cesce,gardunha,malcata,pacifico,saturno,batgirl 750
+alarm.sh /export/users/informix/etc informix batman-priv,batman 750
+alarm.sh /opt/informix/etc informix mercurio 750
+alarm.sh /informix/etc informix muleta 750
+datas_aux.sh /informix/etc informix muleta 750
+datas_aux.sh /opt/informix/etc informix mercurio 750
+datas_aux.sh /export/users/informix/etc informix batman-priv,batman 750
+datas_aux.sh /usr/informix/etc informix adriatico,antarctico,arrabida,caramulo,cesce,gardunha,malcata,pacifico,saturno 750
+man/alarmprogram1 /usr/local/man/man1 root adriatico,antarctico,arrabida,caramulo,cesce,gardunha,malcata,pacifico,saturno,batman-priv,batman,mercurio,batgirl,muleta 644

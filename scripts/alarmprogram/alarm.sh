@@ -26,13 +26,12 @@
 # This script sends email and pages the systems group when necessary.
 #
 # History:
-#   v 1.1:
-#          - Introducao de backups dos logs pelo On-Bar
+#   v 1.2: - Correcao da repeticao de eventos
+#   v 1.1: - Introducao de backups dos logs pelo On-Bar
 #          - Activacao das variaveis IFMX_ALARM_CLASS_MAIL e IFMX_ALARM_CLASS_SMS
-#   v 1.0:
-#          - Retirou-se mensagens de debug
+#   v 1.0: - Retirou-se mensagens de debug
 
-VERSION="1.1"
+VERSION="1.2"
 
 send_sms()
 {
@@ -265,20 +264,20 @@ then
      LAST_EVENT_TYPE=`echo ${LAST_EVENT_STATUS} | cut -f1 -d' '`
      LAST_EVENT_TSTAMP=`echo ${LAST_EVENT_STATUS} | cut -f2 -d' '`
    else
-     LAST_EVENT_TYPE=-1
+     LAST_EVENT_TYPE=0
    fi
 
    if [ ${LAST_EVENT_TYPE} -eq ${class_id} ]
    then
      diff_t1_t2 $timestamp ${LAST_EVENT_TSTAMP} ${TSTAMP_INTERVAL}
      res=$?
-     echo "${class_id} ${timestamp}" >> ${LAST_EVENT_FILE}
      if [ $res -eq 0 ]
      then
+       echo "${class_id} ${timestamp} ${LAST_EVENT_TYPE}" >> ${LAST_EVENT_FILE} 
        exit 0
      fi
    fi
-
+   echo "${class_id} ${timestamp} ${LAST_EVENT_TYPE}" >> ${LAST_EVENT_FILE} 
    send_mail
 fi
  
