@@ -7,6 +7,7 @@
 # Revised by: $Author$ 
 # Support: Fernando Nunes - fernando.nunes@tmn.pt
 # History:
+# 8.9 - Introducao de campo com script SHELL a executar
 # 8.8 - Alteracao das localizacoes dos ficheiros de configuracao
 # 8.7 - Correccao de bug que fazia aparecer sempre a ultima versao do motor
 # 8.6 - Correccao de debug para fm.tmp
@@ -16,7 +17,7 @@
 # 8.5 - Code review
 #     - Minor chages in conf variables
 
-VERSION="8.8"
+VERSION="8.9"
 INFX_CONF="infx_env.lst"
 INFX_PARAMS="setinfx.params"
 
@@ -274,6 +275,16 @@ then
 	}
 ' $INFX_ETC/$INFX_CONF`
 # now we export ALL the environment
+
+ENV_FILE=""
+ENV_FILE=\
+`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
+NR == the_fnr { print $10 ; exit } ' $INFX_ETC/$INFX_CONF`
+
+if [ "X${ENV_FILE}" != "X" ]
+then
+	source ${INFX_ETC}/${ENV_FILE}
+fi
 
 export ENVTYPE=\
 `$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
