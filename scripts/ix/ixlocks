@@ -1,0 +1,48 @@
+#/bin/sh
+# Name: $RCSfile$
+# CVS file: $Source$
+# CVS id: $Header$
+# Revision: $Revision$
+# Revised on: $Date$
+# Revised by: $Author$
+# Support: Fernando Nunes - domusonline@domus.online.pt
+# Licence: This script is licensed as GPL ( http://www.gnu.org/licenses/gpl.html )
+# History:
+
+
+which ixses | grep "^no ixses" >/dev/null 2>/dev/null
+if [ $? = 0 ]
+then
+	#... no ixses...
+	#MON_CMD="onstat -g sql"
+	MON_CMD="onstat -g ses"
+else
+	MON_CMD="ixses"
+fi
+
+
+
+onstat -K | grep -v -e "^$" -e "^Locks" -e "^address" -e active -e "^Informix" | awk '$2 !~ "^0$" {print $0}' | while read linha
+do
+	echo Linha: $linha
+
+	waiter_RSTCB=`echo $linha | cut -f2 -d' '`
+	owner_RSTCB=`echo $linha | cut -f3 -d' '`
+	table=`echo $linha | cut -f7 -d' '`
+
+	dbaccess sysmaster <<EOF 2>>/dev/null
+select partnum, dbsname, tabname from systabnames where partnum = '0x${table}'
+EOF
+
+	left=1
+	for ses in `onstat -u | grep -e "^${waiter_RSTCB}" -e "^${owner_RSTCB}" | awk '{print $3}'`
+	do
+		if [ ${left} = 1 ]
+		then
+			${MON_CMD} $ses
+		else
+			${MON_CMD} $ses
+		fi
+	done
+	echo "-------------------------------------------------------------"
+done
