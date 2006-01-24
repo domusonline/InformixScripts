@@ -32,7 +32,7 @@
 #          - Activation of variables IFMX_ALARM_CLASS_MAIL and IFMX_ALARM_CLASS_SMS
 #   v 1.0: - Debug messages removed
 
-VERSION="1.3"
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
 
 send_sms()
 {
@@ -127,6 +127,25 @@ see_also=$5
 datevar=`date`
 timestamp=`date +"%Y%j%H%M%S"`
 host=`hostname`
+
+
+# If this variables aren't defined, defined them in a way it won't trigger the respective events
+# otherwise we could have errors in the 'ifs' at the bottom
+if [ -z "{IFMX_ALARM_SEV_SMS}" ]
+then
+	IFMX_ALARM_SEV_SMS=6
+fi
+
+if [ -z "{IFMX_ALARM_SEV_MAIL}" ]
+then
+	IFMX_ALARM_SEV_MAIL=6
+fi
+
+if [ -z "{IFMX_ALARM_SEV_SYSLOG}" ]
+then
+	IFMX_ALARM_SEV_SYSLOG=6
+fi
+
 ALARM_CONF=${ALARM_BASE_DIR}/alarm_conf.sh
 
 if [ -x ${ALARM_CONF} ]
