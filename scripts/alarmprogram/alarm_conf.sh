@@ -14,7 +14,7 @@
 #           - Export TSTAMP
 
 
-VERSION="1.1"
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
 if [ "X" = "X${INFORMIXSERVER}" ]
 then
 	echo "`basename $0`: INFORMIXSERVER nao definido" >&2
@@ -55,7 +55,7 @@ IFMX_ALARM_HEADER_CC="A third Name <third.address@foo.com>"
 IFMX_ALARM_NUM_SMS="123456789 987654321"
 
 #---- Minumu 'severity level' to send to syslog
-IFMX_ALARM_SEV_MAIL=0
+IFMX_ALARM_SEV_SYSLOG=0
 
 #---- Minimum 'severity level' to send mail
 IFMX_ALARM_SEV_MAIL=3
@@ -101,6 +101,7 @@ export IFMX_ALARM_HEADER_CC
 export IFMX_ALARM_NUM_SMS
 export IFMX_ALARM_SEV_SMS
 export IFMX_ALARM_SEV_MAIL
+export IFMX_ALARM_SEV_SYSLOG
 export TSTAMP_INTERVAL
 
 export IFMX_BAR_LOG_BACKUP
