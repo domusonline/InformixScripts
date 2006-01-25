@@ -306,7 +306,7 @@ for check_class in ${IFMX_ALARM_CLASS_SYSLOG}
 do
 	if [ ${class_id} -eq ${check_class} ]
 	then
-		flag_send_sms=1
+		flag_send_syslog=1
 	fi
 done
 
