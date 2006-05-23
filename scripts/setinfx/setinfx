@@ -40,7 +40,14 @@ set_clean_path()
 		idx=0;
 		params_file=sprintf("%s/'$INFX_PARAMS'","'$INFX_ETC'");
 		while ( getline ifmxpath[++idx] < params_file ) {
-			a=1;
+			if  ( ifmxpath[idx] ~ "^[a-z]*:.*" )
+			{
+				idx--;
+			}
+			else
+			{
+				a=1;
+			}
 		}
 		if ( a == 0 ) {
 			print "NO param lines !";
@@ -111,8 +118,26 @@ then
 fi
 
 user=`id | $AWK -F"[()]" ' { print $2 } '`
+ixadmingroups="`grep "^admingroups:" ${INFX_ETC}/${INFX_PARAMS}`"
+if [ $? = 0 ]
+then
+	ixadmingroups=`echo "$ixadmingroups" | cut -f2 -d':'`
+else
+	ixadmingroups=ixdba
+fi
 
-if [ $user = "informix" -o $user = "root" ]
+userdba=0
+for ixadmingroup in $ixadmingroups
+do
+	id | grep "(${ixadmingroup})" >/dev/null
+	if [ $? = 0 ]
+	then
+		userdba=1
+		break
+	fi
+done
+
+if [ $user = "informix" -o $user = "root" -o ${userdba} = 1 ]
 then
 	usertype="adm"
 else
