@@ -28,14 +28,18 @@ case $# in
 	case $IX_VERSION in
 	7)
 		IX_SUB_DIRS="aaodir bin dbssodir demo etc forms gls help incl ism lib msg release snmp"
-		IX_DIRS="aaodir bin demo forms gls help incl ism lib msg release snmp"
+		IX_DIRS="bin demo forms gls help incl ism lib msg release snmp"
 		;;
 	9)
 		IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp"
-		IX_DIRS="aaodir bin demo doc extend forms gls help incl ism lib msg release snmp"
+		IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp"
+		;;
+	10)
+		IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp ids_license master_license"
+		IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp ids_license master_license"
 		;;
 	*)
-		echo "Version can only be 7 or 9" >&2
+		echo "Version can only be 7, 9 or 10" >&2
 		usage
 		exit 1
 		;;
@@ -46,8 +50,19 @@ case $# in
 	exit 1
 esac
 
+SO=`uname -s | tr "[A-Z]" "[a-z]"`
+case $SO in
+sunos*|osf*)
+        AWK=nawk
+        ;;
+linux|*)
+        AWK=awk
+        ;;
+esac
 
-MY_USER=`id | awk -F"[()]" ' { print $2 } '`
+export AWK
+
+MY_USER=`id | ${AWK} -F"[()]" ' { print $2 } '`
 
 case $MY_USER in
 informix|root)
@@ -76,7 +91,7 @@ do
 	if [ ! -d $EXISTING_IXDIR/$dir ]
 	then
 		echo "$EXISTING_IXDIR/$dir does not exist!... Aborting..." >&2
-		exit 1	
+#		exit 1	
 	fi
 done
 
@@ -93,6 +108,7 @@ then
 	then
 		chown informix:informix $NEW_IXDIR
 	fi
+	chmod 755 $NEW_IXDIR
 fi
 
 cd $NEW_IXDIR
@@ -109,13 +125,17 @@ do
 	fi
 done
 
-mkdir dbssodir
-mkdir etc
+mkdir dbssodir aaodir etc
 cp -pR $EXISTING_IXDIR/etc/* $NEW_IXDIR/etc
 cp -pR $EXISTING_IXDIR/dbssodir/* $NEW_IXDIR/dbssodir
+cp -pR $EXISTING_IXDIR/aaodir/* $NEW_IXDIR/aaodir
 
 if [ $MY_USER != "informix" ]
 then
+	#Future versions should handle role separation
 	chown informix:informix $NEW_IXDIR/dbssodir
 	chown informix:informix $NEW_IXDIR/etc
+	chown informix:informix $NEW_IXDIR/aaodir
 fi
+chmod 770 dbssodir aaodir
+chmod 755 etc
