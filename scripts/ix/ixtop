@@ -8,7 +8,7 @@
 
 show_help()
 {
-	echo "${PROGNAME}:  ${PROGNAME} [ [ -h | -v ] | [ -n <interactions>] [ -c <min-runs> ] ] " >&2
+	echo "${PROGNAME}:  ${PROGNAME} [ [ -h | -V ] | [ -n <interactions>] [ -c <min-runs> ] ] " >&2
 	echo "      <interactions> : nuber of onstat -g act to trace [default=20]" >&2
 	echo "      <min-runs>     : minimum ocurrences of the thread in the active list [default=2]" >&2
 }
@@ -19,7 +19,7 @@ show_version()
 }
 get_args()
 {
-	arg_ok="hvn:c:"
+	arg_ok="hVn:c:"
 	list="$*"
 	getopt "${arg_ok}" $list >/dev/null 2>&1
 	# check result of parsing
@@ -42,7 +42,7 @@ get_args()
 			show_help
 			exit 0
 			;;
-		-v)	#show version
+		-V)	#show version
 			if [ "X${VERSION_FLAG}" = "X1" ]
 			then
 				echo "${PROGNAME}: Erro - Opcao -v ja foi processada" >&2
