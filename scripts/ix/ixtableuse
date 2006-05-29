@@ -1,0 +1,135 @@
+#!/usr/bin/ksh
+
+ix_help()
+{
+	echo "${PROGNAME}: -V | -h | { <partnum> | <database:table> }" >&1
+	echo "               -V shows script version" >&1
+	echo "               -h shows this help" >&1
+	echo "Ex: ${PROGNAME} stores7:customer" >&1
+}
+
+get_args()
+{
+	arg_ok='Vh'
+	list="$*"
+	getopt ${arg_ok} $list >/dev/null 2>&1
+	# check result of parsing
+	if [ $? != 0 ]
+	then
+		return 1
+	fi
+	set -- `getopt "${arg_ok}" $list`
+
+	while [ $1 != -- ]
+	do
+		case $1 in
+		-h)   # show help
+			ix_help
+			exit 0
+			;;
+		-V)   # show version
+			echo "${PROGNAME} ${VERSION}" >&1
+			exit 0
+			;;
+		esac
+		shift
+	done
+	shift   # skip double dash
+	while [ $# -ge 1 ]
+	do
+		case $1 in
+                *)
+			TABLE_LIST="${TABLE_LIST} $1"
+			TABLE_COUNT=`expr ${TABLE_COUNT} + 1`
+			shift
+			continue
+                        ;;
+                esac
+        done
+}
+
+#INIT
+
+TABLE_COUNT=0
+SEPARATOR_FLAG=1
+export SEPARATOR_FLAG
+MAX_GREP_FILE_LINES=250
+export MAX_GREP_FILE_LINES
+PROGNAME=`basename $0`
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
+SESSION_LIST=""
+
+
+get_args $*
+if [ $? != 0 ]
+then
+        echo "Error parsing parameters" >&2
+        exit 1
+fi
+
+TEMP_FILE=/tmp/ixtableuse.$$
+TEMP_FILE_1=/tmp/ixtableuse_1.$$
+for TABLE in $TABLE_LIST
+do
+	
+	if [ ${TABLE_COUNT} -gt 1 -a "X${SEPARATOR_FLAG}" = "X1" ]
+	then
+		echo
+		echo '# TABLE: ' ${TABLE}
+		echo
+	fi
+
+	echo ${TABLE} | grep ":" >/dev/null
+	if [ $? = 0 ]
+	then
+		DBNAME=`echo ${TABLE} | cut -f1 -d':'`
+		TABNAME=`echo ${TABLE} | cut -f2 -d':'`
+	
+	TABLE=`dbaccess sysmaster <<EOF 2>/dev/null | grep "^0x.*" 
+	SELECT hex(partnum)
+	FROM systabnames
+	WHERE dbsname = "$DBNAME"
+	AND tabname = "$TABNAME";
+EOF
+`
+	
+	else
+		echo ${TABLE} | grep "^[a-f0-9]*$" >/dev/null
+		if [ $? != 0 ]
+		then
+			echo "PARTNUM has invalid characters" >&2
+			exit 1
+		fi
+	fi
+
+	TABLE=`echo ${TABLE} | tr "[:upper:]" "[:lower:]"`
+	echo "TABLE HEX:" ${TABLE}
+	echo
+	echo
+	onstat -g opn  | awk -v "partnum=$TABLE" '$6 ~ partnum {print $2}' | sort -u | sed 's/0x//g' > ${TEMP_FILE}
+#onstat -k |  awk -v "partnum=$TABLE" '{ if ( ( $6 ~ partnum ) && ( $2 != "^0$" ) ) {print $2}}' | sort -u | sed 's/0x//g' >> ${TEMP_FILE}
+
+	GREP_FILE_LINES=`wc -l ${TEMP_FILE} | awk '{print $1}'`
+
+	if [ ${GREP_FILE_LINES} -gt ${MAX_GREP_FILE_LINES} ]
+	then
+		split -l ${MAX_GREP_FILE_LINES} ${TEMP_FILE} ${TEMP_FILE_1}
+
+		for fich in ${TEMP_FILE_1}*
+		do
+			onstat -u | grep -f ${fich}
+		done
+		rm -f ${TEMP_FILE_1}*
+	else
+		onstat -u | grep -f ${TEMP_FILE}
+	fi
+
+	if [ ${TABLE_COUNT} -gt 1 -a "X${SEPARATOR_FLAG}" = "X1" ]
+	then
+		echo
+		echo '#--------------------------------------------------------------------------------'
+		echo
+	fi
+done
+
+rm -f ${TEMP_FILE}
