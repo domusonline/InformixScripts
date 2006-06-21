@@ -82,9 +82,11 @@ SO=`uname -s | tr "[A-Z]" "[a-z]"`
 case $SO in
 sunos*|osf*)
 	AWK=nawk
+	ID_FLAGS=-a
 	;;
 linux|*)
 	AWK=awk
+	ID_FLAGS=
 	;;
 esac
 
@@ -129,7 +131,7 @@ fi
 userdba=0
 for ixadmingroup in $ixadmingroups
 do
-	id | grep "(${ixadmingroup})" >/dev/null
+	id ${ID_FLAGS} | grep "(${ixadmingroup})" >/dev/null
 	if [ $? = 0 ]
 	then
 		userdba=1
