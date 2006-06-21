@@ -80,9 +80,13 @@ main()
 
 SO=`uname -s | tr "[A-Z]" "[a-z]"`
 case $SO in
-sunos*|osf*)
+sunos*)
 	AWK=nawk
 	ID_FLAGS=-a
+	;;
+osf*)
+	AWK=nawk
+	ID_FLAGS=
 	;;
 linux|*)
 	AWK=awk
