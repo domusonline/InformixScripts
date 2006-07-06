@@ -124,7 +124,7 @@ then
 fi
 
 user=`id | $AWK -F"[()]" ' { print $2 } '`
-ixadmingroups="`grep "^admingroups:" ${INFX_ETC}/${INFX_PARAMS}`"
+ixadmingroups="`grep '^admingroups:' ${INFX_ETC}/${INFX_PARAMS}`"
 if [ $? = 0 ]
 then
 	ixadmingroups=`echo "$ixadmingroups" | cut -f2 -d':'`
