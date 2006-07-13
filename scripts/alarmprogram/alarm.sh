@@ -86,17 +86,18 @@ This is an automatic generated mail created by the alarm.sh script
 of the Informix instance ${INFORMIXSERVER} at host $host
 ------------------------------------------------------------------
 
+Date: $datevar
 Severity: $severity
 Class Id: $class_id
+Class desc: $class_text
+
 Class msg: $class_msg
+
 Specific msg: $specific_msg
-Data: $datevar
+
  
-$class_text
- 
-$specific_msg
- 
-Aditional information: $see_also
+Aditional information:
+$see_also
 
 ------------------------------------------------------------------------------
 .
@@ -131,17 +132,22 @@ host=`hostname`
 
 # If this variables aren't defined, defined them in a way it won't trigger the respective events
 # otherwise we could have errors in the 'ifs' at the bottom
-if [ -z "{IFMX_ALARM_SEV_SMS}" ]
+if [ -z "${IFMX_ALARM_CLASS_NO_REPEAT}" ]
+then
+	IFMX_ALARM_CLASS_NO_REPEAT=""
+fi
+
+if [ -z "${IFMX_ALARM_SEV_SMS}" ]
 then
 	IFMX_ALARM_SEV_SMS=6
 fi
 
-if [ -z "{IFMX_ALARM_SEV_MAIL}" ]
+if [ -z "${IFMX_ALARM_SEV_MAIL}" ]
 then
 	IFMX_ALARM_SEV_MAIL=6
 fi
 
-if [ -z "{IFMX_ALARM_SEV_SYSLOG}" ]
+if [ -z "${IFMX_ALARM_SEV_SYSLOG}" ]
 then
 	IFMX_ALARM_SEV_SYSLOG=6
 fi
@@ -282,34 +288,67 @@ case $class_id in
 	29)
 		class_text="Internal Subsystem: $class_msg"
 		;;
+	900)
+		class_text="Checkpoint completed"
+		;;
+	901)
+		class_text="Connection problem"
+		;;
+	902)
+		class_text="Archive Started"
+		;;
+	903)
+		class_text="Operating status change"
+		;;
+	904)
+		class_text="Runtime error"
+		;;
 
 esac
  
-for check_class in ${IFMX_ALARM_CLASS_MAIL}
-do
-	if [ ${class_id} -eq ${check_class} ]
+echo ${IFMX_ALARM_CLASS_MAIL} | egrep "(${class_id} |${class_id}$)" >/dev/null
+if [ $? = 0 ]
+then
+	flag_send_mail=1
+fi
+
+echo ${IFMX_ALARM_CLASS_SMS} | egrep "(${class_id} |${class_id}$)" >/dev/null
+if [ $? = 0 ]
+then
+	flag_send_sms=1
+fi
+
+echo ${IFMX_ALARM_CLASS_SYSLOG} | egrep "(${class_id} |${class_id}$)" >/dev/null
+if [ $? = 0 ]
+then
+	flag_send_syslog=1
+fi
+
+LAST_EVENT_FILE=${ALARM_BASE_DIR}/${INFORMIXSERVER}_last_event
+if [ -r ${LAST_EVENT_FILE} ]
+then
+	LAST_EVENT_STATUS=`tail -1 ${LAST_EVENT_FILE}`
+	LAST_EVENT_TYPE=`echo ${LAST_EVENT_STATUS} | cut -f1 -d' '`
+	LAST_EVENT_TSTAMP=`echo ${LAST_EVENT_STATUS} | cut -f2 -d' '`
+else
+	LAST_EVENT_TYPE=0
+fi
+
+echo ${IFMX_ALARM_CLASS_NO_REPEAT} | egrep "(${class_id} |${class_id}$)" >/dev/null
+if [ $? = 0 ]
+then
+	if [ ${LAST_EVENT_TYPE} -eq ${class_id} ]
 	then
-		flag_send_mail=1
+		diff_t1_t2 $timestamp ${LAST_EVENT_TSTAMP} ${TSTAMP_INTERVAL}
+		res=$?
+		if [ $res -eq 0 ]
+		then
+			exit 0
+		fi
 	fi
-done
+fi
 
-
-for check_class in ${IFMX_ALARM_CLASS_SMS}
-do
-	if [ ${class_id} -eq ${check_class} ]
-	then
-		flag_send_sms=1
-	fi
-done
-
-for check_class in ${IFMX_ALARM_CLASS_SYSLOG}
-do
-	if [ ${class_id} -eq ${check_class} ]
-	then
-		flag_send_syslog=1
-	fi
-done
-
+echo "${class_id} ${timestamp} ${LAST_EVENT_TYPE}" >> ${LAST_EVENT_FILE}
 
 #send sms/paging event
 if [ $severity -ge ${IFMX_ALARM_SEV_SMS}  -o ${flag_send_sms} -eq 1 ]
@@ -330,27 +369,6 @@ fi
 # Send email to those who may be interested
 if [ $severity -ge ${IFMX_ALARM_SEV_MAIL} -o ${flag_send_mail} -eq 1 ]
 then
-	LAST_EVENT_FILE=${ALARM_BASE_DIR}/${INFORMIXSERVER}_last_event
-	if [ -r ${LAST_EVENT_FILE} ]
-	then
-		LAST_EVENT_STATUS=`tail -1 ${LAST_EVENT_FILE}`
-		LAST_EVENT_TYPE=`echo ${LAST_EVENT_STATUS} | cut -f1 -d' '`
-		LAST_EVENT_TSTAMP=`echo ${LAST_EVENT_STATUS} | cut -f2 -d' '`
-	else
-		LAST_EVENT_TYPE=0
-	fi
-
-	if [ ${LAST_EVENT_TYPE} -eq ${class_id} ]
-	then
-		diff_t1_t2 $timestamp ${LAST_EVENT_TSTAMP} ${TSTAMP_INTERVAL}
-		res=$?
-		if [ $res -eq 0 ]
-		then
-			echo "${class_id} ${timestamp} ${LAST_EVENT_TYPE}" >> ${LAST_EVENT_FILE} 
-			exit 0
-		fi
-	fi
-	echo "${class_id} ${timestamp} ${LAST_EVENT_TYPE}" >> ${LAST_EVENT_FILE} 
 	send_mail
 fi
  

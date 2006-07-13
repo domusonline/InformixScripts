@@ -5,14 +5,12 @@
 # Revision: $Revision$
 # Revised on: $Date$
 # Revised by: $Author$
-# Support: Fernando Nunes - fernando.nunes@tmn.pt
-# Projecto: alarmprogram
-# Descricao
-#           Funcoes auxiliares para ver se uma data difere mais ou menos que um
-#           dado intervalo de outra data
+# Support: Fernando Nunes - domusonline@domus.online.pt
+# Project: alarmprogram
+# Description:
+# 	Aux functions to manipulate dates
 #
 
-#retorna 0 se a diferenca for menor que a dada.
 soma()
 {
 y=`echo $1 | cut -c1-4`
@@ -23,7 +21,6 @@ s=`echo $1 | cut -c12-13`
 valor=$2
 unidade=$3
 
-echo $valor >&2
 if [ $unidade = "s" ]
 then
    mult=`expr $valor / 60`
@@ -98,10 +95,10 @@ echo "$y$d$h$m$s"
 # params:
 #         data >    (%Y%j%H%M%S)
 #         data <    (%Y%j%H%M%S)
-#         intervalo (segundos)
+#         interval  (seconds)
 # return:
-#         0: d2 + intervalo > d1
-#         1: d2 + intervalo <= d1
+#         0: d2 + interval > d1
+#         1: d2 + interval <= d1
 #------------------------------------------
 
 diff_t1_t2()
@@ -110,7 +107,6 @@ t1=$1
 t2=$2
 intervalo=$3
 
-VERSION="1.0"
 
 if [ $t1 -lt $t2 ]
 then

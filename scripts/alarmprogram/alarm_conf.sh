@@ -83,6 +83,13 @@ IFMX_ALARM_CLASS_SYSLOG="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 17 19 20 21 22 24 2
 #Classes which send sms whatever the severity...
 IFMX_ALARM_CLASS_SMS="4 12 20"
 
+
+#Classes that should avoid repeating processing within $TSTAMP_INTERVAL
+IFMX_ALARM_CLASS_NO_REPEAT="21"
+
+#Number of seconds before sending the same event alarm
+TSTAMP_INTERVAL=60
+
 IFMX_ALARM_SYSLOG_FACILITY=local7
 IFMX_ALARM_IX_COMPONENT=IXS
 IFMX_ALARM_IX_SUBCOMPONENT=DBENGINE
@@ -102,6 +109,8 @@ export IFMX_ALARM_NUM_SMS
 export IFMX_ALARM_SEV_SMS
 export IFMX_ALARM_SEV_MAIL
 export IFMX_ALARM_SEV_SYSLOG
+
+export IFMX_ALARM_CLASS_NO_REPEAT
 export TSTAMP_INTERVAL
 
 export IFMX_BAR_LOG_BACKUP
