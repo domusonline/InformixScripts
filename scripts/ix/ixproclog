@@ -1,0 +1,375 @@
+#!/bin/ksh
+# Name: $RCSfile$
+# CVS file: $Source$
+# CVS id: $Header$
+# Revision: $Revision$
+# Revised on: $Date$
+# Revised by: $Author$
+# Support: Fernando Nunes - fernando.nunes@pt.ibm.com
+
+ix_help()
+{
+        echo "${PROGNAME}: -V | -h | { [-f] <DAEMON|WORKER environment> }" >&1
+        echo "               -V shows script version" >&1
+        echo "               -h shows this help" >&1
+	echo "               -f kill existing process and launches itself" >&1
+	echo "               DAEMON to run as monitor - launches a worker for each admin environment">&1
+	echo "               WORKER to run as a worker for a specific IDS environment">&1
+	echo "               environment Admin environment number">&1
+        echo "Ex: ${PROGNAME} -f DAEMON" >&1
+}
+get_args()
+{
+	arg_ok='fVh'
+	list="$*"
+	getopt ${arg_ok} $list >/dev/null 2>&1
+	# check result of parsing
+	if [ $? != 0 ]
+	then
+		return 1
+	fi
+	set -- `getopt "${arg_ok}" $list`
+
+	while [ $1 != -- ]
+	do
+		case $1 in
+		-h)   # show help
+			ix_help
+			exit 0
+                        ;;
+		-V)   # show version
+			echo "${PROGNAME} ${VERSION}" >&1
+			exit 0
+			;;
+		-f)   # set up the -f (force cleanup)
+                        FORCE_FLAG=1
+                        ;;
+		esac
+		shift
+	done
+	shift   # skip double dash
+	while [ $# -ge 1 ]
+	do
+		case $1 in
+                -f)
+			if [ "X{FORCE_FLAG}" = "X1" ]
+			then
+				echo "${PROGNAME} - Error: -f flag already processed"  >&2
+				exit 1
+			else
+				FORCE_FLAG=1
+			fi
+			;;
+		*)
+			case $1 in
+			DAEMON)
+				if [ "X${MODE_FLAG}" = "X1" ]
+				then
+					echo "${PROGNAME} - Error: Mode already selected ( ${RUN_MODE} )">&2
+					return 1
+				else
+					MODE_FLAG=1
+					RUN_MODE=$1
+				fi
+				;;
+			WORKER)
+				if [ "X${MODE_FLAG}" = "X1" ]
+				then
+					echo "${PROGNAME} - Error: Mode already selected ( ${RUN_MODE} )">&2
+					return 1
+				else
+					MODE_FLAG=1
+					RUN_MODE=$1
+					if [ "X$2" = "X" ]
+					then
+						echo "${PROGNAME} - Error: WORKER mode requires environment number">&2
+						return 1
+					else
+						IX_NUM=$2
+						echo "${IX_NUM}" | egrep "^[0-9]{1,}" >/dev/null
+						if [ $? != 0 ]
+						then
+							echo "${PROGNAME} : Error - SETINFX ( $IX_NUM )server number must be numeric" >&2
+							return 1
+						fi
+					fi
+				fi
+				shift
+				;;
+			esac
+		esac
+		shift
+	done
+	if [ "X${RUN_MODE}" = "X" ]
+	then
+		echo "${PROGNAME} - Error: Run mode not given">&2
+		return 1
+	fi
+}
+				
+			
+		
+
+
+
+#---------------------------------------------------------------------------------
+# function to be run by the daemon when a worker dies.
+#---------------------------------------------------------------------------------
+
+
+worker_stopped()
+{
+	echo "Worker stopped"
+	for ENV_VAR in `env | grep ${PROGNAME}WORKER`
+	do
+		WORKER_VAR=`echo ${ENV_VAR} | cut -f1 -d'='`
+		WORKER_PID=`echo ${ENV_VAR} | cut -f2 -d'='`
+		ps -p ${WORKER_PID} | grep "${PROGNAME} WORKER" >/dev/null
+		if [ $? != 0 ]
+		then
+			WORKER_ARG=`echo ${WORKER_VAR} | cut -f2 -d'_'`
+			echo "Relaunch of worker ${WORKER_ARG}"
+			launch_worker ${WORKER_ARG}
+			break
+		fi
+	done
+}
+
+worker_error()
+{
+	echo "Worker signaled error condition" >&2
+}
+
+#---------------------------------------------------------------------------------
+# function to be run by the workers when a worker ends.
+#---------------------------------------------------------------------------------
+alert_daemon()
+{
+	kill -USR1 $PPID
+}
+
+#---------------------------------------------------------------------------------
+# function to be run by the daemon on exit. Kills all the workers
+#---------------------------------------------------------------------------------
+worker_ignore()
+{
+	echo "Worker stopped"
+}
+clean_all()
+{
+	trap worker_ignore USR1
+	kill -15 0
+}
+
+#---------------------------------------------------------------------------------
+# daemon implementation. Gets the SETINFX numbers of all admin environments and
+# launches a worker for each of them
+#---------------------------------------------------------------------------------
+run_daemon()
+{
+
+
+	#-------------------------------------------------------------------------
+	# checking to see if it's running
+	#-------------------------------------------------------------------------
+
+	THIS_PID=$$
+	PS_LINE=`ps -ef | grep "${PROGNAME} DAEMON" | grep -v grep | ${AWK} -v "PID=${THIS_PID}" '{ if ( $2 != PID ) {print $1 ":" $2}}'`
+	if [ "X${PS_LINE}" != "X" ]
+	then
+		if [ "X${FORCE_FLAG}" = "X1" ]
+		then
+			OTHER_USER=`echo ${PS_LINE} | cut -f1 -d':'`
+			
+			if [ "X${USER}" != "Xroot" ]
+			then
+				if [ "X${OTHER_USER}" != "X${USER}" ]
+				then
+					echo "${PROGNAME}: Error - There is another DAEMON running and belongs to another user. Can't kill it. Aborting" >&2
+					exit 1
+				fi
+			fi
+			OTHER_PID=`echo ${PS_LINE} | cut -f2 -d':'`
+			kill -15 ${OTHER_PID}
+		else
+			echo "${PROGNAME} - Error: There is another daemon running. Use -f to kill it...">&2
+			exit 1
+		fi
+	fi
+
+	for ENV_ID in `get_setinfx_admin_list`
+	do
+		launch_worker ${ENV_ID}
+	done
+}
+
+
+#---------------------------------------------------------------------------------
+# creates the worker and defines the env variable to track it
+#---------------------------------------------------------------------------------
+launch_worker()
+{
+	IX_NUM=$1
+	ixproclog WORKER ${IX_NUM}&
+	WORKER_PID=$!
+	eval "${PROGNAME}WORKER_${IX_NUM}=${WORKER_PID}"
+	eval "export ${PROGNAME}WORKER_${IX_NUM}"	
+	echo "Launched WORKER ${IX_NUM} with PID ${WORKER_PID}"
+}
+
+#---------------------------------------------------------------------------------
+# worker implementation
+#---------------------------------------------------------------------------------
+run_worker()
+{
+
+
+	SETINFX_SILENT=1
+	export SETINFX_SILENT
+
+	EXPR_FILE=${PROGNAME}.def
+	FUNCTION_FILE=${PROGNAME}.inc
+
+
+	. setinfx ${IX_NUM}
+
+	SETINFX_CONF_DIR=`get_setinfx_conf_dir`
+	if [ "X${SETINFX_CONF_DIR}" = "X" ]
+	then
+		EXPR_FILE_LIST="${DIRNAME}/${PROGNAME}.${INFORMIXSERVER}.def"                                                 
+	else
+		EXPR_FILE_LIST="${SETINFX_CONF_DIR}/${PROGNAME}.${INFORMIXSERVER}.def ${SETINFX_CONF_DIR}/${PROGNAME}.def ${DIRNAME}/${PROGNAME}.${INFORMIXSERVER}.def ${DIRNAME}/${PROGNAME}.def"
+	fi
+
+	F_NOT_FOUND=1
+	for EXPR_FILE in ${EXPR_FILE_LIST}
+	do
+		if [ -r ${EXPR_FILE} ]
+		then
+			F_NOT_FOUND=0
+			break
+		fi
+	done
+
+	if [ "${F_NOT_FOUND}" = 1 ]
+	then
+		echo "${PROGNAME} - ix_checkpoint [ Worker ${IX_NUM} ${INFORMIXSERVER} ] - Error: Cannot read expression definition file" >&2
+		exit 1
+	fi
+
+
+	if [ "X${SETINFX_CONF_DIR}" = "X" ]
+	then
+		FUNCTION_FILE_LIST="${DIRNAME}/${PROGNAME}.${INFORMIXSERVER}.inc"                                                 
+	else
+		FUNCTION_FILE_LIST="${SETINFX_CONF_DIR}/${PROGNAME}.${INFORMIXSERVER}.inc ${SETINFX_CONF_DIR}/${PROGNAME}.inc ${DIRNAME}/${PROGNAME}.${INFORMIXSERVER}.inc ${DIRNAME}/${PROGNAME}.inc"
+	fi
+
+	F_NOT_FOUND=1
+	for FUNCTION_FILE in ${FUNCTION_FILE_LIST}
+	do
+		if [ -r ${FUNCTION_FILE} ]
+		then
+			F_NOT_FOUND=0
+			break
+		fi
+	done
+
+
+
+	if [ "${F_NOT_FOUND}" = 1 ]
+	then
+		trap 0
+		echo "${PROGNAME}: Error [ Worker ${IX_NUM} ${INFORMIXSERVER} ] - Can not read functions plugin file" >&2
+		kill -USR2 $PPID
+		exit 1
+	fi
+
+
+
+	dbaccess sysmaster <<EOF 2>/dev/null | grep "VALUE:" | ${AWK} -F':' '{print $2}' | read IDS_VERSION
+	SELECT "VALUE:"||DBINFO('version','major')
+	FROM systables
+	WHERE tabid = 1;
+EOF
+	
+	if [ "X${IDS_VERSION}" = "X" ]
+	then
+		IDS_VERSION=.
+	fi
+
+	if [ -x ${FUNCTION_FILE} ]
+	then
+	. ${FUNCTION_FILE}
+	else
+		echo "${PROGNAME} - Error [ Worker ${IX_NUM} ${INFORMIXSERVER} ] - FUNCTION file is not executable: ${FUNCTION_FILE}" >&2
+		kill -USR2 $PPID
+		trap 0
+		exit 1
+	fi
+
+	trap alert_daemon 0
+
+	IX_MSG_LOG_FILE=`onstat -m | grep "^Message Log File:" | cut -f2 -d':'`
+	ALARM_SCRIPT=`onstat -c | grep "^ALARMPROGRAM" | ${AWK} '{print $2}'`
+
+	tail -f -0 ${IX_MSG_LOG_FILE} | while read LOG_LINE
+	do
+		cat ${EXPR_FILE} | grep -v "^#" | ${AWK} -F'|' -v "IDS_VERSION=${IDS_VERSION}" '{ if ( $7 ~ ":"IDS_VERSION":" ) {print $0}}' | while read EXPR_DATA
+		do
+			EXPR_GREP=`echo ${EXPR_DATA} | cut -f1 -d'|'`
+			echo $LOG_LINE | grep "${EXPR_GREP}" >/dev/null
+			if [ $? = 0 ]
+			then
+				EXPR_ALARM_CLASS_ID=`echo ${EXPR_DATA} | cut -f2 -d'|'`
+				EXPR_ALARM_SEVERITY=`echo ${EXPR_DATA} | cut -f3 -d'|'`
+				EXPR_ALARM_CLASS_MSG=`echo ${EXPR_DATA} | cut -f4 -d'|'`
+				EXPR_FUNCTION=`echo ${EXPR_DATA} | cut -f5 -d'|'`
+				EXPR_ALARM_SEND=`echo ${EXPR_DATA} | cut -f6 -d'|'`
+
+				if [ "X${EXPR_ALARM_SEND}" = "XY" ]
+				then
+					${ALARM_SCRIPT} ${EXPR_ALARM_SEVERITY} ${EXPR_ALARM_CLASS_ID} "${EXPR_ALARM_CLASS_MSG}" "$LOG_LINE"
+				fi
+
+				$EXPR_FUNCTION
+				break
+			fi
+		done
+	done
+}
+
+#---------------------------------------------------------------------------------
+# Main program. Parses args and then calls the worker or daemon implementation
+#---------------------------------------------------------------------------------
+PROGNAME=`basename $0`
+DIRNAME=`dirname $0`
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
+
+get_args $*
+if [ $? != 0 ]
+then
+        echo "Error parsing parameters" >&2
+        exit 1
+fi
+. setinfx_utils
+case ${RUN_MODE} in
+DAEMON)
+	trap clean_all 0
+	trap worker_stopped USR1
+	trap worker_error USR2
+	run_daemon
+	while true
+	do
+		wait
+	done
+	;;
+WORKER)
+	run_worker
+	;;
+*)
+	echo "${PROGNAME} : Error - Invalid MODE parameter" >&2
+	exit 1
+	;;
+esac
+

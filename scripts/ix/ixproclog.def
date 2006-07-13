@@ -1,0 +1,13 @@
+#-----------------------------------------------------------------------------------------------------------------------------------
+# Field description:
+# 1-Online log msg|2-alarm_class_id|3-alarm_severity|4-alarm_class_msg|5-function|6-alarm_send|7-IDS versions
+#-----------------------------------------------------------------------------------------------------------------------------------
+Checkpoint Completed|900|1|Checkpoint completed|ix_checkpoint|Y|:7:9:10:|
+Client host or user|901|3|Connect attempt failed - User not trusted||Y|:7:9:10:|
+password is not correct for the database server|901|3|Connect attempt failed - Incorrect password||Y|:7:9:10:|
+Archive started|902|3|Archive Started||Y|7:9:10:|
+Dynamic Server Started|903|3|Engine started||Y|:7:9:10:|
+Dynamic Server Stopped|903|3|Engine stopped||Y|:7:9:10:|
+Quiescent Mode|903|3|Engine entered Quiescent Mode||Y|:7:9:10:|
+On-Line Mode|903|3|Engine entered On-Line Mode||Y|:7:9:10:|
+KAIO: out of OS resources|904|4|Kaio out of OS resources||Y|:7:9:10:|
