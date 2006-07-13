@@ -222,7 +222,7 @@ fi
 
 if [ "X${START_TIME_FLAG}" = "X1" ]
 then
-	echo ${START_TIME} | grep -E "^[0-9]{8}" >/dev/null 2>/dev/null
+	echo ${START_TIME} | grep -E "^[0-9]{8}$" >/dev/null 2>/dev/null
 	if [ $? != 0 ]
 	then
 		echo "${PROGNAME}: Error: Invalid format for start time ( ${START_TIME} )" >&2
@@ -236,7 +236,7 @@ fi
 
 if [ "X${STOP_TIME_FLAG}" = "X1" ]
 then
-	echo ${STOP_TIME} | grep -E "^[0-9]{8}" >/dev/null 2>/dev/null
+	echo ${STOP_TIME} | grep -E "^[0-9]{8}$" >/dev/null 2>/dev/null
 	if [ $? != 0 ]
 	then
 		echo "${PROGNAME}: Error: Invalid format for stop time ( ${START_TIME} )" >&2
