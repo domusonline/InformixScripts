@@ -5,7 +5,7 @@
 # Revision: $Revision$
 # Revised on: $Date$
 # Revised by: $Author$
-# Support: Fernando Nunes - fernando.nunes@tmn.pt
+# Support: Fernando Nunes - fernando.nunes@pt.ibm.com
 # Notes:
 # Script to measure IDS uptime/downtime time given an online.log
 # History:
@@ -20,9 +20,26 @@ VERSION=`echo "$Revision$" | cut -f2 -d' '`
 OFFLINE_FILE=/tmp/ixuptime_offline_$$.unl
 ONLINE_FILE=/tmp/ixuptime_online_$$.unl
 
+show_help()
+{
+	echo
+        echo "${PROGNAME}: [-h] | [-v] | [ -V ] [-l log] [ -d <days>%<HH>:<mm>:<ss> ] [ -s <start time> ] [ -S <stop time> ] [ -x ]"
+	echo
+	echo "    -h              : this help"
+	echo "    -V              : script version"
+	echo "    -v              : Verbose mode"
+	echo "    -l <log>        : alternative log file"
+	echo "    -d <downtime>   : to indicate machine downtime"
+	echo "    -s <start time> : to indicate the time at which processing should start (%Y%m%d)"
+	echo "    -S <stop time>  : to indicate the time at which processing should stop (%Y%m%d)"
+	echo "    -x              : to force extending the last date collected to the current date/time"
+	echo
+	echo "EX:	${PROGNAME} -l /usr/informix/logs/db.log -d 0%08:32:00 -s 20060701 -S 20060701"
+	echo
+}
 get_args()
 {
-	arg_ok="l:d:hvV"
+	arg_ok="l:d:s:S:xhvV"
 	list="$*"
 	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing                                                
@@ -36,17 +53,7 @@ get_args()
 	do
 		case $1 in
 		-h)   # show help
-			echo
-		        echo "${PROGNAME}: [-h] | [-v] | [ -V ] [-l log] [ -d <days>%<HH>:<mm>:<ss> ]"
-			echo
-			echo "    -h            : this help"
-			echo "    -V            : script version"
-			echo "    -v            : Verbose mode"
-			echo "    -l <log>      : alternative log file"
-			echo "    -d <downtime> : to indicate machine downtime"
-			echo
-			echo "EX:	${PROGNAME} -l /usr/informix/logs/db.log -d 0%08:32:00"
-			echo
+			show_help
 			exit 0
 			;;
                 -V)   # show version
@@ -66,6 +73,19 @@ get_args()
 			MACHINE_DOWNTIME=$2
 			shift
 			;;
+		-s)   # start time
+			START_TIME_FLAG=1
+			START_TIME=$2
+			shift
+			;;
+		-S)   # stop time
+			STOP_TIME_FLAG=1
+			STOP_TIME=$2
+			shift
+			;;
+		-x)   # extend the time to the current one...
+			EXTEND_TIME_FLAG=1
+			;;
 		esac
 		shift
 	done
@@ -83,6 +103,28 @@ get_args()
 				LOF_FILE=$2
 				shift
 			fi;;
+		-s)   # start time
+			if [ "X${START_TIME_FLAG}" = "X1" ]
+			then
+				echo "${PROGNAME}: Syntax error: - start time already interpreted" >&2
+				return 1
+			else
+				START_TIME_FLAG=1
+				START_TIME=$2
+				shift
+			fi
+			;;
+		-S)   # stop time
+			if [ "X${STOP_TIME_FLAG}" = "X1" ]
+			then
+				echo "${PROGNAME}: Syntax error: - stop time already interpreted" >&2
+				return 1
+			else
+				STOP_TIME_FLAG=1
+				STOP_TIME=$2
+				shift
+			fi
+			;;
                 -d)   # log file
                         if [ "X"$MACHINE_DOWNTIME_FLAG = "X1" ]
 			then
@@ -95,15 +137,7 @@ get_args()
 			fi
 			;;
 		-h)   # show help
-			echo
-		        echo "${PROGNAME}: [-h] | [-v] | [ -V ] [-l log] [ -d <days>%<HH>:<mm>:<ss> ]"
-			echo
-			echo "   	-h : this help"
-			echo "   	-v : script version"
-			echo "   	-V : Verbose mode"
-			echo
-			echo "EX:	${PROGNAME} -l /usr/informix/logs/db.log -d 0%08:32:00"
-			echo
+			show_help
 			exit 0
 			;;
 		-V)   # show version
@@ -119,6 +153,15 @@ get_args()
 	                        VERBOSE_FLAG=1
 			fi
                         ;;
+		-x)   # extend the time to the current one...
+			if [ "X${EXTEND_TIME_FLAG}" = "X1" ]
+			then
+				echo "${PROGNAME}: Error - Extend to current time already processed" >&2
+				return 1
+			else
+				EXTEND_TIME_FLAG=1
+			fi
+			;;
 		*)
 			echo "${PROGNAME}: Syntax error: "$1 >&2
 			return 1;;
@@ -175,6 +218,42 @@ else
 	MACHINE_DOWNTIME="0 00:00:00"
 fi
 
+#----- Start time ------------------------------------------
+
+if [ "X${START_TIME_FLAG}" = "X1" ]
+then
+	echo ${START_TIME} | grep -E "^[0-9]{8}" >/dev/null 2>/dev/null
+	if [ $? != 0 ]
+	then
+		echo "${PROGNAME}: Error: Invalid format for start time ( ${START_TIME} )" >&2
+		exit 1
+	fi
+else
+	START_TIME=19000101
+fi
+
+#----- Stop time ------------------------------------------
+
+if [ "X${STOP_TIME_FLAG}" = "X1" ]
+then
+	echo ${STOP_TIME} | grep -E "^[0-9]{8}" >/dev/null 2>/dev/null
+	if [ $? != 0 ]
+	then
+		echo "${PROGNAME}: Error: Invalid format for stop time ( ${START_TIME} )" >&2
+		exit 1
+	else
+		if [ "X${START_TIME_FLAG}" = "X1" ]
+		then
+			if [ ${STOP_TIME} -le ${START_TIME} ]
+			then
+				echo "${PROGNAME}: Error: Stop time must be greater than start time" >&2
+				exit 1
+			fi
+		fi
+	fi
+else
+	STOP_TIME=30000101
+fi
 #----- Verbose flag ----------------------------------------
 
 if [ "X"${VERBOSE_FLAG} = "X" ]
@@ -200,7 +279,16 @@ then
 	fi
 fi
 
-cat ${LOG_FILE} | grep -v -f ${EXCLUSION_FILE} | ${AWK} -v "VERBOSE_FLAG=${VERBOSE_FLAG}" -v "OFFLINE_FILE=${OFFLINE_FILE}" -v "ONLINE_FILE=${ONLINE_FILE}" -f ${AWK_FILE}
+if [ "X${EXTEND_TIME_FLAG}" = "X1" ]
+then
+	CURRENT_DATE=`date +"%Y-%m-%d"`
+	CURRENT_HOUR=`date +"%H:%M:%S"`
+else
+	CURRENT_DATE="X"
+	CURRENT_HOUR="X"
+fi
+cat ${LOG_FILE} | grep -v -f ${EXCLUSION_FILE} | ${AWK} -v "VERBOSE_FLAG=${VERBOSE_FLAG}" -v "OFFLINE_FILE=${OFFLINE_FILE}" -v "ONLINE_FILE=${ONLINE_FILE}" -v "CURRENT_HOUR=${CURRENT_HOUR}" -v "CURRENT_DATE=${CURRENT_DATE}" -f ${AWK_FILE}
+
 
 dbaccess sysutils <<EOF 2>>/dev/null
 
@@ -211,14 +299,33 @@ create temp table offline
         fim datetime year to second
 ) with no log;
 load from ${OFFLINE_FILE} insert into offline;
+delete from offline where ini < extend(to_date("$START_TIME","%Y%m%d"), year to second) and fim < extend(to_date("$START_TIME","%Y%m%d"), year to second);
+delete from offline where ini > extend(to_date("$STOP_TIME","%Y%m%d"), year to second) and fim > extend(to_date("$STOP_TIME","%Y%m%d"), year to second);
 
+-- select "ofline",* from offline;
+update offline set ini = extend(to_date("$START_TIME","%Y%m%d"), year to second)
+where ini < extend(to_date("$START_TIME","%Y%m%d"), year to second) and fim >=extend(to_date("$START_TIME","%Y%m%d"), year to second);
+
+update offline set fim = extend(to_date("$STOP_TIME","%Y%m%d")+ 1 UNITS DAY -1 UNITS SECOND, year to second)
+where ini <= extend(to_date("$STOP_TIME","%Y%m%d"), year to second) and fim >=extend(to_date("$STOP_TIME","%Y%m%d"), year to second);
+
+-- select "ofline",* from offline;
 create temp table online
 (
         ini datetime year to second,
         fim datetime year to second
 ) with no log;
 load from ${ONLINE_FILE} insert into online;
+delete from online where ini < extend(to_date("$START_TIME","%Y%m%d")) and fim < extend(to_date("$START_TIME","%Y%m%d"));
+delete from online where ini > extend(to_date("$STOP_TIME","%Y%m%d")) and fim > extend(to_date("$STOP_TIME","%Y%m%d"));
+-- select "online",* from online;
 
+update online set ini = extend(to_date("$START_TIME","%Y%m%d"), year to second)
+where ini < extend(to_date("$START_TIME","%Y%m%d"), year to second) and fim >=extend(to_date("$START_TIME","%Y%m%d"), year to second);
+
+update online set fim = extend(to_date("$STOP_TIME","%Y%m%d")+ 1 UNITS DAY -1 UNITS SECOND, year to second)
+where ini <= extend(to_date("$STOP_TIME","%Y%m%d"), year to second) and fim >=extend(to_date("$STOP_TIME","%Y%m%d"), year to second);
+-- select "online",* from online;
 create temp table gaps
 (
         tstamp datetime year to second

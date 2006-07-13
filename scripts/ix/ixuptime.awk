@@ -4,7 +4,7 @@
 # Revision: $Revision$
 # Revised on: $Date$
 # Revised by: $Author$
-# Support: Fernando Nunes - fernando.nunes@tmn.pt
+# Support: Fernando Nunes - fernando.nunes@pt.ibm.com
 # Notes:
 # History:
 
@@ -115,6 +115,12 @@ if ( state == 1 )
 {
 last_offline_date=last_date;
 last_offline_hour=last_hour;
+
+#--- changed... be careful...
+seen_offline_date=last_date;
+seen_offline_hour=$1
+#--- changed... be careful...
+
 add_time(1);
 }
 state=0;
@@ -241,11 +247,21 @@ $0 ~ /^[0-9][0-9]*:[0-9][0-9]*:[0-9][0-9]* .* Checkpoint Completed/ {
 END {
 if ( state == 1 )
 {
+	if (CURRENT_HOUR != "X" )
+	{
+		seen_online_date=CURRENT_DATE;
+		seen_online_hour=CURRENT_HOUR;
+	}
 	add_time(1)
 }
 else
 if ( state == 0 )
 {
+	if (CURRENT_HOUR != "X" )
+	{
+		seen_offline_date=CURRENT_DATE;
+		seen_offline_hour=CURRENT_HOUR;
+	}
 	add_time(0)
 }
 }
