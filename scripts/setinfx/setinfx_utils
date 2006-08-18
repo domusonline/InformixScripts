@@ -5,7 +5,7 @@
 # Revision: $Revision$
 # Revised on: $Date$
 # Revised by: $Author$
-# Support: Fernando Nunes - fernando.nunes@tmn.pt
+# Support: Fernando Nunes - fernando.nunes@pt.ibm.com
 
 
 
@@ -18,10 +18,10 @@ get_setinfx_conf_dir()
 		if [ -r ${DIR}/${INFX_CONF} ]
 		then
 			echo ${DIR}
-			return 1
+			return 0
 		fi
 	done
-	return 0
+	return 1
 }
 
 get_setinfx_conf_file()
@@ -63,13 +63,13 @@ get_setinfx_admin_list()
 		return 1
 	else
 		HOST=`hostname | cut -f1 -d'.' | tr [:lower:] [:upper:]`
-		cat ${ENV_FILE} | grep -v "^$" | grep -v "^#" |  ${AWK} -F'|' -v"host=${HOST}" 'BEGIN {linha=1} { if ($1 ~ "^inactivo" ) {linha++;next}; if ( ($7 == "S") && (toupper($9) ~ host )) {printf "%s ",linha};linha++} END {printf "\n"}'
-	fi
-	if [ $? != 0 ]
-	then
-		return 1
-	else
-		return 0
+		cat ${ENV_FILE} | grep -v "^$" | grep -v "^#" |  ${AWK} -F'|' -v "host=${HOST}" 'BEGIN {linha=1} { if ($1 ~ "^inactivo" ) {linha++;next}; if ( ($7 == "S") && (toupper($9) ~ host )) {printf "%s ",linha};linha++} END {printf "\n"}'
+		if [ $? != 0 ]
+		then
+			return 1
+		else
+			return 0
+		fi
 	fi
 }
 
@@ -94,7 +94,7 @@ get_setinfx_admin_num_by_server()
 		return 1
 	else
 		HOST=`hostname | cut -f1 -d'.' | tr [:lower:] [:upper:]`
-		cat ${ENV_FILE} | grep -v "^$" | grep -v "^#" |  ${AWK} -F'|' -v"host=${HOST}" -v"IX_SERVER=${IX_SERVER}" 'BEGIN {linha=1} { if ($1 ~ "^inactivo" ) {linha++;next}; if ( ($7 == "S") && (toupper($9) ~ host ) && (toupper($2) ~ IX_SERVER)) {printf "%s ",linha};linha++} END {printf "\n"}'
+		cat ${ENV_FILE} | grep -v "^$" | grep -v "^#" |  ${AWK} -F'|' -v "host=${HOST}" -v"IX_SERVER=${IX_SERVER}" 'BEGIN {linha=1} { if ($1 ~ "^inactivo" ) {linha++;next}; if ( ($7 == "S") && (toupper($9) ~ host ) && (toupper($2) ~ IX_SERVER)) {printf "%s ",linha};linha++} END {printf "\n"}'
 	fi
 
 	if [ $? != 0 ]
