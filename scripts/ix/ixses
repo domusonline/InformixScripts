@@ -252,7 +252,7 @@ do
 		FILE_SQL_UNL=sprintf("%s%s_sql%s.unl", TMP_DIR,FILE_PREFIX,PROC);
 		first=1;
 		my_sql_lines=1;
-		SES_STR=sprintf("unload to \"%s\" delimiter \" \" select local, cwd, hostname, (extend(date(trunc(connected/86400) +  25568), year to second) + (connected - (trunc(connected/86400) * 86400)) units second) + ( %s ) UNITS HOUR from sysmaster:sysscblst where sid = %s;\n", FILE_SESSION_UNL, TZ_DIFF, SESSION);
+		SES_STR=sprintf("unload to \"%s\" delimiter \" \" select local, cwd, hostname, DBINFO(\"utc_to_datetime\",connected) + ( %s ) UNITS HOUR from sysmaster:sysscblst where sid = %s;\n", FILE_SESSION_UNL, TZ_DIFF, SESSION);
 
 		TEMP_STR=sprintf("unload to \"%s\" delimiter \" \" select p.partnum, p.nrows, t.tabname from sysmaster:sysptnhdr p, sysmaster:systabnames t where p.partnum=t.partnum and p.partnum in ( ", FILE_TMP_UNL);
 
@@ -371,8 +371,8 @@ do
 #-------------------------------------------------------------
 # Temp tables processing
 #-------------------------------------------------------------
-	/partnum/,/END/ {
-		if ( $1 ~ "partnum" || $1 == "" )
+	/User-created/,/END/ {
+		if ( $1 ~ "partnum" || $1 ~ "User-created" || $1 == "" )
 		{
 			next
 		}
