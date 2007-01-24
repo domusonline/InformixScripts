@@ -12,13 +12,13 @@
 usage()
 {
 	echo "$PROGNAME Usage:" >&2
-	echo "$PROGNAME <existing INFORMIXDIR> <new virt INFORMIXDIR> <version>" >&2
+	echo "$PROGNAME <existing INFORMIXDIR> <new virt INFORMIXDIR> <version> [ {DBSA GROUP} {AAO_GROUP} {DBSSO_GROUP} ]" >&2
 }
 
 
 
 PROGNAME=`basename $0`
-VERSION=1.2
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
 
 case $# in
 3)
@@ -44,6 +44,53 @@ case $# in
 		exit 1
 		;;
 	esac
+	GROUPS_FLAG=0
+	;;
+6)
+	EXISTING_IXDIR=$1
+	NEW_IXDIR=$2
+	IX_VERSION=$3
+	case $IX_VERSION in
+	7)
+		IX_SUB_DIRS="aaodir bin dbssodir demo etc forms gls help incl ism lib msg release snmp"
+		IX_DIRS="bin demo forms gls help incl ism lib msg release snmp"
+		;;
+	9)
+		IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp"
+		IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp"
+		;;
+	10)
+		IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp ids_license master_license"
+		IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp ids_license master_license"
+		;;
+	*)
+		echo "Version can only be 7, 9 or 10" >&2
+		usage
+		exit 1
+		;;
+	esac
+	DBSA_GROUP=$4
+	grep "^${DBSA_GROUP}:" /etc/group 1>/dev/null 2>/dev/null
+	if [ $? != 0 ]
+	then
+		echo "The group given for DBSA ( ${DBSA_GROUP} ) does not exist in /etc/group" >&2
+		exit 1
+	fi
+	AAO_GROUP=$5
+	grep "^${AAO_GROUP}:" /etc/group 1>/dev/null 2>/dev/null
+	if [ $? != 0 ]
+	then
+		echo "The group given for AAO ( ${AAO_GROUP} ) does not exist in /etc/group" >&2
+		exit 1
+	fi
+	DBSSO_GROUP=$6
+	grep "^${DBSSO_GROUP}:" /etc/group 1>/dev/null 2>/dev/null
+	if [ $? != 0 ]
+	then
+		echo "The group given for DBSSO ( ${DBSSO_GROUP} ) does not exist in /etc/group" >&2
+		exit 1
+	fi
+	GROUPS_FLAG=1
 	;;
 *)
 	usage
@@ -132,10 +179,22 @@ cp -pR $EXISTING_IXDIR/aaodir/* $NEW_IXDIR/aaodir
 
 if [ $MY_USER != "informix" ]
 then
-	#Future versions should handle role separation
-	chown informix:informix $NEW_IXDIR/dbssodir
-	chown informix:informix $NEW_IXDIR/etc
-	chown informix:informix $NEW_IXDIR/aaodir
+	if [ "X${GROUPS_FLAG}" = "X0" ]
+	then
+		chown informix:informix $NEW_IXDIR/dbssodir
+		chown informix:informix $NEW_IXDIR/etc
+		chown informix:informix $NEW_IXDIR/aaodir
+	else
+		if [ "X${GROUPS_FLAG}" = "X1" ]
+		then
+			chown informix:${DBSSO_GROUP} $NEW_IXDIR/dbssodir
+			chown informix:${DBSA_GROUP} $NEW_IXDIR/etc
+			chown informix:${AAO_GROUP} $NEW_IXDIR/aaodir
+		else
+			echo "Internal error: Invalid value for GROUPS_FLAG..." >&2
+			exit 1
+		fi
+	fi
 fi
 chmod 770 dbssodir aaodir
-chmod 755 etc
+chmod 775 etc
