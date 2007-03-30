@@ -6,12 +6,6 @@
 # Revised on: $Date$
 # Revised by: $Author$
 # Support: Fernando Nunes - domusonline@domus.online.pt
-# Project: alarmprogram
-# History:
-#    v 1.1: - syslog facility
-#    v 1.0:
-#           - Mail headers correction
-#           - Export TSTAMP
 
 
 VERSION=`echo "$Revision$" | cut -f2 -d' '`
@@ -21,8 +15,11 @@ then
 	exit 1
 fi
 engine=$INFORMIXSERVER
-ONCONFIG=onconfig.${INFORMIXSERVER}
-export ONCONFIG
+if [ "X" = "X${ONCONFIG}" ]
+then
+	ONCONFIG=onconfig.${INFORMIXSERVER}
+	export ONCONFIG
+fi
 
 if [ "X" = "X${INFORMIXSQLHOSTS}" ]
 then
@@ -31,9 +28,8 @@ else
 	informix_sqlhosts=${INFORMIXSQLHOSTS}
 fi
 
-grep -i "^${engine}" ${informix_sqlhosts} >/dev/null
-RC=$?
-if [ $RC != 0 ]
+grep -i -c "^${engine}" ${informix_sqlhosts} | read RC
+if [ $RC = 0 ]
 then
 	echo "`basename $0`: INFORMIXSERVER is not in sqlhosts" >&2
 	exit 1
@@ -42,7 +38,7 @@ engine=`echo ${engine} | tr "[A-Z]"  "[a-z]"`
 
 host=`hostname`
 
-IFMX_ALARM_HEADER_FROM="Informix Admin <informix@tmn.pt>"
+IFMX_ALARM_HEADER_FROM="Informix Admin <informix@foo.com>"
 
 #---- Mails addresses separated by ","
 IFMX_ALARM_HEADER_TO="Your Name <your_address@foo.com>, Another Name <other_address@foo.com>"
@@ -54,7 +50,7 @@ IFMX_ALARM_HEADER_CC="A third Name <third.address@foo.com>"
 #---- Phone numbers separated by spaces
 IFMX_ALARM_NUM_SMS="123456789 987654321"
 
-#---- Minumu 'severity level' to send to syslog
+#---- Minimum 'severity level' to send to syslog
 IFMX_ALARM_SEV_SYSLOG=0
 
 #---- Minimum 'severity level' to send mail
@@ -64,17 +60,13 @@ IFMX_ALARM_SEV_MAIL=3
 IFMX_ALARM_SEV_SMS=4
 
 IFMX_ALARM_SENDMAIL="/usr/sbin/sendmail -t"
-IFMX_ALARM_SENDSMS="/usr/bin/scripts/avisa"
-
-#interval during which the same event won't be reported
-TSTAMP_INTERVAL=60
+IFMX_ALARM_SENDSMS="/usr/bin/sendsms"
 
 #Onbar to make logical log backup...? (1 -yes) or (0-no)
 IFMX_BAR_LOG_BACKUP=0
 
 #Veritas LOG POOL:
 INFXBSA_LOGICAL_CLASS=informix-logs
-#INFXBSA_LOGICAL_CLASS=Baltico_informix_logs
 
 #Classes which send mail whatever the severity...
 IFMX_ALARM_CLASS_MAIL="1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 17 19 20 21 22 24 25 29 26 27 28"
