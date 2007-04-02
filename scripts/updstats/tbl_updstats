@@ -16,7 +16,8 @@
 #-------------------------------------------------------
 
 PROGNAME=`basename $0`
-VERSION="1.2"
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
+
 DEFAULT_RESOLUTION=2.5
 
 # Do not ignore dbaccess errors
