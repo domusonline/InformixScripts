@@ -5,34 +5,39 @@
 # Revision: $Revision$
 # Revised on: $Date$
 # Revised by: $Author$
-# Support: Fernando Nunes - fernando.nunes@tmn.pt
-# Modified to allow:
-# - filtering
-# - Parallel execution
-# - ids.2000 (long table names)
-# Antonio Lima - 2000.11.03
-# 
-# WARNING: this script opens and uses file descriptor 3.  This has different
-# effects on different machines.  Test throughly on each platform.
-
+# Support: Fernando Nunes - domusonline@domus.online.pt
 # This script runs the tbl_updstats script for each table in the database
-# orfor tables depending on the selection, i.e
-# dbs_updstats stores7 'and tabname like "cust%"
-# History:
-#
-# 1.2 - inclusao de -P para fazer o update statistics as procedures
-#     - inclusao de -c e -r para confidence e resolution
-# 1.1 - inclusao da opcao -p para establecer o PDQPRIORITY
-# 1.0 - insercao no cvs
-#     - aplicacao das alteracoes introduzidas pelo Lima
 
 
 PROGNAME=`basename $0`
-VERSAO="1.2"
+VERSION="1.2"
+
+show_help()
+{
+	printf "${PROGNAME}: { -d database } [ -f filter ] [ -e |  -E file] [ -p priority ]\n[ -P | -N ] [ -r resolution ] [ -c confidence ] [ -T ] [ -s ] [ -x | -X ] [ -y ] [ -z | -Z ]\n" >&2
+	echo "               -d database (required)" >&2
+	echo "               -f table filter (optional)" >&2
+	echo "               [-e] Set explain on (versions >= 7.31.UD2 and 9.30.UC2)" >&2
+	echo "               [-E file] Set explain to a file (versions >= 11.10)" >&2
+	echo "               [-p priority] Set pdqpriority (versions >= 7.31.UD2 and 9.30.UC2)" >&2
+	echo "               [-P] Updates statistics for procedures also (default without filter)" >&2
+	echo "               [-N] Don't update statistics for procedures" >&2
+	echo "               [-r resolution] Set resolution" >&2
+	echo "               [-c confidence] Set confidence" >&2
+	echo "               [-T] Include timings" >&2
+	echo "               [-s] Include system catalog tables" >&2
+	echo "               [-x] Option for tbl_updstats. Display only. Do not execute" >&2
+	echo "               [-X] Option for tbl_updstats. Display and execute".>&2
+	echo "               [-z] Display only. Do not execute" >&2
+	echo "               [-Z] Display and execute" >&2
+	echo "               [-X] Display and execute" >&2
+	echo "               [-y] Allow multiple parallel executions">&2
+	echo "Ex: dbs_updstats -d stores7 -f \\\" and tabname like \\'l%\\'\\\"" >&2
+}
 
 get_args()
 {
-	arg_ok='p:d:f:r:c:ePNvh'
+	arg_ok='p:d:f:r:c:E:ePNvhTsyxXzZ'
 	list="$*"
 	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing                                                
@@ -46,21 +51,37 @@ get_args()
 	do
 		case $1 in
 		-h)   # show help
-		        echo "${PROGNAME}: { -d database } [ -f filter ] [-e] [ -p priority ] [ -P | -N ] [ -r resolution ] [ -c confidence ]" >&1
-		        echo "               -d database (obrigatorio)" >&1
-		        echo "               -f table filter (opcional)" >&1
-		        echo "               [-e] Set explain on (versoes >= a 7.31.UD2 e 9.30.UC2)" >&1
-		        echo "               [-p] Set pdqpriority (versoes >= a 7.31.UD2 e 9.30.UC2)" >&1
-		        echo "               [-P] efectuar tambem update statistics for procedures (default sem filtro)" >&1
-		        echo "               [-N] nao efectuar update statistics for procedures" >&1
-                        echo "               [-r] Set resolution" >&2
-                        echo "               [-c] Set confidence" >&2
-			echo "Ex: dbs_updstats -d stores7 -f \\\" and tabname like \\'l%\\'\\\"" >&1
+			show_help
 			exit 0
 			;;
 		-v)   # show version
-			echo "${PROGNAME} versao ${VERSAO}" >&1
+			echo "${PROGNAME} version ${VERSION}" >&1
 			exit 0
+			;;
+		-E)   # set up the -E (set explain flag with file..)
+			EXPLAIN_FLAG=2
+			explain_file=$2
+			shift
+			;;
+		-z|-Z)   # set up the -zZ (set DISPLAY flag)
+			if [ "$1" = "-z" ]
+			then
+				DISPLAY_FLAG=1
+			else
+				DISPLAY_FLAG=2
+			fi
+			;;
+		-x|-X)   # set up the -xX (set CMD_DISPLAY flag)
+			CMD_DISPLAY_FLAG=$1
+			;;
+		-s)   # set up the -s (set SYSTABLES flag)
+			SYSTABLES_FLAG=1
+			;;
+		-y)   # set up the -y (set MULTIPLE flag)
+			MULTIPLE_FLAG=1
+			;;
+		-T)   # set up the -T (set TIMINGS flag)
+			TIMINGS_FLAG=1
 			;;
 		-e)   # set up the -e (set explain flag)
 			EXPLAIN_FLAG=1
@@ -99,14 +120,14 @@ get_args()
 				resto="`echo $* | cut -f3- -d'\"'`"
 				;;
 			*)
-				echo "${PROGNAME}: Erro de sintaxe - Argumento da opcao '-f' tem de ser envolto em aspas" >&2
+				echo "${PROGNAME} Syntax error: Argument for option '-f' must be enclosed in quotes" >&2
 				return 1
 			esac
 			if [ "X$resto" = "X" ]
 			then
 				return
 			fi
-			arg_ok='p:d:f:r:c:ePNvh'
+			arg_ok='p:d:f:r:c:E:ePNvhTsyxXzZ'
 			set -- `getopt "${arg_ok}" $resto`
 			continue
 			;;
@@ -117,10 +138,74 @@ get_args()
 	while [ $# -ge 1 ]
 	do
 		case $1 in
+		-s)
+			if [ "X"$SYSTABLES_FLAG = "X1" ]	
+			then
+				echo "${PROGNAME} Syntax error: SYSTABLES already processed" >&2
+				return 1
+			else
+				SYSTABLES_FLAG=1
+				shift
+			fi;;
+		-z|-Z)
+			if [ "X"$DISPLAY_FLAG != "X" ]	
+			then
+				echo "${PROGNAME} Syntax error: DISPLAY already processed" >&2
+				return 1
+			else
+				if [ "$1" = "-z" ]
+				then
+					DISPLAY_FLAG=1
+				else
+					DISPLAY_FLAG=2
+				fi
+				shift
+			fi;;
+		-x|-X)
+			if [ "X"$CMD_DISPLAY_FLAG != "X" ]	
+			then
+				echo "${PROGNAME} Syntax error: DISPLAY already processed" >&2
+				return 1
+			else
+				CMD_DISPLAY_FLAG=$1
+				shift
+			fi;;
+		-y)
+			if [ "X"$MULTIPLE_FLAG = "X1" ]	
+			then
+				echo "${PROGNAME} Syntax error: MULTIPLE already processed" >&2
+				return 1
+			else
+				MULTIPLE_FLAGS=1
+				shift
+			fi;;
+		-T)
+			if [ "X"$TIMINGS_FLAG = "X1" ]	
+			then
+				echo "${PROGNAME} Syntax error: TIMINGS already processed" >&2
+				return 1
+			else
+				TIMINGS_FLAG=1
+				shift
+			fi;;
+		-E)
+			if [ "X"$EXPLAIN_FLAG != "X" ]	
+			then
+				echo "${PROGNAME} Syntax error:  SET EXPLAIN already processed" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "${PROGNAME} Syntax error: Option $1 requires an argument" >&2
+					return 1
+				else
+					EXPLAIN_FLAG=2
+					explain_file=$2
+					shift 2
+			fi;;
 		-e)
 			if [ "X"$EXPLAIN_FLAG = "X1" ]	
 			then
-				echo "${PROGNAME}: Erro de sintaxe - SET EXPLAIN ja foi interpretado" >&2
+				echo "${PROGNAME} Syntax error:  SET EXPLAIN already processed" >&2
 				return 1
 			else
 				EXPLAIN_FLAG=1
@@ -128,7 +213,7 @@ get_args()
 			fi;;
 		-P)	if [ "X"$PROCEDURES_FLAG = "X1" -o "X"$PROCEDURES_FLAG = "X0" ]
 			then
-				echo "${PROGNAME}: Erro de sintaxe - as opcoes -P e -N sao exlusivas e nao podem ser repetidas" >&2
+				echo "${PROGNAME} Syntax error: Options -P and -N are mutualy exclusive and one was already processed" >&2
 				return 1
 			else
 				PROCEDURES_FLAG=1
@@ -136,7 +221,7 @@ get_args()
 			fi;;
 		-N)	if [ "X"$PROCEDURES_FLAG = "X1" -o "X"$PROCEDURES_FLAG = "X0" ]
 			then
-				echo "${PROGNAME}: Erro de sintaxe - as opcoes -P e -N sao exlusivas e nao podem ser repetidas" >&2
+				echo "${PROGNAME} Syntax error: Options -N and -P are mutualy exclusive and one was already processed" >&2
 				return 1
 			else
 				PROCEDURES_FLAG=0
@@ -145,11 +230,11 @@ get_args()
 		-d)
 			if [ "X"$DATABASE_FLAG = "X1" ]	
 			then
-				echo "${PROGNAME}: Erro de sintaxe - DATABASE ja foi interpretado" >&2
+				echo "${PROGNAME} Syntax error: DATABASE already processed" >&2
 				return 1
 			elif [ $# -le 1 ]
 				then
-					echo "${PROGNAME}: Erro de sintaxe - A opcao $1 necessita de um argumento" >&2
+					echo "${PROGNAME} Syntax error: Option $1 requires and argument" >&2
 					return 1
 				else
 					DATABASE_FLAG=1
@@ -159,18 +244,18 @@ get_args()
 		-p)
 			if [ "X"$PRIORITY_FLAG = "X1" ]	
 			then
-				echo "${PROGNAME}: Erro de sintaxe - PRIORITY ja foi interpretado" >&2
+				echo "${PROGNAME} Syntax error: PRIORITY already processed" >&2
 				return 1
 			elif [ $# -le 1 ]
 				then
-					echo "${PROGNAME}: Erro de sintaxe - A opcao $1 necessita de um argumento" >&2
+					echo "${PROGNAME} Syntax error: Option $1 requires an argument" >&2
 					return 1
 				else
 					PRIORITY_FLAG=1
 					priority=$2
 					if [ ${priority} -lt 1 -o ${priority} -gt 100 ]
 					then
-						echo "${PROGNAME}: Erro - o valor para o PDQPRIORITY tem de estar entre 1 e 100" >&2
+						echo "${PROGNAME} Syntax error: PDQPRIORITY value must be between 1 and 1000" >&2
 						return 1
 					fi
 					shift 2
@@ -178,11 +263,11 @@ get_args()
 		-r)
 			if [ "X"$RESOLUTION_FLAG = "X1" ]
 			then
-				echo "Erro de sintaxe: Resolution ja foi interpretado" >&2
+				echo "${PROGNAME} Syntax error: RESOLUTION already processed" >&2
 				return 1
 			elif [ $# -le 1 ]
 				then
-					echo "Erro de sintaxe: A opcao $1 necessita de um argumento" >&2
+					echo "${PROGNAME} Syntax error: Option $1 requires an argument" >&2
 					return 1
 				else
 					RESOLUTION_FLAG=1
@@ -191,7 +276,7 @@ get_args()
 					RESULT=$?
                                         if [ ${RESULT} != 0 -o ${resolution} -gt 100 ]
                                         then
-                                                echo "Erro: o valor de resolution tem de ser numerico e menor ou igual a 100" >&2
+                                                echo "${PROGNAME} Syntax error: RESOLUTION value must be numeric and less than or equal to 100" >&2
                                                 return 1
                                         fi
                                         shift 2
@@ -199,11 +284,11 @@ get_args()
 		-c)
 			if [ "X"$CONFIDENCE_FLAG = "X1" ]
 			then
-				echo "Erro de sintaxe: Confidence ja foi interpretado" >&2
+				echo "${PROGNAME} Syntax error: CONFIDENCE already processed" >&2
 				return 1
 			elif [ $# -le 1 ]
 				then
-					echo "Erro de sintaxe: A opcao $1 necessita de um argumento" >&2
+					echo "${PROGNAME} Syntax error: Option $1 requires and argument" >&2
 					return 1
 				else
 					CONFIDENCE_FLAG=1
@@ -213,7 +298,7 @@ get_args()
 					if [ ${RESULT} != 0 ]
 					then
 						
-						echo "Erro: o valor de confidence tem de estar entre 0.80 e 0.99" >&2
+						echo "${PROGNAME} Syntax error: CONFIDENCE value must be between 0.80 and 0.99" >&2
 						return 1
 				fi
 				shift 2
@@ -221,11 +306,11 @@ get_args()
 		-f)
 			if [ "X"$FILTER_FLAG = "X1" ]	
 			then
-				echo "${PROGNAME}: Erro de sintaxe - FILTER ja foi interpretado" >&2
+				echo "${PROGNAME} Syntax error: FILTER already processed" >&2
 				return 1
 			elif [ $# -le 1 ]
 				then
-					echo "${PROGNAME}: Erro de sintaxe - A opcao $1 necessita de um argumento" >&2
+					echo "${PROGNAME} Syntax error: Option $1 requires and argument" >&2
 					return 1
 				else
 					FILTER_FLAG=1
@@ -235,14 +320,14 @@ get_args()
 						resto="`echo $* | cut -f3- -d'\"'`"
 						;;
 					*)
-						echo "${PROGNAME}: Erro de sintaxe - Argumento da opcao! '-f' tem de ser envolto em aspas" >&2
+						echo "${PROGNAME} Syntax error: Argument for option $1 must be enclosed in quotes" >&2
 						return 1
 					esac
 					if [ "X$resto" = "X" ]
 					then
 						return
 					fi
-					arg_ok='p:d:f:r:c:ePNvh'
+					arg_ok='p:d:f:r:c:E:ePNvhTsyxXzZ'
 					set -- `getopt "${arg_ok}" $resto`
 					continue
 			fi;;
@@ -263,19 +348,20 @@ get_args()
 
 
 
+#-----------------------------------------------------
+# Start of script...
+#-----------------------------------------------------
 
 get_args $*
 if [ $? != 0 ]
 then
-	echo "Erro no parsing dos parametros" >&2
+	echo "${PROGNAME} Error parsing parameters" >&2
 	exit 1
 fi
 
-err=/tmp/dbs_updstats_${dbserver}$$.err
-
 until [ ${dbserver} ]
 do
-  echo -n "Introduza o nome da base de dados: "
+  echo -n "Insert the database name: "
   read dbserver
   if [ -z "${dbserver}" ]
   then
@@ -284,11 +370,14 @@ do
   fi
 done
 
+#-----------------------------------------------------
+# parameter validation
+#-----------------------------------------------------
 if [ "X${PRIORITY_FLAG}" = "X1" ]
 then
 	if [ ${priority} -lt 1 -o ${priority} -gt 100 ]
 	then
-		echo "${PROGNAME}: Erro - o valor para o PRIORITY tem de estar entre 1 e 100" >&2
+		echo "${PROGNAME} Syntax error: PDQPRIORITY must be between 1 and 100" >&2
 		exit 1
 	fi
 fi
@@ -299,7 +388,7 @@ then
 	RESULT=$?
 	if [ ${RESULT} != 0 -o ${resolution} -gt 100 ]
 	then
-		echo "Erro: o valor de resolution tem de ser numerico e menor ou igual a 100" >&2
+		echo "${PROGNAME} Syntax error: RESOLUTION value must be numeric and less than or equal to 100" >&2
 		exit 1
 	else
 		resolution_clause=" -r ${resolution} "
@@ -312,7 +401,7 @@ then
 	RESULT=$?
 	if [ ${RESULT} != 0 ]
 	then
-		echo "Erro: O valor da confidence tem de estar entre 0.80 e 0.99" >&2
+		echo "${PROGNAME} Syntax error: CONFIDENCE must be between 0.80 and 0.99" >&2
 		exit 1
 	else
 		confidence_clause=" -c ${confidence} "
@@ -328,101 +417,165 @@ then
 		PROCEDURES_FLAG=0
 	fi
 fi
-# 
-result=/tmp/${dbserver}.res
-tablelist=/tmp/${dbserver}.tbl
-rpt=/tmp/dbs_updstats_${dbserver}$$.rpt
 
-if [ -r ${result} ]
+#-----------------------------------------------------
+# Filename definitions
+#-----------------------------------------------------
+DBS_DATABASE_LOCK_FILE=/tmp/${PROGNAME}_${DATABASE}.lck
+TABLE_LIST_FILE=/tmp/${PROGNAME}_$$_table_list
+SQL_ERROR_FILE=/tmp/${PROGNAME}_$$_sql_error
+SQL_OUTPUT_FILE=/tmp/${PROGNAME}_$$_sql_out
+EXPLAIN_TMP_FILE=/tmp/${PROGNAME}_$$_tmp_explain
+
+#-----------------------------------------------------
+# Setting up cleanup
+#-----------------------------------------------------
+clean_up()
+{
+	rm -f ${DBS_DATABASE_LOCK_FILE} ${TABLE_LIST_FILE} ${SQL_ERROR_FILE} ${EXPLAIN_TMP_FILE} ${SQL_OUTPUT_FILE}
+}
+
+trap clean_up 0
+
+
+#-----------------------------------------------------
+# Check to see if only script for this database
+#-----------------------------------------------------
+if [ -r "${DBS_DATABASE_LOCK_FILE}*" ]
 then
-	echo "Existe outro ${PROGNAME} a correr ou houve um erro numa execucao anterior" >&2
-	echo "Elimine o ficheiro ${result} e tente de novo." >&2
-	exit 1
+	if  [ "X${MULTIPLE_FLAG}" != "X1" ]
+	then
+		echo "There is another ${PROGNAME} running for the same database or there was an error on a previous executions">&2
+		echo "Remove the file ${DBS_DATABASE_LOCK_FILE} or use the -y flag and try again" >&2
+		exit 1
+	else
+		DBS_DATABASE_LOCK_FILE=/tmp/${PROGNAME}_${DATABASE}.lck_$$
+	fi
+fi
+echo $$ > ${DBS_DATABASE_LOCK_FILE}
+
+#-----------------------------------------------------
+# Set up table filter
+#-----------------------------------------------------
+if [ "X${SYSTABLES_FLAG}" != "X1" ]
+then
+	sel_filter="tabid > 99 $sel_filter"
+else
+	sel_filter="tabname not like ' %' $sel_filter"
 fi
 
-dbaccess ${dbserver} - <<EOC 1>&2 2>${err}
-output to pipe "cat  | grep -v '^$' >${result}" without headings
-select tabname||":" from systables
-where tabid > 99 $sel_filter
+
+#-----------------------------------------------------
+# obtain table list
+#-----------------------------------------------------
+dbaccess ${dbserver} - <<EOSQL 1>&2 2>${SQL_ERROR_FILE}
+output to pipe "cat  | grep -v '^$' >${TABLE_LIST_FILE}" without headings
+select tabname from systables
+where $sel_filter
 order by 1;
-EOC
+EOSQL
 
-res=$?
-
-if [ ${res} != 0  -o ! -r ${result} ]
+if [ $? != 0  -o ! -r ${TABLE_LIST_FILE} ]
 then
-	echo "${PROGNAME}: Erro ao obter a lista de tabelas:" >&2
-	cat < ${err} >&2
-	rm -f ${tablelist}
-	rm -f ${result}
-	rm -f ${err}
+	echo "${PROGNAME} Error: DBACCESS error trying to fetch table list">&2
+	cat < ${SQL_ERROR_FILE} >&2
 	exit 1
 fi
 
-linhas=`wc -l ${result} | awk '{print $1}'`
+LINE_COUNT=`wc -l ${TABLE_LIST_FILE} | awk '{print $1}'`
 
-if [ ${linhas} = 0 ]
+if [ ${LINE_COUNT} = 0 ]
 then
-	echo "${PROGNAME}: Nao foram encontradas tabelas que verifiquem o criterio." >&2
-	rm -f ${tablelist}
-	rm -f ${result}
-	rm -f ${err}
-	exit 1
+	echo "${PROGNAME} Error: There are no tables that match the search filter" >&2
+	exit 0
 fi
 
-grep ':' ${result} | cut -f1 -d:  >${tablelist}
 
-# Start database report
-cat /dev/null >$rpt
-
-if [ "X"${EXPLAIN_FLAG} = "X1" ]
-then
+#-----------------------------------------------------
+# Setting up tbl_updstats options
+#-----------------------------------------------------
+case  "X$EXPLAIN_FLAG" in
+X1)
 	CMD_FLAGS="-e"
-fi
+	;;
+X2)
+	CMD_FLAGS="-E ${EXPLAIN_TMP_FILE}"
+	;;
+esac
+
 if [ "X${PRIORITY_FLAG}" = "X1" ]
 then
 	CMD_FLAGS="${CMD_FLAGS} -p ${priority}"
 fi
 
-# Open and use file descriptor 3 to store the list of tables.
-exec 3<${tablelist}
-while read tblname <&3
-do
-	echo 'Updating Statistics for Table: '${tblname}
-	tbl_updstats -d ${dbserver} -t ${tblname} ${resolution_clause} ${confidence_clause} ${CMD_FLAGS} 2>>${err}&
-	T=$!
-	wait
-	if [ -f /tmp/tbl_updstats_${dbserver}$T.rpt ]
-	then
-		cat /tmp/tbl_updstats_${dbserver}$T.rpt >>$rpt
-		rm /tmp/tbl_updstats_${dbserver}$T.rpt
-	fi
-	echo '==========================================================================' >>$rpt
-	echo ' ' >>$rpt
-done
-
-if [ "X"$PROCEDURES_FLAG = "X1" ]
+if [ "X${TIMINGS_FLAG}" = "X1" ]
 then
-	if [ "X"$EXPLAIN_FLAG = "X1" ]
-	then
-		dbaccess ${dbserver} <<!EOF
-		set explain on;
-		update statistics for procedure;
-!EOF
-	else
-		dbaccess ${dbserver} <<!EOF
-		update statistics for procedure;
-!EOF
-	fi
-
-	RESULT=$?
-
-	echo "Update statistics for procedure result: " $RESULT >>$rpt
-	echo '==========================================================================' >>$rpt
+	CMD_FLAGS="${CMD_FLAGS} -T"
 fi
 
-rm -f ${tablelist}
-rm -f ${result}
-rm -f ${err}
- 
-exit 0
+if [ "X${CMD_DISPLAY_FLAG}" != "X" ]
+then
+	CMD_FLAGS="${CMD_FLAGS} ${CMD_DISPLAY_FLAG}"
+fi
+
+#-----------------------------------------------------
+# Launch/display or both...
+#-----------------------------------------------------
+while read tblname
+do
+	echo "Processing table ${dbserver}@${INFORMIXSERVER}:${tblname}..."
+	case "X${DISPLAY_FLAG}" in
+	X1)
+		#--- display only...
+		echo "tbl_updstats -d ${dbserver} -t ${tblname} ${resolution_clause} ${confidence_clause} ${CMD_FLAGS}"
+		;;
+	X2)
+		#--- display and execute 
+		echo "tbl_updstats -d ${dbserver} -t ${tblname} ${resolution_clause} ${confidence_clause} ${CMD_FLAGS}"
+		cat /dev/null >${EXPLAIN_TMP_FILE}
+		tbl_updstats -d ${dbserver} -t ${tblname} ${resolution_clause} ${confidence_clause} ${CMD_FLAGS}
+		if [ "X${EXPLAIN_FLAG}" = "X1" ]
+		then
+			cat ${EXPLAIN_TMP_FILE} >>${explain_file}
+		fi
+		;;
+	X*)
+		#--- execute only
+		cat /dev/null >${EXPLAIN_TMP_FILE}
+		tbl_updstats -d ${dbserver} -t ${tblname} ${resolution_clause} ${confidence_clause} ${CMD_FLAGS}
+		if [ "X${EXPLAIN_FLAG}" = "X2" ]
+		then
+			cat ${EXPLAIN_TMP_FILE} >>${explain_file}
+		fi
+		;;
+	esac
+done <${TABLE_LIST_FILE}
+
+#-----------------------------------------------------
+# handling procedures...
+#-----------------------------------------------------
+if [ "X"$PROCEDURES_FLAG = "X1" ]
+then
+	case "X${EXPLAIN_FLAG}" in
+	X1)
+		EXPLAIN_CLAUSE="set explain on;"
+		;;
+	X2)
+		EXPLAIN_CLAUSE="set explain file to '${explain_file}';"
+		;;
+	esac
+	dbaccess ${dbserver} <<!EOF 2>${SQL_ERROR_FILE} 1>${SQL_OUTPUT_FILE}
+${EXPLAIN_CLAUSE}
+
+update statistics for procedure;
+!EOF
+
+	if [ $? != 0 ]
+	then
+		echo "${PROGNAME} Error: dbaccess error while running update statistics for procedures">&2
+		cat ${SQL_ERROR_FILE} >&2
+		exit 1
+	else
+		cat ${SQL_OUTPUT_FILE}
+	fi
+fi

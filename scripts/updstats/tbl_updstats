@@ -5,18 +5,10 @@
 # Revision: $Revision$
 # Revised on: $Date$
 # Revised by: $Author$
-# Support: Fernando Nunes - fernando.nunes@tmn.pt
-# Notes:
-# WARNING: This script opens and uses file descriptor 4.  Test throughly on
-# each platform.
+# Support: Fernando Nunes - domusonline@domus.online.pt
 # Script to create the 'update statisics' statements as discribed in the
-# Guide to 7.1 Feature Enhancements Page 3-133
+# Performance Guide
 # This script assumes all environment variables are set.
-# History:
-# 1.2 - Adicao de -r e -c para resolution e confidence
-#     - Adicao de -D para display apenas
-# 1.1 - Adicao da flag para establecer pdqpriority
-#     - alteracao no high para especificar as varias colunas num so statement
 
 
 #-------------------------------------------------------
@@ -24,12 +16,36 @@
 #-------------------------------------------------------
 
 PROGNAME=`basename $0`
-VERSAO="1.2"
+VERSION="1.2"
 DEFAULT_RESOLUTION=2.5
+
+# Do not ignore dbaccess errors
+DBACCNOIGN=1
+export DBACCNOIGN
+
+DELIMIDENT=yes
+export DELIMIDENT
+
+
+show_help()
+{
+	echo "${PROGNAME}: { [-d] database } { [-t] table } [ -e | -E file ] [ -p priority ] [ -r resolution ] [ -c confidence ] [ -x|X ] [ -T ]" >&2
+	echo "               [-d] database (required)" >&2
+	echo "               [-t] table (required)" >&2
+	echo "               [-p] Set PDQPRIORITY (versions >= a 7.31.UD2 and 9.30.UC2)" >&2
+	echo "               [-r] Set resolution" >&2
+	echo "               [-c] Set confidence" >&2
+	echo "               [-e] Set explain on (versions >= 7.31.UD2 and 9.30.UC2)" >&2
+	echo "               [-E] file Set explain file (versions >= 11.10)" >&2
+	echo "               [-X] Display and execute" >&2
+	echo "               [-x] Display only. Don't execute" >&2
+	echo "               [-T] Include timings in de SQL generated" >&2
+
+}
 
 get_args()
 {
-	arg_ok="d:t:p:r:c:hevD"
+	arg_ok="d:t:p:r:c:E:hevTxX"
 	list="$*"
 	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing                                                
@@ -43,29 +59,33 @@ get_args()
 	do
 		case $1 in
 		-h)   # show help
-		        echo "${PROGNAME}: { [-d] database } { [-t] table }[-e] [ -p priority ] [ -r resolution ] [ -c confidence ]" >&2
-		        echo "               [-d] database (obrigatorio)" >&2
-		        echo "               [-t] table (obrigatorio)" >&2
-		        echo "               [-p] Set PDQPRIORITY (versoes >= a 7.31.UD2 e 9.30.UC2)" >&2
-			echo "               [-r] Set resolution" >&2
-			echo "               [-c] Set confidence" >&2
-		        echo "               [-e] Set explain on (versoes >= a 7.31.UD2 e 9.30.UC2)" >&2
-			echo "               [-D] Display only. Don't execute" >&2
+			show_help
 			exit 0
 			;;
 		-v)   # show version
-			echo "${PROGNAME} versao ${VERSAO}"
+			echo "${PROGNAME} version ${VERSION}"
 			exit 0
+			;;
+		-T)   # show timings (to stdout)
+			TIMINGS_FLAG=1
 			;;
 		-e)   # set up the -e (set explain flag)
 			EXPLAIN_FLAG=1
 			;;
-		-D)   # set up the -D (set DISPLAY_ONLY flag)
+		-E)   # set up the -e (set explain flag)
+			EXPLAIN_FLAG=2
+			explain_file=$2
+			shift
+			;;
+		-x)   # set up the -x (set DISPLAY_ONLY flag)
 			DISPLAY_FLAG=1
+			;;
+		-X)   # set up the -X (set DISPLAY_&_EXECUTE flag)
+			DISPLAY_FLAG=2
 			;;
 		-d)   # set up the -d (database flag)
 			DATABASE_FLAG=1
-			dbserver=$2
+			DATABASE=$2
 			shift
 			;;
 		-t)   # set up the -f (filter flag)
@@ -95,57 +115,88 @@ get_args()
 	while [ $# -ge 1 ]
 	do
 		case $1 in
-		-D)
-			if [ "X"$DISPLAY_FLAG = "X1" ]	
+		-X)
+			if [ "X"$DISPLAY_FLAG != "X" ]	
 			then
-				echo "${PROGNAME}: Erro de sintaxe - DISPLAY ja foi interpretado" >&2
+				echo "${PROGNAME}: Syntax error: DISPLAY or DYSPLAY/EXECUTE already processed" >&2
+				return 1
+			else
+				DISPLAY_FLAG=2
+				shift
+			fi
+			;;
+		-x)
+			if [ "X"$DISPLAY_FLAG != "X" ]	
+			then
+				echo "${PROGNAME}: Syntax error: DISPLAY or DYSPLAY/EXECUTE already processed" >&2
 				return 1
 			else
 				DISPLAY_FLAG=1
 				shift
 			fi;;
-		-e)
-			if [ "X"$EXPLAIN_FLAG = "X1" ]	
+		-E)
+			if [ "X"$EXPLAIN_FLAG != "X" ]	
 			then
-				echo "${PROGNAME}: Erro de sintaxe - SET EXPLAIN ja foi interpretado" >&2
+				echo "${PROGNAME}: Syntax error: SET EXPLAIN already processed" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "Syntax error: Option $1 requires an argument" >&2
+					return 1
+				else
+					EXPLAIN_FLAG=2
+					explain_file=$2
+					shift 2
+			fi
+			;;
+		-T)
+			if [ "X"$TIMINGS_FLAG = "X1" ]	
+			then
+				echo "${PROGNAME}: Syntax error: TIMINGS already processed" >&2
+				return 1
+			else
+				TIMINGS_FLAG=1
+				shift
+			fi;;
+		-e)
+			if [ "X"$EXPLAIN_FLAG != "X" ]	
+			then
+				echo "${PROGNAME}: Syntax error: SET EXPLAIN already processed" >&2
 				return 1
 			else
 				EXPLAIN_FLAG=1
 				shift
 			fi;;
 		-h)   # show help
-		        echo "${PROGNAME}: [-e] { [-d] database } { [-t] table }" >&2
-		        echo "               [-e] Set explain on (versoes >= a 7.31.UD2 e 9.30.UC2)" >&2
-		        echo "               [-d] database (obrigatorio)" >&2
-		        echo "               [-t] table (obrigatorio)" >&2
+			show_help
 			exit 0
 			;;
 		-v)   # show version
-			echo "${PROGNAME} versao ${VERSION}"
+			echo "${PROGNAME} version ${VERSION}"
 			exit 0
 			;;
 		-d)
 			if [ "X"$DATABASE_FLAG = "X1" ]	
 			then
-				echo "Erro de sintaxe: DATABASE ja foi interpretado" >&2
+				echo "Syntax error: DATABASE already processed" >&2
 				return 1
 			elif [ $# -le 1 ]
 				then
-					echo "Erro de sintaxe: A opcao $1 necessita de um argumento" >&2
+					echo "Syntax error: Option $1 requires an argument" >&2
 					return 1
 				else
 					DATABASE_FLAG=1
-					dbserver=$2
+					DATABASE=$2
 					shift 2
 			fi;;
 		-t)
 			if [ "X"$TABLE_FLAG = "X1" ]	
 			then
-				echo "Erro de sintaxe: TABLE ja foi interpretado" >&2
+				echo "Syntax error: TABLE already processed" >&2
 				return 1
 			elif [ $# -le 1 ]
 				then
-					echo "Erro de sintaxe: A opcao $1 necessita de um argumento" >&2
+					echo "Syntax error: Option $1 requires an argument" >&2
 					return 1
 				else
 					TABLE_FLAG=1
@@ -155,18 +206,18 @@ get_args()
 		-p)
 			if [ "X"$PRIORITY_FLAG = "X1" ]	
 			then
-				echo "Erro de sintaxe: PRIORITY ja foi interpretado" >&2
+				echo "Syntax error: PRIORITY already processed" >&2
 				return 1
 			elif [ $# -le 1 ]
 				then
-					echo "Erro de sintaxe: A opcao $1 necessita de um argumento" >&2
+					echo "Syntax error: Option $1 requires an argument" >&2
 					return 1
 				else
 					PRIORITY_FLAG=1
 					priority=$2
 					if [ ${priority} -lt 1 -o ${priority} -gt 100 ]
 					then
-						echo "Erro: o valor de PDQPRIORITY tem de estar entre 0 e 100" >&2
+						echo "Error: PDQPRIORITY value must be between 0 and 100" >&2
 						return 1
 					fi
 					shift 2
@@ -174,11 +225,11 @@ get_args()
 		-r)
 			if [ "X"$RESOLUTION_FLAG = "X1" ]
 			then
-				echo "Erro de sintaxe: Resolution ja foi interpretado" >&2
+				echo "Syntax error: RESOLUTION already processed" >&2
 				return 1
 			elif [ $# -le 1 ]
 				then
-					echo "Erro de sintaxe: A opcao $1 necessita de um argumento" >&2
+					echo "Syntax error: Option $1 requires an argument" >&2
 					return 1
 				else
 					RESOLUTION_FLAG=1
@@ -187,7 +238,7 @@ get_args()
 					RESULT=$?
                                         if [ ${RESULT} != 0 -o ${resolution} -gt 100 ]
                                         then
-                                                echo "Erro: o valor de resolution tem de ser numerico e menor ou igual a 100" >&2
+                                                echo "Error: Resolution value must be numeric and less than or equal to 100" >&2
                                                 return 1
                                         fi
                                         shift 2
@@ -195,11 +246,11 @@ get_args()
 		-c)
 			if [ "X"$CONFIDENCE_FLAG = "X1" ]
 			then
-				echo "Erro de sintaxe: Confidence ja foi interpretado" >&2
+				echo "Syntax error: CONFIDENCE already processed" >&2
 				return 1
 			elif [ $# -le 1 ]
 				then
-					echo "Erro de sintaxe: A opcao $1 necessita de um argumento" >&2
+					echo "Syntax error: Option $1 requires an argument" >&2
 					return 1
 				else
 					CONFIDENCE_FLAG=1
@@ -209,7 +260,7 @@ get_args()
 					if [ ${RESULT} != 0 ]
 					then
 						
-						echo "Erro: o valor de confidence tem de estar entre 0.80 e 0.99" >&2
+						echo "Error: CONFIDENCE value must be between 0.80 and 0.99" >&2
 						return 1
 				fi
 				shift 2
@@ -218,7 +269,7 @@ get_args()
 			if [ "X"$DATABASE_FLAG != "X1" ]	
 			then
 				DATABASE_FLAG=1
-				dbserver=$1
+				DATABASE=$1
 				shift
 				continue	
 			fi
@@ -229,7 +280,7 @@ get_args()
 				shift
 				continue	
 			fi
-			echo "${PROGNAME}: Erro de sintaxe: "$1 >&2
+			echo "${PROGNAME}: Syntax error: $1" >&2
 			return 1;;
 		esac
 	done
@@ -239,33 +290,38 @@ get_args()
 
 
 
+
+#--------------------------------------------------------
+# script start...
+#--------------------------------------------------------
+
 get_args $*
 if [ $? != 0 ]
 then
-	echo "Erro no parsing dos parametros" >&2
+	echo "Error parsing parameters" >&2
 	exit 1
 fi
 
-until [ ${dbserver} ]
+until [ ${DATABASE} ]
 do
-  echo -n "Introduza o nome da base de dados: "
-  read dbserver
+  echo -n "What is the database name?: "
+  read DATABASE
 done
  
 until [ ${tabname} ]
 do
-  echo -n "Introduza o nome da tabela: "
+  echo -n "What is the table name?: "
   read tabname
 done
  
-# lower case table name
-tabname2=`echo ${tabname} | tr "[A-Z]" "[a-z]"`
-tabname=${tabname2}
+#--------------------------------------------------------
+# Check parameter values...
+#--------------------------------------------------------
 if [ "X${PRIORITY_FLAG}" = "X1" ]
 then
 	if [ 1 -gt ${priority}  -o  ${priority} -gt 100 ]
 	then
-		echo "Erro: o valor de PDQPRIORITY tem de estar entre 0 e 100" >&2
+		echo "Error: PDQPRIORITY must be between 0 and 100" >&2
 		exit 1
 	fi
 fi
@@ -276,7 +332,7 @@ then
 	RESULT=$?
 	if [ ${RESULT} != 0 -o ${resolution} -gt 100 ]
 	then
-		echo "Erro: o valor de resolution tem de ser numerico e menor ou igual a 100" >&2
+		echo "Error: RESOLUTION value must be numeric and less than or equal to 100" >&2
 		exit 1
 	fi
 fi
@@ -287,234 +343,243 @@ then
 	RESULT=$?
 	if [ ${RESULT} != 0 ]
 	then
-		echo "Erro: O valor da confidence tem de estar entre 0.80 e 0.99" >&2
+		echo "Error: CONFIDENCE must be between 0.80 and 0.99" >&2
 		exit 1
 	fi
 fi
+#--------------------------------------------------------
 # define filenames using process id
-sqlfile=/tmp/tbl_updstats$$.sql
-result=/tmp/tbl_updstats$$.r0
+#--------------------------------------------------------
+SQL_FILE=/tmp/${PROGNAME}$$.sql
+IDX_HEADER_COLUMNS_FILE=/tmp/${PROGNAME}_$$.idx_header
+NONINDEX_HEADER_COLUMNS_FILE=/tmp/${PROGNAME}_$$.non_idx
+INDEXED_COLUMNS_FILE=/tmp/${PROGNAME}_$$.idx
+SQL_ERROR_FILE=/tmp/${PROGNAME}_$$.sqlerror
+SQL_OUTPUT_FILE=/tmp/${PROGNAME}_$$.sqlout
+
+#--------------------------------------------------------
+# setup function for cleaning up on exit
+#--------------------------------------------------------
+clean_up()
+{
+	rm -f ${SQL_FILE} ${IDX_HEADER_COLUMNS_FILE} ${INDEXED_COLUMNS_FILE} ${NONINDEX_HEADER_COLUMNS_FILE} ${SQL_ERROR_FILE} ${SQL_OUTPUT_FILE}
+}
+trap clean_up 0
  
 
 #--------------------------------------------------------
-# find the index header columns
+# get the aux column files...
 #--------------------------------------------------------
-cat /dev/null >${result}
-echo "output to ${result} without headings
-      select tabname||':'||idxname||':'||colname
-      from systables t, sysindexes i, syscolumns c
-      where tabname = '${tabname}' 
-      and t.tabid = i.tabid
-      and t.tabid = c.tabid
-      and colno = part1 
-      order by 1;" >${sqlfile}
+dbaccess ${DATABASE} 1>/dev/null 2>${SQL_ERROR_FILE} <<EOSQL
+-------------------------------------------------------
+-- find the index header columns
+-------------------------------------------------------
+unload to ${IDX_HEADER_COLUMNS_FILE} delimiter ' '
+select unique trim(colname)
+from systables t, sysindexes i, syscolumns c
+where tabname = '${tabname}' 
+and t.tabid = i.tabid
+and t.tabid = c.tabid
+and colno = part1 
+order by 1;
 
-dbaccess ${dbserver} ${sqlfile}
-result1=/tmp/tbl_updstats$$.r1
-grep "\:" ${result} >${result1}
- 
-#--------------------------------------------------------
-# find the index non-header columns
-#--------------------------------------------------------
-echo "
- output to ${result} without headings
- select tabname||':'||idxname||':'||colname
- from systables t, sysindexes i, syscolumns c
- where tabname = '${tabname}' 
- and t.tabid = i.tabid and t.tabid = c.tabid
- and part2 is not null and colno = part2 
-  union
- select tabname||':'||idxname||':'||colname
- from systables t, sysindexes i, syscolumns c
- where tabname = '${tabname}' 
- and t.tabid = i.tabid and t.tabid = c.tabid
- and part3 is not null and colno = part3 
-  union
- select tabname||':'||idxname||':'||colname
- from systables t, sysindexes i, syscolumns c
- where tabname = '${tabname}' 
- and t.tabid = i.tabid and t.tabid = c.tabid
- and part4 is not null and colno = part4 
-  union
- select tabname||':'||idxname||':'||colname
- from systables t, sysindexes i, syscolumns c
- where tabname = '${tabname}' 
- and t.tabid = i.tabid and t.tabid = c.tabid
- and part5 is not null and colno = part5 
-  union
- select tabname||':'||idxname||':'||colname
- from systables t, sysindexes i, syscolumns c
- where tabname = '${tabname}' 
- and t.tabid = i.tabid and t.tabid = c.tabid
- and part6 is not null and colno = part6 
-  union
- select tabname||':'||idxname||':'||colname
- from systables t, sysindexes i, syscolumns c
- where tabname = '${tabname}' 
- and t.tabid = i.tabid and t.tabid = c.tabid
- and part7 is not null and colno = part7 
-  union
- select tabname||':'||idxname||':'||colname
- from systables t, sysindexes i, syscolumns c
- where tabname = '${tabname}' 
- and t.tabid = i.tabid and t.tabid = c.tabid
- and part8 is not null and colno = part8 
-  union
- select tabname||':'||idxname||':'||colname
- from systables t, sysindexes i, syscolumns c
- where tabname = '${tabname}' 
- and t.tabid = i.tabid and t.tabid = c.tabid
- and part9 is not null and colno = part9 
-  union
- select tabname||':'||idxname||':'||colname
- from systables t, sysindexes i, syscolumns c
- where tabname = '${tabname}' 
- and t.tabid = i.tabid and t.tabid = c.tabid
- and part10 is not null and colno = part10 
-  union
- select tabname||':'||idxname||':'||colname
- from systables t, sysindexes i, syscolumns c
- where tabname = '${tabname}' 
- and t.tabid = i.tabid and t.tabid = c.tabid
- and part11 is not null and colno = part11 
-  union
- select tabname||':'||idxname||':'||colname
- from systables t, sysindexes i, syscolumns c
- where tabname = '${tabname}' 
- and t.tabid = i.tabid and t.tabid = c.tabid
- and part12 is not null and colno = part12 
-  union
- select tabname||':'||idxname||':'||colname
- from systables t, sysindexes i, syscolumns c
- where tabname = '${tabname}' 
- and t.tabid = i.tabid and t.tabid = c.tabid
- and part13 is not null and colno = part13 
-  union
- select tabname||':'||idxname||':'||colname
- from systables t, sysindexes i, syscolumns c
- where tabname = '${tabname}' 
- and t.tabid = i.tabid and t.tabid = c.tabid
- and part14 is not null and colno = part14 
-  union
- select tabname||':'||idxname||':'||colname
- from systables t, sysindexes i, syscolumns c
- where tabname = '${tabname}' 
- and t.tabid = i.tabid and t.tabid = c.tabid
- and part15 is not null and colno = part15 
-  union
- select tabname||':'||idxname||':'||colname
- from systables t, sysindexes i, syscolumns c
- where tabname = '${tabname}' 
- and t.tabid = i.tabid and t.tabid = c.tabid
- and part16 is not null and colno = part16 
- ;" >${sqlfile}
+--------------------------------------------------------
+-- find all the non index header columns
+--------------------------------------------------------
+unload to ${NONINDEX_HEADER_COLUMNS_FILE} delimiter ' '
+select unique trim(colname)
+from syscolumns c, systables t
+where c.tabid = t.tabid
+and t.tabname = '${tabname}'
+and c.colno not in ( select i.part1 from sysindexes i where i.tabid = t.tabid)
+order by 1;
 
-dbaccess ${dbserver} ${sqlfile}
-result2=/tmp/tbl_updstats$$.r2
-grep "\:" ${result} >${result2}
-x=/tmp/tbl_updstats$$.x
-cp ${result} $x
- 
-#-------------------------------------------------------
-# Report of indexes
-#-------------------------------------------------------
-rpt=/tmp/tbl_updstats$$.rpt
+--------------------------------------------------------
+-- find the indexed columns
+--------------------------------------------------------
+unload to ${INDEXED_COLUMNS_FILE} delimiter ' '
+select unique trim(colname)
+from syscolumns c, systables t
+where c.tabid = t.tabid
+and t.tabname = '${tabname}'
+and c.colno in (
+         select i.part1 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part2 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part3 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part4 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part5 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part6 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part7 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part8 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part9 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part10 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part11 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part12 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part13 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part14 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part15 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part16 from sysindexes i where i.tabid = t.tabid
+)
+order by 1;
+EOSQL
 
-cat /dev/null >${rpt}
-echo TABLE: ${tabname} >>${rpt}
-date >>${rpt}
-
-lines=`wc -l ${result1} | awk '{print $1}'`
-if [ ${lines} -ge 1 ]
+if [ $? != 0 ]
 then
-	echo '
-Table Name        :Index Name        :Column Name
-------------------:------------------:-----------------------' >>${rpt}
-	echo '<< Columns heading an index. >> ' >>${rpt}
-	cat ${result1} >>${rpt}
+	printf "${PROGNAME} Error: dbaccess error when fetching column information for table ${DATABASE}@${INFORMIXSERVER}:${tabname}\n">&2
+	cat ${SQL_ERROR_FILE} >&2
+	exit 1
 fi
-lines=`wc -l ${result2} | awk '{print $1}'`
-if [ ${lines} -ge 1 ]
-then
-	echo '<< Columns NOT heading an index. >> ' >>${rpt}
-	cat ${result2} >>${rpt}
-fi
-echo >>${rpt}
- 
-#-------------------------------------------------------
-# Create sql statements for medium distributions 
-#-------------------------------------------------------
-ms=/tmp/tbl_updstats$$_ms.sql
-echo > ${ms}
 
-if [ "X"${EXPLAIN_FLAG} = "X1" ]
+#--------------------------------------------------------
+# start the SQL script preparation
+#--------------------------------------------------------
+echo > ${SQL_FILE}
+printf "\n-- Update statistics for table ${DATABASE}@${INFORMIXSERVER}:${tabname}\n-- Generated by ${PROGNAME} ${VERSION} on `date` \n\n" >>${SQL_FILE}
+
+if [ "X${TIMINGS_FLAG}" = "X1" ]
 then
-	echo "set explain on;" >>${ms}
+	printf "\n-- Show stats timings\noutput to pipe cat without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} Start: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
+fi
+
+if [ "X${EXPLAIN_FLAG}" = "X1" ]
+then
+	printf "\n-- Obtain statistics\nset explain on;\n" >>${SQL_FILE}
+else
+	if [ "X${EXPLAIN_FLAG}" = "X2" ]
+	then
+		printf "\n-- Obtain statistics\nset explain file to '${explain_file}';\n" >>${SQL_FILE}
+	fi
 fi
 if [ "X"${PRIORITY_FLAG} = "X1" ]
 then
-	echo "set pdqpriority ${priority};" >>${ms}
+	printf "\n-- Set PDQPRIORITY\nset pdqpriority ${priority};\n" >>${SQL_FILE}
 fi
-if [ "X${RESOLUTION_FLAG}" = "X1" -o "X${CONFIDENCE_FLAG}" = "X1" ]
+
+#-------------------------------------------------------
+# Create sql statements for medium distributions 
+#-------------------------------------------------------
+
+LINE_COUNT=`wc -l ${NONINDEX_HEADER_COLUMNS_FILE} | awk '{print $1}'`
+
+if [ "X${LINE_COUNT}" != "X0" ]
 then
-	if [ "X${RESOLUTION_FLAG}" != "X1" ]
+	if [ "X${RESOLUTION_FLAG}" = "X1" -o "X${CONFIDENCE_FLAG}" = "X1" ]
 	then
-		resolution_clause_medium=" resolution ${DEFAULT_RESOLUTION} ${confidence} "
-	else
-		resolution_clause_medium=" resolution ${resolution} ${confidence} "
-		resolution_clause_high=" resolution ${resolution} "
+		if [ "X${RESOLUTION_FLAG}" != "X1" ]
+		then
+			resolution_clause_medium=" resolution ${DEFAULT_RESOLUTION} ${confidence} "
+		else
+			resolution_clause_medium=" resolution ${resolution} ${confidence} "
+			resolution_clause_high=" resolution ${resolution} "
+		fi
 	fi
+	if [ "X${TIMINGS_FLAG}" = "X1" ]
+	then
+		printf "\n-- Show stats timings\noutput to pipe cat without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} Medium : '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
+	fi
+
+	printf "\n-- MEDIUM distributions only for all columns that are not head of any index\nupdate statistics medium for table \"${tabname}\"\n    (" >>${SQL_FILE}
+	FIRST=1
+	while read COLNAME
+	do
+		if [ $FIRST = 1 ]
+		then
+			printf "%s" ${COLNAME} >> ${SQL_FILE}
+			FIRST=0
+		else
+			printf ",%s" ${COLNAME} >>${SQL_FILE}
+		fi
+	done < ${NONINDEX_HEADER_COLUMNS_FILE}
+	printf  ")\n${resolution_clause_medium} distributions only;\n" >>${SQL_FILE}
 fi
-echo "update statistics medium for table ${tabname} ${resolution_clause_medium} distributions only;" >>${ms}
  
 #-------------------------------------------------------
 # Create sql statements for high distributions
 #-------------------------------------------------------
-col_high=/tmp/tbl_updstats$$_colh.sql
-cut -f3 -d: ${result1} | sort | uniq  >${col_high}
 
-#-------------------------------------------------------
-# Open and use fd 4 to store the list of columnns
-#-------------------------------------------------------
-exec 4<${col_high}
-primeiro=1
-while read colname <&4
-do
-if [ $primeiro -eq 1 ]
+LINE_COUNT=`wc -l ${IDX_HEADER_COLUMNS_FILE} | awk '{print $1}'`
+if [ "X${LINE_COUNT}" != "X0" ]
 then
-	echo "update statistics high for table ${tabname} (" >>${ms}
-	primeiro=0
-else
-	echo ',' >>${ms}
-fi
-echo ${colname} >>${ms}
-done
-if [ $primeiro != 1 ]
-then
-	echo ")  ${resolution_clause_high} distributions only;" >>${ms}
+	if [ "X${TIMINGS_FLAG}" = "X1" ]
+	then
+		printf "\n-- Show stats timings\noutput to pipe cat without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} High: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
+	fi
+
+	printf  "\n-- HIGH distributions only for all columns that are head of any index\nupdate statistics high for table \"${tabname}\"\n    (" >>${SQL_FILE}
+	FIRST=1
+	while read COLNAME
+	do
+		if [ $FIRST = 1 ]
+		then
+			printf "%s" ${COLNAME} >> ${SQL_FILE}
+			FIRST=0
+		else
+			printf ",%s" ${COLNAME} >>${SQL_FILE}
+		fi
+	done <${IDX_HEADER_COLUMNS_FILE}
+	printf ")\n${resolution_clause_high} distributions only;\n" >>${SQL_FILE}
 fi
  
 #-------------------------------------------------------
 # Create sql statements for low 
 #-------------------------------------------------------
-col_low=/tmp/tbl_updstats$$_coll.sql
-cut -f3 -d: ${result2} | sort | uniq  >${result}
-comm -13 ${col_high} ${result} >${col_low}
-echo 'update statistics low for table '${tabname}';' >>${ms}
-
-#-------------------------------------------------------
-# Execute SQL instrctions
-#-------------------------------------------------------
-if [ "X${DISPLAY_FLAG}" = "X1" ]
+LINE_COUNT=`wc -l ${INDEXED_COLUMNS_FILE} | awk '{print $1}'`
+if [ "X${LINE_COUNT}" != "X0" ]
 then
-	cat ${ms}
-else
-	dbaccess ${dbserver} - <${ms} 1>/dev/null #2>&1 
-	cat ${ms} >>${rpt}
-fi
- 
-mv  ${rpt} /tmp/tbl_updstats_${dbserver}$$.rpt
-rm  -f ${ms} ${x} ${sqlfile} ${result} ${result1} ${result2} ${col_high} ${col_low}
- 
-exit 0
+	if [ "X${TIMINGS_FLAG}" = "X1" ]
+	then
+		printf "\n-- Show stats timings\noutput to pipe cat without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} Low: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
+	fi
 
+	printf  "\n-- LOW for all columns beloging to any index\nupdate statistics low for table \"${tabname}\"\n    (" >>${SQL_FILE}
+	FIRST=1
+	while read COLNAME
+	do
+		if [ $FIRST = 1 ]
+		then
+			printf "%s" ${COLNAME} >> ${SQL_FILE}
+			FIRST=0
+		else
+			printf ",%s" ${COLNAME} >>${SQL_FILE}
+		fi
+	done <${INDEXED_COLUMNS_FILE}
+	printf ");\n\n" >>${SQL_FILE}
+else
+	printf "\n-- LOW for table if table has no indexes\nupdate statistics low for table \"${tabname}\";\n\n" >>${SQL_FILE}
+fi
+
+if [ "X${TIMINGS_FLAG}" = "X1" ]
+then
+printf "\n-- Show stats timings\noutput to pipe cat without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} End: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
+fi
+
+
+#-------------------------------------------------------
+# Execute SQL instructions
+#-------------------------------------------------------
+case X${DISPLAY_FLAG} in
+X1)
+	cat ${SQL_FILE}
+	;;
+X2)
+	cat ${SQL_FILE}
+	dbaccess ${DATABASE} - <${SQL_FILE} 2>${SQL_ERROR_FILE} 1>${SQL_OUTPUT_FILE}
+	if [ $? != 0 ]
+	then
+		printf "${PROGNAME} Error: dbaccess error when executing SQL with update statistics statements: ${tabname}@${DATABASE}\n">&2
+		cat ${SQL_ERROR_FILE} >&2
+		exit 1
+	fi
+	cat ${SQL_OUTPUT_FILE} | grep -v "^[ 	]*$"
+	;;
+X*)
+	dbaccess ${DATABASE} - <${SQL_FILE} 2>${SQL_ERROR_FILE} 1>${SQL_OUTPUT_FILE}
+	if [ $? != 0 ]
+	then
+		printf "${PROGNAME} Error: dbaccess error when executing SQL with update statistics statements: ${tabname}@${DATABASE}\n">&2
+		cat ${SQL_ERROR_FILE} >&2
+		exit 1
+	fi
+	cat ${SQL_OUTPUT_FILE} | grep -v "^[ 	]*$"
+	;;
+esac

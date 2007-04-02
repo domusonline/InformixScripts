@@ -1,6 +1,0 @@
-# id: $Header$
-# Ficheiro de config para exploracao do updstats
-dbs_updstats /usr/bin/utils root adriatico,antarctico,arrabida,caramulo,cesce,gardunha,malcata,pacifico,saturno,batman-priv,batman,mercurio,batgirl,muleta,aire,zurique,pinguim 755
-tbl_updstats /usr/bin/utils root adriatico,antarctico,arrabida,caramulo,cesce,gardunha,malcata,pacifico,saturno,batman-priv,batman,mercurio,batgirl,muleta,aire,zurique,pinguim 755
-man/tbl_updstats.1 /usr/local/man/man1 root adriatico,antarctico,arrabida,caramulo,cesce,gardunha,malcata,pacifico,saturno,batman-priv,batman,mercurio,batgirl,muleta,aire,zurique,pinguim 644
-man/dbs_updstats.1 /usr/local/man/man1 root adriatico,antarctico,arrabida,caramulo,cesce,gardunha,malcata,pacifico,saturno,batman-priv,batman,mercurio,batgirl,muleta,aire,zurique,pinguim 644
