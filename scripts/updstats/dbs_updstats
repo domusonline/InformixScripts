@@ -10,13 +10,15 @@
 
 
 PROGNAME=`basename $0`
-VERSION="1.2"
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
 
 show_help()
 {
-	printf "${PROGNAME}: { -d database } [ -f filter ] [ -e |  -E file] [ -p priority ]\n[ -P | -N ] [ -r resolution ] [ -c confidence ] [ -T ] [ -s ] [ -x | -X ] [ -y ] [ -z | -Z ]\n" >&2
-	echo "               -d database (required)" >&2
-	echo "               -f table filter (optional)" >&2
+	printf "${PROGNAME}: -V | -h | { -d database } [ -f filter ] [ -e |  -E file] [ -p priority ]\n[ -P | -N ] [ -r resolution ] [ -c confidence ] [ -T ] [ -s ] [ -x | -X ] [ -y ] [ -z | -Z ]\n" >&2
+	echo "               {-d database} (required)" >&2
+	echo "               {-f table} filter (optional)" >&2
+	echo "               [-h] Show help and exit">&2
+	echo "               [-V] Show version and exit">&2
 	echo "               [-e] Set explain on (versions >= 7.31.UD2 and 9.30.UC2)" >&2
 	echo "               [-E file] Set explain to a file (versions >= 11.10)" >&2
 	echo "               [-p priority] Set pdqpriority (versions >= 7.31.UD2 and 9.30.UC2)" >&2
@@ -37,7 +39,7 @@ show_help()
 
 get_args()
 {
-	arg_ok='p:d:f:r:c:E:ePNvhTsyxXzZ'
+	arg_ok='p:d:f:r:c:E:ePNVhTsyxXzZ'
 	list="$*"
 	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing                                                
@@ -54,7 +56,7 @@ get_args()
 			show_help
 			exit 0
 			;;
-		-v)   # show version
+		-V)   # show version
 			echo "${PROGNAME} version ${VERSION}" >&1
 			exit 0
 			;;
@@ -127,7 +129,7 @@ get_args()
 			then
 				return
 			fi
-			arg_ok='p:d:f:r:c:E:ePNvhTsyxXzZ'
+			arg_ok='p:d:f:r:c:E:ePNVhTsyxXzZ'
 			set -- `getopt "${arg_ok}" $resto`
 			continue
 			;;
@@ -327,7 +329,7 @@ get_args()
 					then
 						return
 					fi
-					arg_ok='p:d:f:r:c:E:ePNvhTsyxXzZ'
+					arg_ok='p:d:f:r:c:E:ePNVhTsyxXzZ'
 					set -- `getopt "${arg_ok}" $resto`
 					continue
 			fi;;

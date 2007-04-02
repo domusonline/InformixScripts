@@ -30,14 +30,16 @@ export DELIMIDENT
 
 show_help()
 {
-	echo "${PROGNAME}: { [-d] database } { [-t] table } [ -e | -E file ] [ -p priority ] [ -r resolution ] [ -c confidence ] [ -x|X ] [ -T ]" >&2
-	echo "               [-d] database (required)" >&2
-	echo "               [-t] table (required)" >&2
-	echo "               [-p] Set PDQPRIORITY (versions >= a 7.31.UD2 and 9.30.UC2)" >&2
-	echo "               [-r] Set resolution" >&2
-	echo "               [-c] Set confidence" >&2
+	echo "${PROGNAME}: -h | -V | { [-d] database } { [-t] table } [ -e | -E file ] [ -p priority ]\n[ -r resolution ] [ -c confidence ] [ -x|X ] [ -T ]" >&2
+	echo "               { [ -d ] database } (required)" >&2
+	echo "               { [-t] table}  (required)" >&2
+	echo "               [-h] Show help and exit">&2
+	echo "               [-V] Show version and exit" >&2
+	echo "               [-p] Set PDQPRIORITY (versions >= 7.31.UD2 and 9.30.UC2)" >&2
+	echo "               [-r resolution] Set resolution" >&2
+	echo "               [-c confidence] Set confidence" >&2
 	echo "               [-e] Set explain on (versions >= 7.31.UD2 and 9.30.UC2)" >&2
-	echo "               [-E] file Set explain file (versions >= 11.10)" >&2
+	echo "               [-E file ] Set explain file (versions >= 11.10)" >&2
 	echo "               [-X] Display and execute" >&2
 	echo "               [-x] Display only. Don't execute" >&2
 	echo "               [-T] Include timings in de SQL generated" >&2
@@ -46,7 +48,7 @@ show_help()
 
 get_args()
 {
-	arg_ok="d:t:p:r:c:E:hevTxX"
+	arg_ok="d:t:p:r:c:E:heVTxX"
 	list="$*"
 	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing                                                
