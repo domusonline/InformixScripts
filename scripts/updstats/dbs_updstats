@@ -14,7 +14,7 @@ VERSION=`echo "$Revision$" | cut -f2 -d' '`
 
 show_help()
 {
-	printf "${PROGNAME}: -V | -h | { -d database } [ -f filter ] [ -e |  -E file] [ -p priority ]\n[ -P | -N ] [ -m size ] [ -r resolution ] [ -c confidence ] [ -R resolution ] [ -T ] [ -s ] [ -x | -X ] [ -y ] [ -z | -Z ]\n" >&2
+	printf "${PROGNAME}: -V | -h | { -d database } [ -f filter ] [ -e |  -E file] [ -p priority ]\n[ -P | -N ] [ -m size ] [ -r resolution ] [ -c confidence ] [ -R resolution ] [ -T ] [ -s ] [-l ] [ -x | -X ] [ -y ] [ -z | -Z ]\n" >&2
 	echo "               {-d database} (required)" >&2
 	echo "               {-f table} filter (optional)" >&2
 	echo "               [-h] Show help and exit">&2
@@ -28,6 +28,7 @@ show_help()
 	echo "               [-c confidence] Set confidence" >&2
 	echo "               [-m size] Set minimum sample size (versions >= 11.10)">&2
 	echo "               [-R resolution] Set resolution for HIGH distributions" >&2
+	echo "               [-l] Use quick LOW mode (Avoid b-tree leaf scan. Only minimal table info is collected)" >&2
 	echo "               [-T] Include timings" >&2
 	echo "               [-s] Include system catalog tables" >&2
 	echo "               [-x] Option for tbl_updstats. Display only. Do not execute" >&2
@@ -41,7 +42,7 @@ show_help()
 
 get_args()
 {
-	arg_ok='p:d:f:m:r:R:c:E:ePNVhTsyxXzZ'
+	arg_ok='p:d:f:m:r:R:c:E:lePNVhTsyxXzZ'
 	list="$*"
 	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing                                                
@@ -77,6 +78,9 @@ get_args()
 			;;
 		-x|-X)   # set up the -xX (set CMD_DISPLAY flag)
 			CMD_DISPLAY_FLAG=$1
+			;;
+		-l)   # set up the -l (set quick low mode flag)
+			QUICK_LOW_MODE_FLAG=1
 			;;
 		-s)   # set up the -s (set SYSTABLES flag)
 			SYSTABLES_FLAG=1
@@ -141,7 +145,7 @@ get_args()
 			then
 				return
 			fi
-			arg_ok='p:d:f:m:r:R:c:E:ePNVhTsyxXzZ'
+			arg_ok='p:d:f:m:r:R:c:E:lePNVhTsyxXzZ'
 			set -- `getopt "${arg_ok}" $resto`
 			continue
 			;;
@@ -383,7 +387,7 @@ get_args()
 					then
 						return
 					fi
-					arg_ok='p:d:f:m:r:R:c:E:ePNVhTsyxXzZ'
+					arg_ok='p:d:f:m:r:R:c:E:lePNVhTsyxXzZ'
 					set -- `getopt "${arg_ok}" $resto`
 					continue
 			fi;;
@@ -488,6 +492,11 @@ then
 	else
 		confidence_clause=" -c ${confidence} "
 	fi
+fi
+
+if [ "X${QUICK_LOW_MODE_FLAG}" = "X1" ]
+then
+	low_mode_flag="-l"
 fi
 
 if [ "X"$PROCEDURES_FLAG = "X" ]
@@ -609,13 +618,13 @@ do
 	case "X${DISPLAY_FLAG}" in
 	X1)
 		#--- display only...
-		echo "#Command: tbl_updstats -d ${dbserver} -t ${tblname} ${resolution_clause_high} ${sampling_clause} ${resolution_clause_medium} ${confidence_clause} ${CMD_FLAGS}"
+		echo "#Command: tbl_updstats -d ${dbserver} -t ${tblname} ${low_mode_flag} ${resolution_clause_high} ${sampling_clause} ${resolution_clause_medium} ${confidence_clause} ${CMD_FLAGS}"
 		;;
 	X2)
 		#--- display and execute 
-		echo "#Command: tbl_updstats -d ${dbserver} -t ${tblname} ${resolution_clause_high} ${sampling_clause} ${resolution_clause_medium} ${confidence_clause} ${CMD_FLAGS}"
+		echo "#Command: tbl_updstats -d ${dbserver} -t ${tblname} ${low_mode_flag} ${resolution_clause_high} ${sampling_clause} ${resolution_clause_medium} ${confidence_clause} ${CMD_FLAGS}"
 		cat /dev/null >${EXPLAIN_TMP_FILE}
-		tbl_updstats -d ${dbserver} -t ${tblname} ${resolution_clause_high} ${sampling_clause} ${resolution_clause_medium} ${confidence_clause} ${CMD_FLAGS}
+		tbl_updstats -d ${dbserver} -t ${tblname} ${low_mode_flag} ${resolution_clause_high} ${sampling_clause} ${resolution_clause_medium} ${confidence_clause} ${CMD_FLAGS}
 		if [ "X${EXPLAIN_FLAG}" = "X1" ]
 		then
 			cat ${EXPLAIN_TMP_FILE} >>${explain_file}
@@ -624,7 +633,7 @@ do
 	X*)
 		#--- execute only
 		cat /dev/null >${EXPLAIN_TMP_FILE}
-		tbl_updstats -d ${dbserver} -t ${tblname} ${resolution_clause_high} ${sampling_clause} ${resolution_clause_medium} ${confidence_clause} ${CMD_FLAGS}
+		tbl_updstats -d ${dbserver} -t ${tblname} ${low_mode_flag} ${resolution_clause_high} ${sampling_clause} ${resolution_clause_medium} ${confidence_clause} ${CMD_FLAGS}
 		if [ "X${EXPLAIN_FLAG}" = "X2" ]
 		then
 			cat ${EXPLAIN_TMP_FILE} >>${explain_file}

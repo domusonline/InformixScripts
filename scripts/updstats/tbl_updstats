@@ -30,7 +30,7 @@ export DELIMIDENT
 
 show_help()
 {
-	echo "${PROGNAME}: -h | -V | { [-d] database } { [-t] table } [ -e | -E file ] [ -p priority ]\n [ -m size ] [ -r resolution ] [ -c confidence ] [ -R resolution ] [ -x|X ] [ -T ]" >&2
+	echo "${PROGNAME}: -h | -V | { [-d] database } { [-t] table } [ -e | -E file ] [ -p priority ]\n [ -m size ] [ -r resolution ] [ -c confidence ] [ -R resolution ] [ -l ] [ -x|X ] [ -T ]" >&2
 	echo "               { [ -d ] database } (required)" >&2
 	echo "               { [-t] table}  (required)" >&2
 	echo "               [-h] Show help and exit">&2
@@ -40,6 +40,7 @@ show_help()
 	echo "               [-c confidence] Set confidence" >&2
 	echo "               [-R resolution] Set resolution for HIGH distributions" >&2
 	echo "               [-m size] Set sampling size (versions >= 11.10)" >&2
+	echo "               [-l] Use quick LOW mode (Avoid b-tree leaf scan Only minimal table info is collected)" >&2
 	echo "               [-e] Set explain on (versions >= 7.31.UD2 and 9.30.UC2)" >&2
 	echo "               [-E file ] Set explain file (versions >= 11.10)" >&2
 	echo "               [-X] Display and execute" >&2
@@ -50,7 +51,7 @@ show_help()
 
 get_args()
 {
-	arg_ok="d:t:p:m:r:R:c:E:heVTxX"
+	arg_ok="d:t:p:m:r:R:c:E:hleVTxX"
 	list="$*"
 	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing                                                
@@ -70,6 +71,9 @@ get_args()
 		-v)   # show version
 			echo "${PROGNAME} version ${VERSION}"
 			exit 0
+			;;
+		-l)   # quick low mode
+			LOW_MODE_FLAG=1
 			;;
 		-T)   # show timings (to stdout)
 			TIMINGS_FLAG=1
@@ -164,6 +168,15 @@ get_args()
 					shift 2
 			fi
 			;;
+		-l)
+			if [ "X"$LOW_MODE != "X" ]	
+			then
+				echo "${PROGNAME}: Syntax error: LOW MODE already processed" >&2
+				return 1
+			else
+				LOW_MODE=1
+				shift
+			fi;;
 		-T)
 			if [ "X"$TIMINGS_FLAG = "X1" ]	
 			then
@@ -420,8 +433,9 @@ fi
 #--------------------------------------------------------
 SQL_FILE=/tmp/${PROGNAME}$$.sql
 IDX_HEADER_COLUMNS_FILE=/tmp/${PROGNAME}_$$.idx_header
-NONINDEX_HEADER_COLUMNS_FILE=/tmp/${PROGNAME}_$$.non_idx
+NONINDEX_HEADER_COLUMNS_FILE=/tmp/${PROGNAME}_$$.non_idxhdr
 INDEXED_COLUMNS_FILE=/tmp/${PROGNAME}_$$.idx
+NON_INDEXED_COLUMNS_FILE=/tmp/${PROGNAME}_$$.non_indexed
 SQL_ERROR_FILE=/tmp/${PROGNAME}_$$.sqlerror
 SQL_OUTPUT_FILE=/tmp/${PROGNAME}_$$.sqlout
 
@@ -430,7 +444,7 @@ SQL_OUTPUT_FILE=/tmp/${PROGNAME}_$$.sqlout
 #--------------------------------------------------------
 clean_up()
 {
-	rm -f ${SQL_FILE} ${IDX_HEADER_COLUMNS_FILE} ${INDEXED_COLUMNS_FILE} ${NONINDEX_HEADER_COLUMNS_FILE} ${SQL_ERROR_FILE} ${SQL_OUTPUT_FILE}
+	rm -f ${SQL_FILE} ${IDX_HEADER_COLUMNS_FILE} ${INDEXED_COLUMNS_FILE} ${NONINDEX_HEADER_COLUMNS_FILE} ${SQL_ERROR_FILE} ${SQL_OUTPUT_FILE} ${NON_INDEXED_COLUMNS_FILE}
 }
 trap clean_up 0
  
@@ -471,6 +485,34 @@ from syscolumns c, systables t
 where c.tabid = t.tabid
 and t.tabname = '${tabname}'
 and c.colno in (
+         select i.part1 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part2 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part3 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part4 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part5 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part6 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part7 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part8 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part9 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part10 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part11 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part12 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part13 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part14 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part15 from sysindexes i where i.tabid = t.tabid UNION
+         select i.part16 from sysindexes i where i.tabid = t.tabid
+)
+order by 1;
+
+--------------------------------------------------------
+-- find the non indexed columns
+--------------------------------------------------------
+unload to ${NON_INDEXED_COLUMNS_FILE} delimiter ' '
+select unique trim(colname)
+from syscolumns c, systables t
+where c.tabid = t.tabid
+and t.tabname = '${tabname}'
+and c.colno not in (
          select i.part1 from sysindexes i where i.tabid = t.tabid UNION
          select i.part2 from sysindexes i where i.tabid = t.tabid UNION
          select i.part3 from sysindexes i where i.tabid = t.tabid UNION
@@ -601,34 +643,56 @@ fi
 #-------------------------------------------------------
 # Create sql statements for low 
 #-------------------------------------------------------
-LINE_COUNT=`wc -l ${INDEXED_COLUMNS_FILE} | awk '{print $1}'`
-if [ "X${LINE_COUNT}" != "X0" ]
+if [ "X${TIMINGS_FLAG}" = "X1" ]
 then
-	if [ "X${TIMINGS_FLAG}" = "X1" ]
-	then
-		printf "\n-- Show stats timings\noutput to pipe 'cat -u' without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} Low: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
-	fi
-
-	printf  "\n-- LOW for all columns beloging to any index\nupdate statistics low for table \"${tabname}\"\n    (" >>${SQL_FILE}
-	FIRST=1
-	while read COLNAME
-	do
-		if [ $FIRST = 1 ]
-		then
-			printf "%s" ${COLNAME} >> ${SQL_FILE}
-			FIRST=0
-		else
-			printf ",%s" ${COLNAME} >>${SQL_FILE}
-		fi
-	done <${INDEXED_COLUMNS_FILE}
-	printf ");\n\n" >>${SQL_FILE}
-else
-	if [ "X${TIMINGS_FLAG}" = "X1" ]
-	then
-		printf "\n-- Show stats timings\noutput to pipe 'cat -u' without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} Low: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
-	fi
-	printf "\n-- LOW for table if table has no indexes\nupdate statistics low for table \"${tabname}\";\n\n" >>${SQL_FILE}
+	printf "\n-- Show stats timings\noutput to pipe 'cat -u' without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} Low: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
 fi
+
+case "X${LOW_MODE_FLAG}" in
+X)
+	LINE_COUNT=`wc -l ${INDEXED_COLUMNS_FILE} | awk '{print $1}'`
+	if [ "X${LINE_COUNT}" != "X0" ]
+	then
+		printf  "\n-- LOW for all columns beloging to any index\nupdate statistics low for table \"${tabname}\"\n    (" >>${SQL_FILE}
+		FIRST=1
+		while read COLNAME
+		do
+			if [ $FIRST = 1 ]
+			then
+				printf "%s" ${COLNAME} >> ${SQL_FILE}
+				FIRST=0
+			else
+				printf ",%s" ${COLNAME} >>${SQL_FILE}
+			fi
+		done <${INDEXED_COLUMNS_FILE}
+		printf ");\n\n" >>${SQL_FILE}
+	else
+		printf "\n-- LOW for table if table has no indexes\nupdate statistics low for table \"${tabname}\";\n\n" >>${SQL_FILE}
+	fi
+	;;
+X1)
+	LINE_COUNT=`wc -l ${NON_INDEXED_COLUMNS_FILE} | awk '{print $1}'`
+	if [ "X${LINE_COUNT}" != "X0" ]
+	then
+		printf  "\n-- Using LOW quick mode... LOW for all columns NOT beloging to any index\nupdate statistics low for table \"${tabname}\"\n    (" >>${SQL_FILE}
+		FIRST=1
+		while read COLNAME
+		do
+			if [ $FIRST = 1 ]
+			then
+				printf "%s" ${COLNAME} >> ${SQL_FILE}
+				FIRST=0
+			else
+				printf ",%s" ${COLNAME} >>${SQL_FILE}
+			fi
+		done <${NON_INDEXED_COLUMNS_FILE}
+		printf ");\n\n" >>${SQL_FILE}
+	else
+		COLNAME=`head -1 ${INDEXED_COLUMNS_FILE}`
+		printf "\n-- Using LOW quick mode, but all columns are indexed! Using just one column...\nupdate statistics low for table \"${tabname}\"( ${COLNAME} )\n\n" >>${SQL_FILE}
+	fi
+	;;
+esac
 
 if [ "X${TIMINGS_FLAG}" = "X1" ]
 then
