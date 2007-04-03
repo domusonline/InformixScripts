@@ -18,7 +18,7 @@
 PROGNAME=`basename $0`
 VERSION=`echo "$Revision$" | cut -f2 -d' '`
 
-DEFAULT_RESOLUTION=2.5
+DEFAULT_RESOLUTION_MEDIUM=2.5
 
 # Do not ignore dbaccess errors
 DBACCNOIGN=1
@@ -30,14 +30,16 @@ export DELIMIDENT
 
 show_help()
 {
-	echo "${PROGNAME}: -h | -V | { [-d] database } { [-t] table } [ -e | -E file ] [ -p priority ]\n[ -r resolution ] [ -c confidence ] [ -x|X ] [ -T ]" >&2
+	echo "${PROGNAME}: -h | -V | { [-d] database } { [-t] table } [ -e | -E file ] [ -p priority ]\n [ -m size ] [ -r resolution ] [ -c confidence ] [ -R resolution ] [ -x|X ] [ -T ]" >&2
 	echo "               { [ -d ] database } (required)" >&2
 	echo "               { [-t] table}  (required)" >&2
 	echo "               [-h] Show help and exit">&2
 	echo "               [-V] Show version and exit" >&2
 	echo "               [-p] Set PDQPRIORITY (versions >= 7.31.UD2 and 9.30.UC2)" >&2
-	echo "               [-r resolution] Set resolution" >&2
+	echo "               [-r resolution] Set resolution for MEDIUM distributions" >&2
 	echo "               [-c confidence] Set confidence" >&2
+	echo "               [-R resolution] Set resolution for HIGH distributions" >&2
+	echo "               [-m size] Set sampling size (versions >= 11.10)" >&2
 	echo "               [-e] Set explain on (versions >= 7.31.UD2 and 9.30.UC2)" >&2
 	echo "               [-E file ] Set explain file (versions >= 11.10)" >&2
 	echo "               [-X] Display and execute" >&2
@@ -48,7 +50,7 @@ show_help()
 
 get_args()
 {
-	arg_ok="d:t:p:r:c:E:heVTxX"
+	arg_ok="d:t:p:m:r:R:c:E:heVTxX"
 	list="$*"
 	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing                                                
@@ -101,9 +103,19 @@ get_args()
 			priority=$2
 			shift
 			;;
-		-r)   # set up the -r (resolution flag)
-			RESOLUTION_FLAG=1
-			resolution=$2
+		-m)   # set up the -m (sampling flag)
+			SAMPLING_FLAG=1
+			sampling=$2
+			shift
+			;;
+		-R)   # set up the -R (resolution High flag)
+			RESOLUTION_HIGH_FLAG=1
+			resolution_high=$2
+			shift
+			;;
+		-r)   # set up the -r (resolution medium flag)
+			RESOLUTION_MEDIUM_FLAG=1
+			resolution_medium=$2
 			shift
 			;;
 		-c)   # set up the -c (confidence flag)
@@ -225,23 +237,65 @@ get_args()
 					fi
 					shift 2
 			fi;;
-		-r)
-			if [ "X"$RESOLUTION_FLAG = "X1" ]
+		-m)
+			if [ "X"$SAMPLING_FLAG = "X1" ]
 			then
-				echo "Syntax error: RESOLUTION already processed" >&2
+				echo "${PROGNAME} Syntax error: SAMPLING already processed" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "${PROGNAME} Syntax error: Option $1 requires an argument" >&2
+					return 1
+				else
+					SAMPLING_FLAG=1
+					sampling=$2
+					echo ${sampling} | grep '^[0-9][0-9]*$' 2>&1 >/dev/null
+					RESULT=$?
+					if [ ${RESULT} != 0 -o ${sampling} -lt 1 ]
+					then
+						echo "${PROGNAME} Syntax error: SAMPLING value must be numeric and greater than 0" >&2
+						return 1
+					fi
+					shift 2
+                        fi;;
+		-R)
+			if [ "X"$RESOLUTION_HIGH_FLAG = "X1" ]
+			then
+				echo "Syntax error: RESOLUTION HIGH already processed" >&2
 				return 1
 			elif [ $# -le 1 ]
 				then
 					echo "Syntax error: Option $1 requires an argument" >&2
 					return 1
 				else
-					RESOLUTION_FLAG=1
-                                        resolution=$2
-					echo ${resolution} | grep '^[0-9]\{0,3\}\.\{0,1\}[0-9]\{1,\}$' 2>&1 >/dev/null
+					RESOLUTION_HIGH_FLAG=1
+                                        resolution_high=$2
+					echo ${resolution_high} | grep '^[0-9]\{0,3\}\.\{0,1\}[0-9]\{1,\}$' 2>&1 >/dev/null
 					RESULT=$?
-                                        if [ ${RESULT} != 0 -o ${resolution} -gt 100 ]
+                                        if [ ${RESULT} != 0 -o ${resolution_high} -gt 100 ]
                                         then
-                                                echo "Error: Resolution value must be numeric and less than or equal to 100" >&2
+                                                echo "Error: Resolution for HIGH distributions value must be numeric and less than or equal to 100" >&2
+                                                return 1
+                                        fi
+                                        shift 2
+                        fi;;
+		-r)
+			if [ "X"$RESOLUTION_MEDIUM_FLAG = "X1" ]
+			then
+				echo "Syntax error: RESOLUTION MEDIUM already processed" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "Syntax error: Option $1 requires an argument" >&2
+					return 1
+				else
+					RESOLUTION_MEDIUM_FLAG=1
+                                        resolution_medium=$2
+					echo ${resolution_medium} | grep '^[0-9]\{0,3\}\.\{0,1\}[0-9]\{1,\}$' 2>&1 >/dev/null
+					RESULT=$?
+                                        if [ ${RESULT} != 0 -o ${resolution_medium} -gt 100 ]
+                                        then
+                                                echo "Error: Resolution for MEDIUM distributions value must be numeric and less than or equal to 100" >&2
                                                 return 1
                                         fi
                                         shift 2
@@ -329,17 +383,28 @@ then
 	fi
 fi
 
-if [ "X${RESOLUTION_FLAG}" = "X1" ]
+if [ "X${RESOLUTION_MEDIUM_FLAG}" = "X1" ]
 then
-	echo ${resolution} | grep '^[0-9]\{0,3\}\.\{0,1\}[0-9]\{1,\}$' 2>&1 >/dev/null
+	echo ${resolution_medium} | grep '^[0-9]\{0,3\}\.\{0,1\}[0-9]\{1,\}$' 2>&1 >/dev/null
 	RESULT=$?
-	if [ ${RESULT} != 0 -o ${resolution} -gt 100 ]
+	if [ ${RESULT} != 0 -o ${resolution_medium} -gt 100 ]
 	then
-		echo "Error: RESOLUTION value must be numeric and less than or equal to 100" >&2
+		echo "Error: RESOLUTION MEDIUM value must be numeric and less than or equal to 100" >&2
 		exit 1
 	fi
 fi
  
+if [ "X${RESOLUTION_HIGH_FLAG}" = "X1" ]
+then
+	echo ${resolution_high} | grep '^[0-9]\{0,3\}\.\{0,1\}[0-9]\{1,\}$' 2>&1 >/dev/null
+	RESULT=$?
+	if [ ${RESULT} != 0 -o ${resolution_high} -gt 100 ]
+	then
+		echo "Error: RESOLUTION HIGH value must be numeric and less than or equal to 100" >&2
+		exit 1
+	fi
+fi
+
 if [ "X${CONFIDENCE_FLAG}" = "X1" ]
 then
 	echo ${confidence} | grep "0\.[89][0-9]*" 2>&1 >/dev/null
@@ -441,7 +506,7 @@ printf "\n-- Update statistics for table ${DATABASE}@${INFORMIXSERVER}:${tabname
 
 if [ "X${TIMINGS_FLAG}" = "X1" ]
 then
-	printf "\n-- Show stats timings\noutput to pipe cat without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} Start: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
+	printf "\n-- Show stats timings\noutput to pipe 'cat -u' without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} Start: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
 fi
 
 if [ "X${EXPLAIN_FLAG}" = "X1" ]
@@ -466,19 +531,25 @@ LINE_COUNT=`wc -l ${NONINDEX_HEADER_COLUMNS_FILE} | awk '{print $1}'`
 
 if [ "X${LINE_COUNT}" != "X0" ]
 then
-	if [ "X${RESOLUTION_FLAG}" = "X1" -o "X${CONFIDENCE_FLAG}" = "X1" ]
+	if [ "X${RESOLUTION_MEDIUM_FLAG}" = "X1" -o "X${CONFIDENCE_FLAG}" = "X1" -o "X${SAMPLING_SIZE}" = "X1" ]
 	then
-		if [ "X${RESOLUTION_FLAG}" != "X1" ]
+		if [ "X${SAMPLING_FLAG}" = "X1" ]
 		then
-			resolution_clause_medium=" resolution ${DEFAULT_RESOLUTION} ${confidence} "
+			sampling_clause=" sampling size ${sampling} "
 		else
-			resolution_clause_medium=" resolution ${resolution} ${confidence} "
-			resolution_clause_high=" resolution ${resolution} "
+			sampling_clause=""
+		fi
+
+		if [ "X${RESOLUTION_MEDIUM_FLAG}" != "X1" ]
+		then
+			resolution_clause_medium=" resolution ${DEFAULT_RESOLUTION_MEDIUM} ${confidence} "
+		else
+			resolution_clause_medium=" resolution ${resolution_medium} ${confidence} "
 		fi
 	fi
 	if [ "X${TIMINGS_FLAG}" = "X1" ]
 	then
-		printf "\n-- Show stats timings\noutput to pipe cat without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} Medium : '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
+		printf "\n-- Show stats timings\noutput to pipe 'cat -u' without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} Medium : '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
 	fi
 
 	printf "\n-- MEDIUM distributions only for all columns that are not head of any index\nupdate statistics medium for table \"${tabname}\"\n    (" >>${SQL_FILE}
@@ -493,7 +564,7 @@ then
 			printf ",%s" ${COLNAME} >>${SQL_FILE}
 		fi
 	done < ${NONINDEX_HEADER_COLUMNS_FILE}
-	printf  ")\n${resolution_clause_medium} distributions only;\n" >>${SQL_FILE}
+	printf  ")\n${sampling_clause}${resolution_clause_medium} distributions only;\n" >>${SQL_FILE}
 fi
  
 #-------------------------------------------------------
@@ -503,9 +574,13 @@ fi
 LINE_COUNT=`wc -l ${IDX_HEADER_COLUMNS_FILE} | awk '{print $1}'`
 if [ "X${LINE_COUNT}" != "X0" ]
 then
+	if [ "X${RESOLUTION_HIGH_FLAG}" = "X1" ]
+	then
+		resolution_clause_high=" resolution ${resolution_high} "
+	fi
 	if [ "X${TIMINGS_FLAG}" = "X1" ]
 	then
-		printf "\n-- Show stats timings\noutput to pipe cat without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} High: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
+		printf "\n-- Show stats timings\noutput to pipe 'cat -u' without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} High: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
 	fi
 
 	printf  "\n-- HIGH distributions only for all columns that are head of any index\nupdate statistics high for table \"${tabname}\"\n    (" >>${SQL_FILE}
@@ -531,7 +606,7 @@ if [ "X${LINE_COUNT}" != "X0" ]
 then
 	if [ "X${TIMINGS_FLAG}" = "X1" ]
 	then
-		printf "\n-- Show stats timings\noutput to pipe cat without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} Low: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
+		printf "\n-- Show stats timings\noutput to pipe 'cat -u' without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} Low: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
 	fi
 
 	printf  "\n-- LOW for all columns beloging to any index\nupdate statistics low for table \"${tabname}\"\n    (" >>${SQL_FILE}
@@ -548,12 +623,16 @@ then
 	done <${INDEXED_COLUMNS_FILE}
 	printf ");\n\n" >>${SQL_FILE}
 else
+	if [ "X${TIMINGS_FLAG}" = "X1" ]
+	then
+		printf "\n-- Show stats timings\noutput to pipe 'cat -u' without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} Low: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
+	fi
 	printf "\n-- LOW for table if table has no indexes\nupdate statistics low for table \"${tabname}\";\n\n" >>${SQL_FILE}
 fi
 
 if [ "X${TIMINGS_FLAG}" = "X1" ]
 then
-printf "\n-- Show stats timings\noutput to pipe cat without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} End: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
+printf "\n-- Show stats timings\noutput to pipe 'cat -u' without headings select '${DATABASE}@${INFORMIXSERVER}:${tabname} End: '||current year to fraction from systables where tabid = 1;\n" >>${SQL_FILE}
 fi
 
 
