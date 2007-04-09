@@ -23,7 +23,7 @@ show_help()
 	echo "               [-E file] Set explain to a file (versions >= 11.10)" >&2
 	echo "               [-p priority] Set pdqpriority (versions >= 7.31.UD2 and 9.30.UC2)" >&2
 	echo "               [-P] Updates statistics for procedures also (default without filter)" >&2
-	echo "               [-N] Don't update statistics for procedures" >&2
+	echo "               [-N] Don't update statistics for procedures (default with filter)" >&2
 	echo "               [-r resolution] Set resolution for MEDIUM distributions" >&2
 	echo "               [-c confidence] Set confidence" >&2
 	echo "               [-m size] Set minimum sample size (versions >= 11.10)">&2

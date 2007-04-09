@@ -68,7 +68,7 @@ get_args()
 			show_help
 			exit 0
 			;;
-		-v)   # show version
+		-V)   # show version
 			echo "${PROGNAME} version ${VERSION}"
 			exit 0
 			;;
@@ -199,7 +199,7 @@ get_args()
 			show_help
 			exit 0
 			;;
-		-v)   # show version
+		-V)   # show version
 			echo "${PROGNAME} version ${VERSION}"
 			exit 0
 			;;
