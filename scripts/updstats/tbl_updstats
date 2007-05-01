@@ -6,8 +6,8 @@
 # Revised on: $Date$
 # Revised by: $Author$
 # Support: Fernando Nunes - domusonline@domus.online.pt
-# Script to create the 'update statisics' statements as discribed in the
-# Performance Guide
+# License: This software is provided under GPLv2 - http://www.gnu.org/licenses/gpl.txt
+# Script to create the 'update statisics' statements as discribed in the Performance Guide
 # This script assumes all environment variables are set.
 
 

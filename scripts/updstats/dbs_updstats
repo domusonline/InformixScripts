@@ -6,6 +6,7 @@
 # Revised on: $Date$
 # Revised by: $Author$
 # Support: Fernando Nunes - domusonline@domus.online.pt
+# License: This software is provided under GPLv2 - http://www.gnu.org/licenses/gpl.txt
 # This script runs the tbl_updstats script for each table in the database
 
 
