@@ -479,29 +479,30 @@ order by 1;
 --------------------------------------------------------
 -- find the indexed columns
 --------------------------------------------------------
+select i.part1  from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
+select i.part2  from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
+select i.part3  from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
+select i.part4  from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
+select i.part5  from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
+select i.part6  from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
+select i.part7  from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
+select i.part8  from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
+select i.part9  from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
+select i.part10 from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
+select i.part11 from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
+select i.part12 from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
+select i.part13 from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
+select i.part14 from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
+select i.part15 from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
+select i.part16 from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid
+into temp t_aux;
+
 unload to ${INDEXED_COLUMNS_FILE} delimiter ' '
 select unique trim(colname)
 from syscolumns c, systables t
 where c.tabid = t.tabid
 and t.tabname = '${tabname}'
-and c.colno in (
-         select i.part1 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part2 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part3 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part4 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part5 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part6 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part7 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part8 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part9 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part10 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part11 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part12 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part13 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part14 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part15 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part16 from sysindexes i where i.tabid = t.tabid
-)
+and c.colno in (select * from t_aux)
 order by 1;
 
 --------------------------------------------------------
@@ -512,24 +513,7 @@ select unique trim(colname)
 from syscolumns c, systables t
 where c.tabid = t.tabid
 and t.tabname = '${tabname}'
-and c.colno not in (
-         select i.part1 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part2 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part3 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part4 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part5 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part6 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part7 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part8 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part9 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part10 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part11 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part12 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part13 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part14 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part15 from sysindexes i where i.tabid = t.tabid UNION
-         select i.part16 from sysindexes i where i.tabid = t.tabid
-)
+and c.colno not in (select * from t_aux)
 order by 1;
 EOSQL
 
