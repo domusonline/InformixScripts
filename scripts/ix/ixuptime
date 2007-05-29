@@ -20,6 +20,13 @@ VERSION=`echo "$Revision$" | cut -f2 -d' '`
 OFFLINE_FILE=/tmp/ixuptime_offline_$$.unl
 ONLINE_FILE=/tmp/ixuptime_online_$$.unl
 
+# FIX: This is needed in Solaris to use more compatible commands
+if [ -d /usr/xpg4/bin ]
+then
+	PATH=/usr/xpg4/bin:$PATH
+	export PATH
+fi
+
 show_help()
 {
 	echo
