@@ -2,9 +2,7 @@
 # CVS id: $Header$
 # Revision: $Revision$ 
 # Revised on: $Date$
-# Support: Fernando Nunes - fernando.nunes@tmn.pt
-# History:
-# 1.0 Primeira versao
+# Support: Fernando Nunes - domusonline@domus.online.pt
 
 show_help()
 {
@@ -101,7 +99,7 @@ then
 	echo "${PROGNAME}: Error - Erro no processamento dos parametros" >&2
 	exit 1
 fi
-SO=`uname -s | tr A-Z a-z`
+SO=`uname -s | tr [:upper:] [:lower:]`
 case $SO in
 	sunos*)
 		AWK=nawk
