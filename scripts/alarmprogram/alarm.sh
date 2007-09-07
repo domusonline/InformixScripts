@@ -6,7 +6,7 @@
 # Revised on: $Date$
 # Revised by: $Author$
 # Support: Fernando Nunes - domusonline@domus.online.pt
-# Original Author: David Ranney and lots of stuff from 10.00.xC6 alarmprogram.sh
+# Based on ideas from David Ranney and lots of stuff from 10.00.xC6 alarmprogram.sh
 # To use: chmod 555 alarm.sh and configure the alarm_conf.sh
 # caveats:
 #	With some alarms (lock table overflow) you can get thousands of
@@ -36,7 +36,7 @@ jump_out()
 }
 
 #comment this line if you don't want the script to exit on any error or
-#give the variable IFMX_ALARM_DEBUG the value 1
+#give the variable IFMX_ALARM_DEBUG the value 1 to get DEBUG messages
 trap jump_out ERR
 IFMX_ALARM_DEBUG=0
 
@@ -53,6 +53,15 @@ IFMX_ALARM_DEF_TSTAMP_INTERVAL=60
 #Calls the send sms script for a list of space separated phone numbers
 send_sms()
 {
+	#-----------------------------------------------
+	# get and check the send sms command
+	#-----------------------------------------------
+	AUX=`echo ${IFMX_ALARM_SENDSMS} | cut -f1 -d' '`
+	if [ ! -x ${AUX} ]
+	then
+		echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` ERROR: PID=$$ CLASS_ID=${CLASS_ID} Tried to call SEND SMS ( ${AUX} ) program but it doesn't exist or is not executable..." >&2
+		return
+	fi
 	MSG_SMS="${INFORMIXSERVER}@${HOST}: ${CLASS_MSG} ${SPECIFIC_MSG} -- ${DATE_VAR}"
 	for PHONE in ${IFMX_ALARM_NUM_SMS}
 	do
@@ -87,7 +96,7 @@ send_syslog()
 	esac
 
 
-	logger -p ${IFMX_ALARM_SYSLOG_FACILITY}.${IFMX_ALARM_SYSLOG_PRIORITY} "${IFMX_ALARM_IX_COMPONENT}#${IFMX_ALARM_IX_SUBCOMPONENT}#${SEVERITY}#${CLASS_ID}#informix#${INFORMIXSERVER}#${CLASS_MSG}#${SPECIFIC_MSG}"
+	logger -p ${IFMX_ALARM_SYSLOG_FACILITY}.${IFMX_ALARM_SYSLOG_PRIORITY} "${IFMX_ALARM_IX_COMPONENT}#${IFMX_ALARM_IX_SUBCOMPONENT}#${SEVERITY}#${CLASS_ID}##informix#${INFORMIXSERVER}#${CLASS_MSG}#${SPECIFIC_MSG}"
 
 }
 
@@ -96,6 +105,15 @@ send_syslog()
 #IFMX_ALARM_SENDMAIL must be a command that accepts a pre-constructed (with headers) mail msg
 send_mail()
 {
+	#-----------------------------------------------
+	# get and check the send mail command
+	#-----------------------------------------------
+	AUX=`echo ${IFMX_ALARM_SENDMAIL} | cut -f1 -d' '`
+	if [ ! -x ${AUX} ]
+	then
+		echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` ERROR: PID=$$ CLASS_ID=${CLASS_ID} Tried to call SEND MAIL ( ${AUX} program but it doesn't exist or is not executable..." >&2
+		return
+	fi
 	${IFMX_ALARM_SENDMAIL} <<!
 FROM: ${IFMX_ALARM_HEADER_FROM}
 TO: ${IFMX_ALARM_HEADER_TO}
@@ -130,12 +148,14 @@ ${SEE_ALSO}
 #Tries to clean up on exit
 clean_up()
 {
-	rm -f ${TMPFILE} ${MAILBODY}
-	if [ "X${CLEAN_FLAG}" = "XY" ]
-	then
-		rm -f ${LOCKFILE}
-	fi
+	rm -f ${TMPFILE} ${MAILBODY} ${LOCKFILE}
 }
+
+
+IFMX_ALARM_BASE_DIR=`dirname $0`
+#redirect stout for stderr. Script should be silent. Also redirect stderr for a file
+exec 1>&2
+exec 2>>${IFMX_ALARM_BASE_DIR}/alarm.err
 
 if [ "X${IFMX_ALARM_DEBUG}" != "X0" ]
 then
@@ -145,11 +165,6 @@ fi
 ONSTATCMD="onstat"
 TMPFILE=/tmp/__TMPFILE_$$
 
-IFMX_ALARM_BASE_DIR=`dirname $0`
-
-#redirect stout for stderr. Script should be silent. Also redirect stderr for a file
-exec 1>&2
-exec 2>>${IFMX_ALARM_BASE_DIR}/alarm.err
 
 if [ $# -lt 4 ]
 then
@@ -180,7 +195,6 @@ LOCKFILE=/tmp/alarm_${INFORMIXSERVER}_${CLASS_ID}
 LOOP_COUNT=0
 export LOCKFILE IFMX_ALARM_MAX_LOOP LOOP_COUNT
 
-CLEAN_FLAG=N
 until ( umask 222; echo $$>${LOCKFILE} ) 2>/dev/null
 do
 	sleep 1
@@ -191,10 +205,6 @@ do
 		exit 3
 	fi
 done
-
-#From here on, we need to clean temp files on exit...
-CLEAN_FLAG=Y
-
 
 if [ "X${IFMX_ALARM_DEBUG}" != "X0" ]
 then
@@ -218,7 +228,7 @@ else
 		then
 			. ${ALARM_CONF}
 		else
-			echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : Alarm program could not find alarm_conf.sh" >&2
+			echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` ERROR: PID=$$ CLASS_ID=${CLASS_ID} Alarm program could not find alarm_conf.sh" >&2
 			exit 4
 		fi
 	fi
@@ -252,7 +262,7 @@ then
 	IFMX_ALARM_CLASS_NO_REPEAT=""
 fi
 
-echo ${IFMX_ALARM_CLASS_NO_REPEAT} | egrep -c "(${CLASS_ID} |${CLASS_ID}$)" | read RC
+RC=`echo ${IFMX_ALARM_CLASS_NO_REPEAT} | egrep -c "(${CLASS_ID} |${CLASS_ID}$)" | cat`
 case $RC in
 0)
 	echo "${CLASS_ID} ${TIMESTAMP} ${LAST_EVENT_TYPE} B $$" >> ${LAST_EVENT_FILE}
@@ -262,17 +272,36 @@ case $RC in
 	then
 		if [ ${TSTAMP_INTERVAL} -gt 3599 ]
 		then
-			echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : TSTAMP_INTERVAL cannot be greater than 3599 for event ${CLASS_ID}. Using max value" >&2
+			echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} `basename $0` ERROR: PID=$$ CLASS_ID=${CLASS_ID}  TSTAMP_INTERVAL cannot be greater than 3599 for event ${CLASS_ID}. Using max value" >&2
 			TSTAMP_INTERVAL=3599
 		fi
-		MINUTES_TO_ADD=`expr ${TSTAMP_INTERVAL} / 60 `
-		SECONDS_TO_ADD=`expr ${TSTAMP_INTERVAL} - ${MINUTES_TO_ADD} \* 60`
-		NEW_TSTAMP=`expr ${LAST_EVENT_TSTAMP} + ${MINUTES_TO_ADD}00 + ${SECONDS_TO_ADD}`
+		TSTAMP_HOUR=`echo ${LAST_EVENT_TSTAMP} | cut -c8-9`
+		TSTAMP_MIN=`echo ${LAST_EVENT_TSTAMP} | cut -c10-11`
+		TSTAMP_SEC=`echo ${LAST_EVENT_TSTAMP} | cut -c12-13`
+
+		MINUTES_TO_ADD=`expr ${TSTAMP_INTERVAL} / 60  | cat`
+		SECONDS_TO_ADD=`expr ${TSTAMP_INTERVAL} - ${MINUTES_TO_ADD} \* 60 | cat`
+		
+		AUX=`expr ${SECONDS_TO_ADD} + ${TSTAMP_SEC} | cat`
+		if [ ${AUX} -gt 59 ]
+		then
+			MINUTES_TO_ADD=`expr ${MINUTES_TO_ADD} + 1 | cat`
+			SECONDS_TO_ADD=`expr ${SECONDS_TO_ADD} - 60 | cat`
+		fi
+		AUX=`expr ${MINUTES_TO_ADD} + ${TSTAMP_MIN} | cat`
+		if [ ${AUX} -gt 59 ]
+		then
+			MINUTES_TO_ADD=`expr ${MINUTES_TO_ADD} - 60 | cat`
+			HOURS_TO_ADD=10000
+		else
+			HOURS_TO_ADD=0
+		fi
+		NEW_TSTAMP=`expr ${LAST_EVENT_TSTAMP} + ${HOURS_TO_ADD} + ${MINUTES_TO_ADD}00 + ${SECONDS_TO_ADD}`
 
 		
 		if [ ${NEW_TSTAMP} -gt ${TIMESTAMP} ]
 		then
-			echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : exiting due to TSTAMP_INTERVAL for event ${CLASS_ID}" >&2
+			echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} `basename $0` ERROR: PID=$$ exiting due to TSTAMP_INTERVAL for event ${CLASS_ID}" >&2
 			exit 0
 		fi
 		if [ ${TIMESTAMP} -gt ${LAST_EVENT_TSTAMP} ]
@@ -411,7 +440,7 @@ case ${CLASS_ID} in
 		;;
 	17)
 		CLASS_TEXT="Archive aborted: $CLASS_MSG"
-		# With we will be able to get the stack trace for the ontape thread
+		# With this we will be able to get the stack trace for the ontape thread
 		printf "\n-------------------------------------\n\n" >> $MAILBODY
 		printf "RELATED INFORMATION:\n" >> $MAILBODY
 		printf "\n-------------------------------------\n\n" >> $MAILBODY
@@ -426,12 +455,12 @@ case ${CLASS_ID} in
 		done
 		;;
 	18)
-		CLASS_TEXT="Log Backup Completed: $CLASS_MSG"
+		CLASS_TEXT="Log Backup Completed: ${CLASS_MSG}"
 		;;
 	19)
 		#Severity 3
 		CLASS_TEXT="Log Backup Aborted: $CLASS_MSG"
-		# /* Try to get the stack trace for all the ontape thread */
+		# Try to get the stack trace for all the ontape thread
 		printf "\n-------------------------------------\n\n" >> $MAILBODY
 		printf "RELATED INFORMATION:\n" >> $MAILBODY
 		printf "\n-------------------------------------\n\n" >> $MAILBODY
@@ -447,11 +476,12 @@ case ${CLASS_ID} in
 		#Severity 3
 		CLASS_TEXT="Logical Logs are FULL"
 		OLDESTLOG=`$ONSTATCMD -l | tail ${TAIL_OPTION}4 |grep U- | awk '{print $4}' | sort -n | head -1`
-		$ONSTATCMD -x | grep -v Blocked: | grep -v Block: | tail ${TAIL_OPTION}6 | grep -v active | grep - > $TMPFILE
+		$ONSTATCMD -x | grep -v Blocked: | grep -v Block: | tail ${TAIL_OPTION}6 | grep -v active | grep "\-" > $TMPFILE
 		LONGTX=0
 		while read ADDRESS FLAGS USERTHREAD LOCKS LOGBEGIN CURLOG LOGPOS ISOL RETRYS COORD
 		do
-			if ( `test $LOGBEGIN -eq $OLDESTLOG` ) then
+			if [ $LOGBEGIN -eq $OLDESTLOG ]
+			then
 				LONGTX=1
 				# A long transaction has ocurred, get the culprit one
 				SESSID=`$ONSTATCMD -u | grep $USERTHREAD\  | awk '{print $3}'`
@@ -462,9 +492,11 @@ case ${CLASS_ID} in
 			fi
 		done < $TMPFILE
 
-		if ( `test $LONGTX -eq 0` ) then
+		if [ $LONGTX -eq 0 ]
+		then
 			NUMLOGB=`$ONSTATCMD -l | grep U-B | wc -l`
-			if ( `test $NUMLOGB -eq 0` ) then
+			if [ $NUMLOGB -eq 0 ]
+			then
 				printf "NO LONG TRANSACTION HAS OCCURED\n" >> $MAILBODY
 				printf "LOGICAL LOGS NEED A BACKUP\n" >> $MAILBODY
 				printf "RUN 'onbar -b -l' OR 'ontape -a' OR 'ontape -c'\n\n\n" >> $MAILBODY
@@ -472,7 +504,7 @@ case ${CLASS_ID} in
 				printf "SEEMS THAT THERE ARE NO LONG TRANSACTIONS\n" >> $MAILBODY
 				printf "AND LOGICAL LOGS WERE BACKED UP\n" >> $MAILBODY
 				printf "CALL IBM Informix tech support\n" >> $MAILBODY
-				EVENT_SEVERITY=$ALRM_EMERGENCY
+				SEVERITY=4
 			fi
 		fi
 
@@ -498,7 +530,8 @@ from systrans
 where tx_longtx != 0
 !
 		printf "   $EVENT_ADD_TEXT,\n" >> $MAILBODY
-		if ( `test -s $TMPFILE` ) then
+		if [ -s $TMPFILE ]
+		then
 			while read TXID TXOWNER TXADDR
 			do
 				SESSID=`$ONSTATCMD -u | grep $TXOWNER | awk '{print $3}'`
@@ -523,10 +556,9 @@ where tx_longtx != 0
 	23)
 		#Severity 2
 		CLASS_TEXT="Logical Log Complete"
-		if [ ${IFMX_BAR_LOG_BACKUP} -eq 1 ]
+		if [ "X${IFMX_BAR_LOG_BACKUP}" = "X1" ]
 		then
-			$INFORMIXDIR/bin/onbar -b -l
-			rc=$?
+			rc=0;$INFORMIXDIR/bin/onbar -b -l || rc=$?
 			CLASS_TEXT="${class_text}: Return code de onbar -b -l: ${rc}"
 		fi
 		# Now check if the logs are near to fill up
@@ -534,16 +566,19 @@ where tx_longtx != 0
 		NUMLOGF=`$ONSTATCMD -l | grep F- | wc -l`
 		NUMLOGA=`$ONSTATCMD -l | grep A- | wc -l`
 		NUMLOGU=`$ONSTATCMD -l | grep U- | wc -l`
-		NUMLOG=`expr $NUMLOGU + $NUMLOGA + $NUMLOGF`
-		PERC=`expr  \( 100 \*  \( $NUMLOGUB + $NUMLOGF + $NUMLOGA \) \) / $NUMLOG `
+		NUMLOG=`expr $NUMLOGU + $NUMLOGA + $NUMLOGF | cat`
+		PERC=`expr  \( 100 \*  \( $NUMLOGUB + $NUMLOGF + $NUMLOGA \) \) / $NUMLOG | cat`
 
-		if ( `test  $PERC -le 10` ) then
+		if [ $PERC -lt 10 ]
+		then
+			IFMX_ALARM_CLASS_MAIL="${IFMX_ALARM_CLASS_MAIL} 23"
+			IFMX_ALARM_CLASS_SMS="${IFMX_ALARM_CLASS_SMS} 23"
+			IFMX_ALARM_CLASS_SYSLOG="${IFMX_ALARM_CLASS_SYSLOG} 23"
 			PERC=`expr 100 - $PERC`
 			printf "\n-------------------------------------\n\n" >> $MAILBODY
 			printf "WARNING : MORE THAN 90 PERCENT (%s percent) OF THE LOGICAL LOGS ARE FULL\n" $PERC >> $MAILBODY
 			printf "          A LOGICAL LOG BACKUP IS NEEDED. SEE INFO BELOW\n" >> $MAILBODY
 			$ONSTATCMD -l | grep -v Blocked: | grep -v Block: | tail ${TAIL_OPTION}4 >> $MAILBODY
-
 		fi
 		;;
 	24)
@@ -637,11 +672,11 @@ if [ "X${IFMX_ALARM_DEBUG}" != "X0" ]
 then
 	echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` DEBUG: PID=$$ CLASS_ID=${CLASS_ID} Ended case for class_id..." >&2
 fi
-echo ${IFMX_ALARM_CLASS_MAIL} | egrep -c "(${CLASS_ID} |${CLASS_ID}$)" | read FLAG_SEND_MAIL
+FLAG_SEND_MAIL=`echo ${IFMX_ALARM_CLASS_MAIL} | egrep -c "(${CLASS_ID} |${CLASS_ID}$)" | cat`
 
-echo ${IFMX_ALARM_CLASS_SMS} | egrep -c "(${CLASS_ID} |${CLASS_ID}$)" | read FLAG_SEND_SMS
+FLAG_SEND_SMS=`echo ${IFMX_ALARM_CLASS_SMS} | egrep -c "(${CLASS_ID} |${CLASS_ID}$)" | cat`
 
-echo ${IFMX_ALARM_CLASS_SYSLOG} | egrep -c "(${CLASS_ID} |${CLASS_ID}$)" | read FLAG_SEND_SYSLOG
+FLAG_SEND_SYSLOG=`echo ${IFMX_ALARM_CLASS_SYSLOG} | egrep -c "(${CLASS_ID} |${CLASS_ID}$)" | cat`
 
 
 #send sms/paging event

@@ -28,7 +28,7 @@ else
 	informix_sqlhosts=${INFORMIXSQLHOSTS}
 fi
 
-grep -i -c "^${engine}" ${informix_sqlhosts} | read RC
+RC=`grep -i -c "^${engine}" ${informix_sqlhosts}`
 if [ $RC = 0 ]
 then
 	echo "`basename $0`: INFORMIXSERVER is not in sqlhosts" >&2
@@ -51,7 +51,7 @@ IFMX_ALARM_HEADER_CC="A third Name <third.address@foo.com>"
 IFMX_ALARM_NUM_SMS="123456789 987654321"
 
 #---- Minimum 'severity level' to send to syslog
-IFMX_ALARM_SEV_SYSLOG=0
+IFMX_ALARM_SEV_SYSLOG=3
 
 #---- Minimum 'severity level' to send mail
 IFMX_ALARM_SEV_MAIL=3
