@@ -139,7 +139,7 @@ get_args()
 				return 1
 			fi
 			;;
-		-s)   # set up the -t (table locks flag)
+		-s)   # set up the -s (session locks flag)
 			if [ "X${OPTIONS_FLAG}" = "X1" ]
 			then
 				echo "Option -s can not be used with -S, -u, -U, -t, -T, -w, -X or -m" >&2
@@ -303,32 +303,52 @@ TablesWithXLocks()
 
 SessionAllLocks()
 {
-	OWNER=`onstat -u | ${IX_AWK} -v"SESSION=$SESSION" '{ if ( $3 ~ SESSION ) {print $1} }'`
-	echo "unload to ${TEMP_FILE} select dbsname,tabname from systabnames where partnum in (1" >${TEMP_SQL}
+#	OWNER=`onstat -u | ${IX_AWK} -v"SESSION=$SESSION" '{ if ( $3 ~ SESSION ) {print $1} }'`
+#--	echo "unload to ${TEMP_FILE} select dbsname,tabname from systabnames where partnum in (1" >${TEMP_SQL}
 	if [ $# = 0 ]
 	then
-		for j in  `onstat -K | ${IX_AWK} -v"OWNER=$OWNER" '{ if ( $3 ~ OWNER ) { print "0x"$7"" }}' |sort -u`
-		do
-			echo ",'$j'"
-		done >>${TEMP_SQL}
+		dbaccess sysmaster <<EOF 2>/dev/null
+		unload to ${TEMP_FILE}
+		select owner,dbsname,tabname,type,rowidlk,keynum,waiter
+		from syslocks
+		where owner in ( ${SESSION} )
+		order by 1,2,3
+EOF
 	else
-		for j in  `onstat -K | ${IX_AWK} -v"OWNER=$OWNER" '{ if ( $3 ~ OWNER && $6 ~ /+X/ ) { print "0x"$7"" }}' |sort -u`
-		do
-			echo ",'$j'"
-		done >>${TEMP_SQL}
+		dbaccess sysmaster <<EOF 2>/dev/null
+		unload to ${TEMP_FILE}
+		select owner, dbsname,tabname,type,rowidlk,keynum,waiter
+		from syslocks
+		where owner in ( ${SESSION} )
+		and type = 'X'
+		order by 1,2,3
+EOF
 	fi
-	echo ")" >>${TEMP_SQL}
-	dbaccess sysmaster ${TEMP_SQL}  2>/dev/null 
+
+#	if [ $# = 0 ]
+#	then
+#		for j in  `onstat -K | ${IX_AWK} -v"OWNER=$OWNER" '{ if ( $3 ~ OWNER ) { print "0x"$7"" }}' |sort -u`
+#		do
+#			echo ",'$j'"
+#		done >>${TEMP_SQL}
+#	else
+#		for j in  `onstat -K | ${IX_AWK} -v"OWNER=$OWNER" '{ if ( $3 ~ OWNER && $6 ~ /+X/ ) { print "0x"$7"" }}' |sort -u`
+#		do
+#			echo ",'$j'"
+#		done >>${TEMP_SQL}
+#	fi
+#	echo ")" >>${TEMP_SQL}
+#	dbaccess sysmaster ${TEMP_SQL}  2>/dev/null 
 	if [ -s ${TEMP_FILE} ]
 	then
-		echo "Tables with locks for session $SESSION"
-		echo "Database           Table"
-		echo "================== =================="
-		${IX_AWK} -F '|' '{printf("%-18s %-18s\n", $1,$2) }' ${TEMP_FILE}
+		echo "Tables with locks for session(s) $SESSION"
+		echo "Session   Database           Table              Type   RowID    KeyNum Waiter"
+		echo "========= ================== ================== ====== ======== ====== ========="
+		${IX_AWK} -F '|' '{printf("%-9s %-18s %-18s %-6s %-8s %-6s %-9s\n", $1,$2,$3,$4,$5,$6,$7) }' ${TEMP_FILE}
 	else
 		echo "No locks for session $SESSION" && return
 	fi
-	rm ${TEMP_SQL} ${TEMP_FILE}
+	rm ${TEMP_FILE}
 }
 
 SessionXLocks()
@@ -338,17 +358,31 @@ SessionXLocks()
 
 UserLocks()
 {
-	for SESSION in `onstat -u | grep ${USER_NAME} | ${IX_AWK} '{if ($3 != 0) {print $3}}'`
+	SESSION=""
+	for SES in `onstat -u | grep ${USER_NAME} | ${IX_AWK} '{if ($3 != 0) {print $3}}'`
 	do
-		SessionAllLocks
+		if [ "X${SESSION}" = "X" ]
+		then
+			SESSION="$SES"
+		else
+			SESSION="${SESSION},${SES}"
+		fi
 	done
+	SessionAllLocks
 }
 UserXLocks()
 {
+	SESSION=""
 	for SESSION in `onstat -u | grep ${USER_NAME} | ${IX_AWK} '{if ($3 != 0) {print $3}}'`
 	do
-		SessionXLocks
+		if [ "X${SESSION}" = "X" ]
+		then
+			SESSION="$SES"
+		else
+			SESSION="${SESSION},${SES}"
+		fi
 	done
+	SessionXLocks
 }
 
 TableLocks()

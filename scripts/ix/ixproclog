@@ -174,7 +174,7 @@ run_daemon()
 	#-------------------------------------------------------------------------
 
 	THIS_PID=$$
-	PS_LINE=`ps -ef | grep "${PROGNAME} DAEMON" | grep -v grep | ${AWK} -v "PID=${THIS_PID}" '{ if ( $2 != PID ) {print $1 ":" $2}}'`
+	PS_LINE=`ps -ef | grep "${PROGNAME} .*DAEMON" | grep -v grep | ${AWK} -v "PID=${THIS_PID}" '{ if ( $2 != PID ) {print $1 ":" $2}}'`
 	if [ "X${PS_LINE}" != "X" ]
 	then
 		if [ "X${FORCE_FLAG}" = "X1" ]
