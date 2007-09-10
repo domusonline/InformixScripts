@@ -4,7 +4,7 @@
 #-----------------------------------------------------------------------------------------------------------------------------------
 Checkpoint Completed|900|1|Checkpoint completed|ix_checkpoint|Y|:7:9:10:|
 Client host or user|901|3|Connect attempt failed - User not trusted||Y|:7:9:10:|
-password is not correct for the database server|901|3|Connect attempt failed - Incorrect password||Y|:7:9:10:|
+password is not correct for the database server|901|3|Connect fail - Bad password||Y|:7:9:10:|
 Archive started|902|3|Archive Started||Y|7:9:10:|
 Dynamic Server Started|903|3|Engine started||Y|:7:9:10:|
 Dynamic Server Stopped|903|3|Engine stopped||Y|:7:9:10:|

@@ -86,7 +86,7 @@ get_args()
 						return 1
 					else
 						IX_NUM=$2
-						echo "${IX_NUM}" | egrep "^[0-9]{1,}" >/dev/null
+						echo "${IX_NUM}" | grep "^[0-9]\{1,\}$" >/dev/null
 						if [ $? != 0 ]
 						then
 							echo "${PROGNAME} : Error - SETINFX ( $IX_NUM )server number must be numeric" >&2
@@ -313,7 +313,7 @@ EOF
 	IX_MSG_LOG_FILE=`onstat -m | grep "^Message Log File:" | cut -f2 -d':'`
 	ALARM_SCRIPT=`onstat -c | grep "^ALARMPROGRAM" | ${AWK} '{print $2}'`
 
-	tail -f -0 ${IX_MSG_LOG_FILE} | while read LOG_LINE
+	tail -0f ${IX_MSG_LOG_FILE} | while read LOG_LINE
 	do
 		cat ${EXPR_FILE} | grep -v "^#" | ${AWK} -F'|' -v "IDS_VERSION=${IDS_VERSION}" '{ if ( $7 ~ ":"IDS_VERSION":" ) {print $0}}' | while read EXPR_DATA
 		do
