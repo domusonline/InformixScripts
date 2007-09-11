@@ -148,7 +148,7 @@ fi
 
 
 
-SO=`uname -s | tr A-Z a-z`
+SO=`uname -s | tr [:upper:] [:lower:]`
 case $SO in
 sunos*)
 	AWK=nawk
