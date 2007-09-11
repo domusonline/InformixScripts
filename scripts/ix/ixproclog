@@ -158,7 +158,7 @@ worker_ignore()
 clean_all()
 {
 	trap worker_ignore USR1
-	kill -15 0
+	kill -9 0
 }
 
 #---------------------------------------------------------------------------------
@@ -173,7 +173,6 @@ run_daemon()
 	# checking to see if it's running
 	#-------------------------------------------------------------------------
 
-	THIS_PID=$$
 	PS_LINE=`ps -ef | grep "${PROGNAME} .*DAEMON" | grep -v grep | ${AWK} -v "PID=${THIS_PID}" '{ if ( $2 != PID ) {print $1 ":" $2}}'`
 	if [ "X${PS_LINE}" != "X" ]
 	then
@@ -181,9 +180,9 @@ run_daemon()
 		then
 			OTHER_USER=`echo ${PS_LINE} | cut -f1 -d':'`
 			
-			if [ "X${USER}" != "Xroot" ]
+			if [ "X${MYUSER}" != "Xroot" ]
 			then
-				if [ "X${OTHER_USER}" != "X${USER}" ]
+				if [ "X${OTHER_USER}" != "X${MYUSER}" ]
 				then
 					echo "${PROGNAME}: Error - There is another DAEMON running and belongs to another user. Can't kill it. Aborting" >&2
 					exit 1
@@ -313,7 +312,7 @@ EOF
 	IX_MSG_LOG_FILE=`onstat -m | grep "^Message Log File:" | cut -f2 -d':'`
 	ALARM_SCRIPT=`onstat -c | grep "^ALARMPROGRAM" | ${AWK} '{print $2}'`
 
-	tail -0f ${IX_MSG_LOG_FILE} | while read LOG_LINE
+	tail -0f ${IX_MSG_LOG_FILE} |& while read -p LOG_LINE
 	do
 		cat ${EXPR_FILE} | grep -v "^#" | ${AWK} -F'|' -v "IDS_VERSION=${IDS_VERSION}" '{ if ( $7 ~ ":"IDS_VERSION":" ) {print $0}}' | while read EXPR_DATA
 		do
@@ -353,8 +352,11 @@ then
         exit 1
 fi
 . setinfx_utils
+MYUSER=`id | ${AWK} -F"[()]" ' { print $2 } '`
 case ${RUN_MODE} in
 DAEMON)
+	THIS_PID=$$
+	export THIS_PID
 	trap clean_all 0
 	trap worker_stopped USR1
 	trap worker_error USR2
