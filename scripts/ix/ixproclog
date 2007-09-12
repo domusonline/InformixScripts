@@ -129,7 +129,7 @@ worker_stopped()
 		then
 			WORKER_ARG=`echo ${WORKER_VAR} | cut -f2 -d'_'`
 			echo "Relaunch of worker ${WORKER_ARG}"
-			launch_worker ${WORKER_ARG}
+			launch_worker ${WORKER_ARG} 1
 			break
 		fi
 	done
@@ -173,9 +173,10 @@ run_daemon()
 	# checking to see if it's running
 	#-------------------------------------------------------------------------
 
-	PS_LINE=`ps -ef | grep "${PROGNAME} .*DAEMON" | grep -v grep | ${AWK} -v "PID=${THIS_PID}" '{ if ( $2 != PID ) {print $1 ":" $2}}'`
+	${PS_CMD} | grep "${PROGNAME} .*DAEMON" | grep -v grep | ${AWK} -v "PID=${THIS_PID}" '{ if ( ( $2 != PID ) && ( $3 != PID) ) {print $1 ":" $2}}' | read PS_LINE
 	if [ "X${PS_LINE}" != "X" ]
 	then
+
 		if [ "X${FORCE_FLAG}" = "X1" ]
 		then
 			OTHER_USER=`echo ${PS_LINE} | cut -f1 -d':'`
@@ -189,7 +190,7 @@ run_daemon()
 				fi
 			fi
 			OTHER_PID=`echo ${PS_LINE} | cut -f2 -d':'`
-			kill -15 ${OTHER_PID}
+			kill -9 ${OTHER_PID}
 		else
 			echo "${PROGNAME} - Error: There is another daemon running. Use -f to kill it...">&2
 			exit 1
@@ -198,7 +199,7 @@ run_daemon()
 
 	for ENV_ID in `get_setinfx_admin_list`
 	do
-		launch_worker ${ENV_ID}
+		launch_worker ${ENV_ID} 0
 	done
 }
 
@@ -209,6 +210,11 @@ run_daemon()
 launch_worker()
 {
 	IX_NUM=$1
+	RELAUNCH=$2
+	if [ "X${RELAUNCH}" = "X1" ]
+	then
+		sleep ${LAUNCH_INTERVAL}
+	fi
 	ixproclog WORKER ${IX_NUM}&
 	WORKER_PID=$!
 	eval "${PROGNAME}WORKER_${IX_NUM}=${WORKER_PID}"
@@ -285,17 +291,7 @@ run_worker()
 	fi
 
 
-
-	dbaccess sysmaster <<EOF 2>/dev/null | grep "VALUE:" | ${AWK} -F':' '{print $2}' | read IDS_VERSION
-	SELECT "VALUE:"||DBINFO('version','major')
-	FROM systables
-	WHERE tabid = 1;
-EOF
-	
-	if [ "X${IDS_VERSION}" = "X" ]
-	then
-		IDS_VERSION=.
-	fi
+	IDS_MAJOR_VERSION=`onstat -V | tr [:upper:] [:lower:] | sed "s/\(.* \)\([0-9]\{1,2\}\)\(\..*\)/\2/"`
 
 	if [ -x ${FUNCTION_FILE} ]
 	then
@@ -309,12 +305,20 @@ EOF
 
 	trap alert_daemon 0
 
-	IX_MSG_LOG_FILE=`onstat -m | grep "^Message Log File:" | cut -f2 -d':'`
-	ALARM_SCRIPT=`onstat -c | grep "^ALARMPROGRAM" | ${AWK} '{print $2}'`
+	IX_MSG_LOG_FILE=`grep -v "^[ 	]*#" $INFORMIXDIR/etc/$ONCONFIG | grep "^[ 	]*MSGPATH" | ${AWK} '{print $2}' | cut -f1 -d'#'`
+	ALARM_SCRIPT=`grep -v "^[ 	]*#" $INFORMIXDIR/etc/$ONCONFIG | grep "^[ 	]*ALARMPROGRAM" | ${AWK} '{print $2}'| cut -f1 -d'#'`
 
-	tail -0f ${IX_MSG_LOG_FILE} |& while read -p LOG_LINE
+	#older (solaris 5.6) versions of tail don't handle tail -0f correctly: they throw the file completly before waiting...
+	#hack to do tail -1f but skip firt line... lousy, but couldn't find a better way...
+	FLAG_FIRST_LOOP=1
+	tail -1f ${IX_MSG_LOG_FILE} |& while read -p LOG_LINE
 	do
-		cat ${EXPR_FILE} | grep -v "^#" | ${AWK} -F'|' -v "IDS_VERSION=${IDS_VERSION}" '{ if ( $7 ~ ":"IDS_VERSION":" ) {print $0}}' | while read EXPR_DATA
+		if [ "X${FLAG_FIRST_LOOP}" = "X1" ]
+		then
+			FLAG_FIRST_LOOP=0
+			continue
+		fi
+		cat ${EXPR_FILE} | grep -v "^#" | ${AWK} -F'|' -v "IDS_VERSION=${IDS_MAJOR_VERSION}" '{ if ( $7 ~ ":"IDS_VERSION":" ) {print $0}}' | while read EXPR_DATA
 		do
 			EXPR_GREP=`echo ${EXPR_DATA} | cut -f1 -d'|'`
 			echo $LOG_LINE | grep "${EXPR_GREP}" >/dev/null
@@ -344,6 +348,9 @@ EOF
 PROGNAME=`basename $0`
 DIRNAME=`dirname $0`
 VERSION=`echo "$Revision$" | cut -f2 -d' '`
+
+LAUNCH_INTERVAL=30
+export LAUNCH_INTERVAL
 
 get_args $*
 if [ $? != 0 ]
