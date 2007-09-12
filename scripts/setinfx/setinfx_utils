@@ -113,12 +113,15 @@ get_admin_server_by_num()
 SO=`uname -s | tr "[:upper:]" "[:lower:]"`
 case $SO in
 sunos*)
+	PS_CMD="ps -eo user,pid,ppid,args"
         AWK=nawk
         ;;
 osf*)
+	PS_CMD="ps -eo user,pid,ppid,cmd"
         AWK=nawk
         ;;
 linux|*)
+	PS_CMD="ps -eo user,pid,ppid,cmd"
         AWK=awk
         ;;
 esac
