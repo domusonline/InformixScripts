@@ -395,7 +395,7 @@ then
 		LINE=`tty | sed -e "s/^.*tty//"`
 		# preparing FGLSERVER
 		USERNAME=`who am i | $AWK '{ print $1 }'`
-		[ -z "$FGLSERVER" ] && FGLSERVER=`w | egrep "^$USERNAME .* $LINE " | $AWK '{ print $3 }'`
+		[ -z "$FGLSERVER" ] && FGLSERVER=`who am i | cut -f2 -d'(' | cut -f1 -d')'`
 		export FGLSERVER
 		FGLGUI=1
 		export FGLGUI
