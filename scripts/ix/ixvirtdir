@@ -163,6 +163,10 @@ fi
 cd $NEW_IXDIR
 NEW_IXDIR=`pwd`
 cd $NEW_IXDIR
+if [ $? != 0 ]
+then
+	echo "Error changing to new INFORMIXDIR">&2
+fi
 
 for dir in $IX_DIRS
 do
@@ -174,7 +178,7 @@ do
 	fi
 done
 
-mkdir dbssodir aaodir etc
+mkdir ${NEW_IXDIR}/dbssodir ${NEW_IXDIR}/aaodir ${NEW_IXDIR}/etc
 cp -pR $EXISTING_IXDIR/etc/* $NEW_IXDIR/etc
 cp -pR $EXISTING_IXDIR/dbssodir/* $NEW_IXDIR/dbssodir
 cp -pR $EXISTING_IXDIR/aaodir/* $NEW_IXDIR/aaodir
@@ -209,5 +213,5 @@ else
 	exit 1
 fi
 
-chmod 770 dbssodir aaodir
-chmod 775 etc
+chmod 770 ${NEW_IXDIR}/dbssodir ${NEW_IXDIR}/aaodir
+chmod 775 ${NEW_IXDIR}/etc
