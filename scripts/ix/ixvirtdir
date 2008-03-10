@@ -99,13 +99,13 @@ MY_USER=`id | ${AWK} -F"[()]" ' { print $2 } '`
 
 
 
+WARN_FLAG=0
 case $MY_USER in
 root)
 	;;
 informix)
 	if [ "X${GROUPS_FLAG}" = "X1" ]
 	then
-		WARN_FLAG=0
 		for GROUP in $DBSA_GROUP $AAO_GROUP $DBSSO_GROUP
 		do
 			echo $GROUP_MEMBERSHIP | grep "$GROUP|" >/dev/null
@@ -160,8 +160,6 @@ then
 	chmod 755 $NEW_IXDIR
 fi
 
-cd $NEW_IXDIR
-NEW_IXDIR=`pwd`
 cd $NEW_IXDIR
 if [ $? != 0 ]
 then
