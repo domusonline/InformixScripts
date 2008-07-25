@@ -13,6 +13,7 @@ usage()
 {
 	echo "$PROGNAME Usage:" >&2
 	echo "$PROGNAME <existing INFORMIXDIR> <new virt INFORMIXDIR> <version> [ {DBSA GROUP} {AAO_GROUP} {DBSSO_GROUP} ]" >&2
+	echo "          <version> is 7, 9 10, 11 or 11.5" >&2
 }
 
 
@@ -69,11 +70,15 @@ case $IX_VERSION in
 	IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp"
 	;;
 10|11)
-	IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp ids_license master_license"
-	IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp ids_license master_license"
+	IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp ids_license tmp"
+	IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp ids_license"
+	;;
+11.5)
+	IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp ids_license gskit gsk ssl tmp"
+	IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp ids_license gskit gsk"
 	;;
 *)
-	echo "Version can only be 7, 9, 10 or 11" >&2
+	echo "Version can only be 7, 9, 10, 11 or 11.5" >&2
 	usage
 	exit 1
 	;;
@@ -82,18 +87,14 @@ SO=`uname -s | tr "[:upper:]" "[:lower:]"`
 case $SO in
 sunos*)
         AWK=nawk
-	export AWK
-	GROUP_MEMBERSHIP=`id -a | ${AWK} -F'=' '{print $4}' | ${AWK} -F'[()]' '{for (f=2;f<NF;f=f+2) {printf "%s|",$f}print""}'`
         ;;
-linux|*)
+*)
         AWK=awk
-	export AWK
-	ID_FLAGS=
-	GROUP_MEMBERSHIP=`id | ${AWK} -F'=' '{print $4}' | ${AWK} -F'[()]' '{for (f=2;f<NF;f=f+2) {printf "%s|",$f}print""}'`
         ;;
 esac
 
 export AWK
+GROUP_MEMBERSHIP=`groups | ${AWK} '{for (a=1;a<=NF;a++) {printf("%s|",$a)} printf ("\n");}'`
 
 MY_USER=`id | ${AWK} -F"[()]" ' { print $2 } '`
 
@@ -140,7 +141,7 @@ do
 	if [ ! -d $EXISTING_IXDIR/$dir ]
 	then
 		echo "$EXISTING_IXDIR/$dir does not exist!... Aborting..." >&2
-#		exit 1	
+		exit 1	
 	fi
 done
 
@@ -177,39 +178,87 @@ do
 done
 
 mkdir ${NEW_IXDIR}/dbssodir ${NEW_IXDIR}/aaodir ${NEW_IXDIR}/etc
+
 cp -pR $EXISTING_IXDIR/etc/* $NEW_IXDIR/etc
 cp -pR $EXISTING_IXDIR/dbssodir/* $NEW_IXDIR/dbssodir
 cp -pR $EXISTING_IXDIR/aaodir/* $NEW_IXDIR/aaodir
 
-if [ $MY_USER != "informix" ]
+if [ -d $EXISTING_IXDIR/ssl ]
 then
-	if [ "X${GROUPS_FLAG}" = "X0" ]
-	then
-		chown informix:informix $NEW_IXDIR/dbssodir
-		chown informix:informix $NEW_IXDIR/etc
-		chown informix:informix $NEW_IXDIR/aaodir
-	fi
+	mkdir ${NEW_IXDIR}/ssl
+	cp -pR $EXISTING_IXDIR/ssl $NEW_IXDIR/ssl
+fi
+if [ -d $EXISTING_IXDIR/tmp ]
+then
+	mkdir ${NEW_IXDIR}/tmp
 fi
 
-if [ "X${GROUPS_FLAG}" = "X1" ]
-then
+
+case ${GROUPS_FLAG} in
+1)
 	if [ "X${WARN_FLAG}" = "X0" ]
 	then
 		chown informix:${DBSSO_GROUP} $NEW_IXDIR/dbssodir
 		chown informix:${DBSA_GROUP} $NEW_IXDIR/etc
 		chown informix:${AAO_GROUP} $NEW_IXDIR/aaodir
+
+		#Should ssl and tmp belong to group informix or DBSA_GROUP?
+		if [ -d $NEW_IXDIR/ssl ]
+		then
+			chown informix:${DBSA_GROUP} $NEW_IXDIR/ssl
+		fi
+		if [ -d $NEW_IXDIR/tmp ]
+		then
+			chown informix:${DBSA_GROUP} $NEW_IXDIR/tmp
+		fi
 	else
-		echo "User does not belong to all the specified groups"
+		#If WARN_FLAG = 1 then we are informix and we don't belong to all the groups
+		echo "User informix does not belong to all the specified groups ( ${DBSA_GROUP} , ${AAO_GROUP}, ${DBSSO_GROUP} ) "
 		echo "These commands will have to be run by root:"
 
 		echo chown informix:${DBSSO_GROUP} $NEW_IXDIR/dbssodir
 		echo chown informix:${DBSA_GROUP} $NEW_IXDIR/etc
 		echo chown informix:${AAO_GROUP} $NEW_IXDIR/aaodir
+		if [ -d $NEW_IXDIR/ssl ]
+		then
+			echo chown informix:${DBSA_GROUP} $NEW_IXDIR/ssl
+		fi
+		if [ -d $NEW_IXDIR/tmp ]
+		then
+			echo chown informix:${DBSA_GROUP} $NEW_IXDIR/tmp
+		fi
 	fi
-else
+	;;
+0)
+	if [ ${MY_USER} = "root" ]
+	then
+		chown informix:informix $NEW_IXDIR/dbssodir
+		chown informix:informix $NEW_IXDIR/etc
+		chown informix:informix $NEW_IXDIR/aaodir
+		if [ -d $NEW_IXDIR/ssl ]
+		then
+			chown informix:informix $NEW_IXDIR/ssl
+		fi
+		if [ -d $NEW_IXDIR/tmp ]
+		then
+			chown informix:informix $NEW_IXDIR/tmp
+		fi
+	fi
+	;;
+*)
 	echo "Internal error: Invalid value for GROUPS_FLAG..." >&2
 	exit 1
-fi
+	;;
+esac
+
 
 chmod 770 ${NEW_IXDIR}/dbssodir ${NEW_IXDIR}/aaodir
 chmod 775 ${NEW_IXDIR}/etc
+if [ -d $NEW_IXDIR/ssl ]
+then
+	chmod 770 $NEW_IXDIR/ssl
+fi
+if [ -d $NEW_IXDIR/tmp ]
+then
+	chmod 770 $NEW_IXDIR/tmp
+fi
