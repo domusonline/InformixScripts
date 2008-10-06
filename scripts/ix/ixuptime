@@ -30,7 +30,7 @@ fi
 show_help()
 {
 	echo
-        echo "${PROGNAME}: [-h] | [-v] | [ -V ] [-l log] [ -d <days>%<HH>:<mm>:<ss> ] [ -s <start time> ] [ -S <stop time> ] [ -x ]"
+        echo "${PROGNAME}: [-h] | [-v] | [ -V ] [-l log] [ -d <days>%<HH>:<mm>:<ss> ] [ -s <start time> ] [ -S <stop time> ] [ -x ] [ -f unload_file ]"
 	echo
 	echo "    -h              : this help"
 	echo "    -V              : script version"
@@ -40,13 +40,14 @@ show_help()
 	echo "    -s <start time> : to indicate the time at which processing should start (%Y%m%d)"
 	echo "    -S <stop time>  : to indicate the time at which processing should stop (%Y%m%d)"
 	echo "    -x              : to force extending the last date collected to the current date/time"
+	echo "    -f <unload_file>: file to unload ONLINE and OFFLINE intervals"
 	echo
 	echo "EX:	${PROGNAME} -l /usr/informix/logs/db.log -d 0%08:32:00 -s 20060701 -S 20060701"
 	echo
 }
 get_args()
 {
-	arg_ok="l:d:s:S:xhvV"
+	arg_ok="l:d:s:S:f:xhvV"
 	list="$*"
 	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing                                                
@@ -92,6 +93,11 @@ get_args()
 			;;
 		-x)   # extend the time to the current one...
 			EXTEND_TIME_FLAG=1
+			;;
+		-f)   # unload file
+			UNLOAD_FILE_FLAG=1
+			UNLOAD_FILE=$2
+			shift
 			;;
 		esac
 		shift
@@ -167,6 +173,17 @@ get_args()
 				return 1
 			else
 				EXTEND_TIME_FLAG=1
+			fi
+			;;
+		-f)   # unload file
+			if [ "X${UNLOAD_FILE_FLAG}" = "X1" ]
+			then
+				echo "${PROGNAME}: Syntax error: - Unload file already interpreted" >&2
+				return 1
+			else
+				UNLOAD_FILE_FLAG=1
+				UNLOAD_FILE=$2
+				shift
 			fi
 			;;
 		*)
@@ -437,6 +454,11 @@ from
 	aux_table;
 EOF
 
+if [ "X${UNLOAD_FILE_FLAG}" = "X1" ]
+then
+	cat ${ONLINE_FILE} | awk '{print $0"|ONLINE|"}' >${UNLOAD_FILE}
+	cat ${OFFLINE_FILE} | awk '{print $0"|OFFLINE|"}' >>${UNLOAD_FILE}
+fi
 
 rm -f ${ONLINE_FILE}
 rm -f ${OFFLINE_FILE}
