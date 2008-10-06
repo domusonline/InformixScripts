@@ -456,8 +456,8 @@ EOF
 
 if [ "X${UNLOAD_FILE_FLAG}" = "X1" ]
 then
-	cat ${ONLINE_FILE} | awk '{print $0"|ONLINE|"}' >${UNLOAD_FILE}
-	cat ${OFFLINE_FILE} | awk '{print $0"|OFFLINE|"}' >>${UNLOAD_FILE}
+	cat ${ONLINE_FILE} | awk '{print $0"ONLINE|"}' >${UNLOAD_FILE}
+	cat ${OFFLINE_FILE} | awk '{print $0"OFFLINE|"}' >>${UNLOAD_FILE}
 fi
 
 rm -f ${ONLINE_FILE}
