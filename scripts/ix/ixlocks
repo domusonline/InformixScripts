@@ -494,30 +494,98 @@ then
 else
 	MON_CMD="ixses"
 fi
-onstat -K | egrep -v -e "^$" -e "^Locks" -e "^address" -e active -e "^Informix" -e "^IBM" | ${IX_AWK} '$2 !~ "^0$" {print $0}' | while read linha
-do
-	waiter_RSTCB=`echo $linha | cut -f2 -d' '`
-	owner_RSTCB=`echo $linha | cut -f3 -d' '`
-	table=`echo $linha | cut -f7 -d' '`
 
-	echo "Locked table:"
-	echo "----------------------"
-	dbaccess sysmaster <<EOF 2>>/dev/null
-select partnum, dbsname, tabname from systabnames where partnum = '0x${table}'
+dbaccess sysmaster <<EOF     2>/dev/null
+UNLOAD TO ${TEMP_FILE}
+select
+
+        current year to second out_snapshot,
+	l.indx out_lock_id,
+	extend(dbinfo('utc_to_datetime', grtime), day to second) out_lock_establish,
+        t.sid out_wait_sid,
+	t.username out_wait_user,
+	t.tid out_wait_thread,
+	t2.sid out_owner_sid,
+	t2.username out_owner_user,
+	a.dbsname out_dbsname,
+	a.tabname out_tabname,
+        current year to second - dbinfo('utc_to_datetime', grtime) out_lock_duration,
+        current year to second - dbinfo('utc_to_datetime',g.start_wait) out_lock_wait,
+	dbinfo('utc_to_datetime',start_wait) out_wait_tstamp,
+
+	h.pid out_pid,
+	h.progname out_owner_progname,
+	h.hostname out_owner_hostname,
+	extend(dbinfo('utc_to_datetime', h.connected),day to second) out_owner_connected,
+
+	h2.pid out_waiter_pid,
+	h2.progname out_waiter_progname,
+	h2.hostname out_waiter_hostname,
+	extend(dbinfo('utc_to_datetime', h2.connected),day to second) out_waiter_connected
+from
+        sysrstcb t, syslcktab l, sysrstcb t2,  systxptab c, systabnames a, systcblst g, sysscblst h, sysscblst h2
+
+where
+        t.lkwait = l.address and
+
+        l.owner = c.address and
+        c.owner = t2.address and
+        l.partnum = a.partnum and
+        g.tid = t.tid and
+	h2.sid = t.sid and
+	h.sid = t2.sid
+order by out_lock_duration desc, out_lock_id;
 EOF
 
-	echo "----------------------"
-	left=1
-	for ses in `onstat -u | grep -e "^${waiter_RSTCB}" -e "^${owner_RSTCB}" | ${IX_AWK} '{print $3}'`
-	do
-		if [ ${left} = 1 ]
-		then
-			${MON_CMD} $ses
-		else
-			${MON_CMD} $ses
-		fi
-	done
-	echo "-------------------------------------------------------------"
+FIRST_FLAG=1
+OLD_LOCK_ID=-1
+cat ${TEMP_FILE} | while read linha
+do
+	v_lock_id=`echo $linha | cut -f2 -d'|'`
+	v_wait_sid=`echo $linha | cut -f4 -d'|'`
+	v_wait_user=`echo $linha | cut -f5 -d'|'`
+	v_wait_thread=`echo $linha | cut -f6 -d'|'`
+	v_lock_wait=`echo $linha | cut -f12 -d'|'`
+	v_wait_tstamp=`echo $linha | cut -f13 -d'|'`
+
+	v_wait_pid=`echo $linha | cut -f18 -d'|'`
+	v_wait_progname=`echo $linha | cut -f19 -d'|'`
+	v_wait_hostname=`echo $linha | cut -f20 -d'|'`
+	v_wait_connected=`echo $linha | cut -f21 -d'|'`
+	
+	if [ "X${FIRST_FLAG}" = "X1" ]
+	then
+		FIRST_FLAG=0
+		v_snapshot=`echo $linha | cut -f1 -d'|'`
+		printf "Lock waiting at: %s\n\n" "$v_snapshot"
+	fi
+	
+	if [ "X${OLD_LOCK_ID}" != "X${v_lock_id}" ]
+	then
+		printf "-----------------------------------------------------------------------------------------------------------------------------------\n"
+
+		v_lock_establish=`echo $linha | cut -f3 -d'|'`
+		v_owner_sid=`echo $linha | cut -f7 -d'|'`
+		v_owner_user=`echo $linha | cut -f8 -d'|'`
+		v_dbsname=`echo $linha | cut -f9 -d'|'`
+		v_tabname=`echo $linha | cut -f10 -d'|'`
+		v_lock_duration=`echo $linha | cut -f11 -d'|'`
+
+		v_owner_pid=`echo $linha | cut -f14 -d'|'`
+		v_owner_progname=`echo $linha | cut -f15 -d'|'`
+		v_owner_hostname=`echo $linha | cut -f16 -d'|'`
+		v_owner_connected=`echo $linha | cut -f17 -d'|'`
+
+		printf "Lock ID: %-11s Database: %s Table: %s\n" $v_lock_id $v_dbsname $v_tabname
+		printf "Lock established at: %s    Lock duration: %s\n\n" "$v_lock_establish" "$v_lock_duration"
+		printf "Lock Owner info:\n"
+		printf "User: %s  SID: %s Hostname: %s Connected at: %s PID: %s Program: %s\n\n" $v_owner_user $v_owner_sid $v_owner_hostname "$v_owner_connected" $v_owner_pid "$v_owner_progname"
+		printf "Waiters Info:\n"
+		printf "%-12s %-10s %-12s %-9s %-11s %-30s %-8s %-20s\n" "USER" "SID" "THREAD" "WAIT FOR..." "CONNECTED" "HOSTNAME" "PID" "PROGNAME"
+		OLD_LOCK_ID=$v_lock_id
+	fi
+
+	printf "%-12s %-10s %-12s %-9s %-11s %-30s %-8s %-20s\n\n\n" "$v_wait_user" "$v_wait_sid" "$v_wait_thread" "$v_lock_wait" "$v_wait_connected" "$v_wait_hostname" "$v_wait_pid" "$v_wait_progname"
 done
 }
 
