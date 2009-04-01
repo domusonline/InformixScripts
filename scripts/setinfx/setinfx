@@ -5,24 +5,7 @@
 # Revision: $Revision$ 
 # Revised on: $Date$
 # Revised by: $Author$ 
-# Support: Fernando Nunes - domusonline@domus.online.pt
-# History:
-# 1.16 - Numero de versao passou a ser o do CVS
-#      - Retirou-se o "clear" quando esta posicionado o SETINFX_SILENT
-#      - as linhas "inactivas" nao precisam de ter formato correcto
-# 8.13 - Troca da execucao de scripts SHELL para o fim do setinfx
-# 8.12 - Introducao da variavel SETINFX_SILENT. Tera de ser revisto numa futura versao
-# 8.11 - Eliminacao do processamento dos utilitarios de servidor nos ambientes de ferramentas
-# 8.10 - Optimizacao das leituras dos ficheiros
-# 8.9  - Introducao de campo com script SHELL a executar
-# 8.8  - Alteracao das localizacoes dos ficheiros de configuracao
-# 8.7  - Correccao de bug que fazia aparecer sempre a ultima versao do motor
-# 8.6  - Correccao de debug para fm.tmp
-#      - Preparacao para IIF ($INFORMIXDIR/etc/IIF-cr)
-#      - Impedir que de erros depois de atingir o limite de entradas invalidas
-#      - Ajustar a utilizao do awk ou nawk conforme o SO
-# 8.5  - Code review
-#      - Minor chages in conf variables
+# Support: Fernando Nunes - domusonline@gmail.com
 
 set_clean_path()
 {
@@ -470,27 +453,35 @@ fi
 }
 
 
-VERSION=`echo "$Revision$" | cut -f2 -d' '`
-if [ -z "${INFX_CONF}" ]
-then
-	INFX_CONF=infx_env.lst
-fi
-INFX_PARAMS=setinfx.params
-argc=$#
-if [ "X$SETINFX_SILENT" = "X" ]
-then
-	clear
-fi
-
-# checking params
-case $argc in
-1)
-	main $1
-	shift
-	;;
-0)
-	main l
+case $0 in
+-sh)
+	echo "setinfx does not work in sh environment. Please use ksh" >&2
 	;;
 *)
-	echo "Usage: . setinfx < l(ist) | 1-$maxsrv >"
+
+	VERSION=`echo "$Revision$" | cut -f2 -d' '`
+	if [ -z "${INFX_CONF}" ]
+	then
+		INFX_CONF=infx_env.lst
+	fi
+	INFX_PARAMS=setinfx.params
+	argc=$#
+	if [ "X$SETINFX_SILENT" = "X" ]
+	then
+		clear
+	fi
+
+	# checking params
+	case $argc in
+	1)
+		main $1
+		shift
+		;;
+	0)
+		main l
+		;;
+	*)
+		echo "Usage: . setinfx < l(ist) | 1-$maxsrv >"
+	esac
+	;;
 esac
