@@ -2,7 +2,7 @@
 # CVS id: $Header$
 # Revision: $Revision$ 
 # Revised on: $Date$
-# Support: Fernando Nunes - domusonline@domus.online.pt
+# Support: Fernando Nunes - domusonline@gmail.com
 
 show_help()
 {
@@ -99,7 +99,7 @@ then
 	echo "${PROGNAME}: Error - Erro no processamento dos parametros" >&2
 	exit 1
 fi
-SO=`uname -s | tr [:upper:] [:lower:]`
+SO=`uname -s | tr A-Z a-z`
 case $SO in
 	sunos*)
 		AWK=nawk
@@ -126,7 +126,14 @@ do
 		break
 	fi
 
-	onstat -g act | ${AWK} '$1 ~ "^ *[1-9]" { if ( $3 != 0) print $1 "|" }' >> ${TEMP_FILE}
+	onstat -g act | ${AWK} '$1 ~ "^ *[1-9]" {
+	if ( length($1) <=8 )
+	{
+		if ( $3 != 0) print $1 "|" 
+	}
+	else
+		if ($2 != 0 ) print substr($1,1,8) "|"
+	}' >> ${TEMP_FILE}
 
 	CONT=`expr $CONT + 1`
 done

@@ -158,6 +158,10 @@ osf*)
 	PS_CMD="ps -o \"time,cmd\""
 	AWK=nawk
 	;;
+hp-ux)
+	PS_CMD="export UNIX_STD=2003;ps -o \"time,comm\""
+	AWK=gawk
+	;;
 linux|*)
 	PS_CMD="ps -o \"time,cmd\""
 	AWK=gawk
@@ -212,7 +216,7 @@ do
 		READ_TIMESTAMP=`echo $line | cut -f5 -d' '`
 		WRITE_TIMESTAMP=`echo $line | cut -f6 -d' '`
 
-		onstat -g ses ${session} | awk -v "TZ_DIFF=${TZ_DIFF}" -v "PS_CMD=${PS_CMD}" -v "SESSION=${session}" -v "HOST=${HOSTNAME}" -v "PROC=${PROC}" -v "CONN_TIMESTAMP=${CONN_TIMESTAMP}" -v "READ_TIMESTAMP=${READ_TIMESTAMP}" -v "WRITE_TIMESTAMP=${WRITE_TIMESTAMP}" '
+		onstat -g ses ${session} | ${AWK} -v "TZ_DIFF=${TZ_DIFF}" -v "PS_CMD=${PS_CMD}" -v "SESSION=${session}" -v "HOST=${HOSTNAME}" -v "PROC=${PROC}" -v "CONN_TIMESTAMP=${CONN_TIMESTAMP}" -v "READ_TIMESTAMP=${READ_TIMESTAMP}" -v "WRITE_TIMESTAMP=${WRITE_TIMESTAMP}" '
 #-------------------------------------------------------------
 # BEGIN AWK script
 # Init vars
@@ -241,6 +245,7 @@ do
 	}
 	BEGIN {
 		my_no_session=1;
+		flag_effective_user=0;
 		TMP_DIR="/tmp/";
 		FILE_PREFIX="sstat_";
 		FILE_HEX_CONV=sprintf("%s%stmp_%s.aux", TMP_DIR,FILE_PREFIX,PROC);
@@ -264,22 +269,42 @@ do
 		my_conn_timestamp=CONN_TIMESTAMP;
 		my_read_timestamp=READ_TIMESTAMP;
 		my_write_timestamp=WRITE_TIMESTAMP;
+
 	} 
 
 #-------------------------------------------------------------
+# check if onstat gives user and effective user
+#-------------------------------------------------------------
+	/^session           effective/ {
+		flag_effective_user=1;
+	}
+#-------------------------------------------------------------
 # Session and user ID
 #-------------------------------------------------------------
-	/^id/ { getline; my_user=$2; my_tty=$3; my_pid=$4;
-		pos=match($5,"\\.");
+	/^id/ { 
+		pos_user_index=2;
+		pos_effective_user_index=3;
+		pos_tty_index=3+flag_effective_user;
+		pos_pid_index=4+flag_effective_user;
+		pos_hostname_index=5+flag_effective_user;
+		pos_nthreads_index=6+flag_effective_user;
+		getline; my_user=$pos_user_index;my_tty=$pos_tty_index; my_pid=$pos_pid_index;
+		pos=match($pos_hostname_index,"\\.");
 		if (pos == 0)
 		{
-			my_hostname=$5;
+			my_hostname=$pos_hostname_index;
 		}
 		else
 		{
-			my_hostname=substr($5,1,pos-1);
+			my_hostname=substr($pos_hostname_index,1,pos-1);
 		}
-		my_nthreads=$6;
+		my_nthreads=$pos_nthreads_index;
+
+		if ( flag_effective_user == 1 )
+			my_effective_user=$pos_effective_user_index;
+		else
+			my_effective_user="";
+
 		my_no_session=0;
 	} 
 
@@ -309,23 +334,32 @@ do
 #-------------------------------------------------------------
 # Session characteristics and SQL statement type
 #-------------------------------------------------------------
-	/^Id *St/ {
+	/^Sess *SQL/ {
+		linha=$0;
+		pos_aux_database=match(linha, "Curren");
+		pos_aux_iso_level=match(linha, "Iso");
+		pos_aux_lock_mode=match(linha, "Lock");
+		pos_aux_isam_err=match(linha, "ISAM");
+		pos_aux_fe_version=match(linha, "F.E.");
 		getline;
 		linha=$0;
-		sub("^[0-9][0-9]*  *","",linha)
-		n=split(linha,a,"   *");
-		my_stmt_type=a[1];
-		my_database=a[2];
-		my_iso_level=a[3];
-		my_lock_mode=a[4];
-		my_sql_err=a[5];
-		my_isam_err=a[6];
-		my_fe_version=a[7];
+		pos_aux_sql_err=match(linha,"ERR");
+		pos_aux_stmt_type=match(linha, "Stmt");
+		getline;
+		linha=$0;
+		my_stmt_type=substr(linha,pos_aux_stmt_type,pos_aux_database-pos_aux_stmt_type -1);
+		my_database=substr(linha,pos_aux_database,pos_aux_iso_level-pos_aux_database -1);
+		my_iso_level=substr(linha,pos_aux_iso_level,pos_aux_lock_mode - pos_aux_iso_level -1);
+		my_lock_mode=substr(linha,pos_aux_lock_mode,pos_aux_sql_err-pos_aux_lock_mode -1);
+		my_sql_err=substr(linha,pos_aux_sql_err,pos_aux_isam_err-pos_aux_sql_err -1);
+		my_isam_err=substr(linha,pos_aux_isam_err,pos_aux_fe_version-pos_aux_isam_err -1);
+		my_fe_version=substr(linha,pos_aux_fe_version);
                 pos=match(my_fe_version," ");
                 if ( pos != 0 )
                 {
-                        my_set_explain=substr(my_fe_version,pos + 1,length(my_fe_version));
-                        my_fe_version=substr(my_fe_version,1,pos-1);
+			n=split(my_fe_version,a,"  *");
+                        my_fe_version=a[1];
+                        my_set_explain=a[2];
                 }
                 else
                 {
@@ -465,19 +499,27 @@ do
 				my_process = ".." substr(my_process,length(my_process) - 22);
 			}
 		}
-		print "SESSION  USER     TTY    HOSTNAME           CONNECTED           NTHR PID    PROCESS                 CWD";
-		printf("%-8s %-8s %-6s %-18s %-19s %-4s %-6s %-23s %s\n", SESSION, my_user, my_tty, my_hostname, my_connected, my_nthreads, my_pid, substr(my_process,1,24), my_cwd);
+		if ( flag_effective_user == 0 )
+		{
+			print "SESSION  USER     TTY    HOSTNAME           CONNECTED           NTHR PID    PROCESS                 CWD";
+			printf("%-8s %-8s %-6s %-18s %-19s %-4s %-6s %-23s %s\n", SESSION, my_user, my_tty, my_hostname, my_connected, my_nthreads, my_pid, substr(my_process,1,24), my_cwd);
+		}
+		else
+		{
+			print "SESSION  USER     EFF USER TTY    HOSTNAME           CONNECTED           NTHR PID    PROCESS                 CWD";
+			printf("%-8s %-8s %-8s %-6s %-18s %-19s %-4s %-6s %-23s %s\n", SESSION, my_user, my_effective_user, my_tty, my_hostname, my_connected, my_nthreads, my_pid, substr(my_process,1,24), my_cwd);
+		}
 		print "";
 		print "DATABASE           FE VERSION  STMT TYPE          ISOLATION  LOCK MODE  SQL ERROR  ISAM ERROR EXPL OFC PDQ STATS OPTCMPIND DIR"
 		printf("%-18s %-11s %-18s %-10s %-10s %-10s %-10s %-4s %-3s %-3s %-5s %-9s %-3s\n", my_database, my_fe_version,
 		my_stmt_type, my_iso_level, my_lock_mode, my_sql_err, my_isam_err, my_set_explain,my_optofc,my_pdq_priority,my_sqlstats, my_optcompind, my_directives);
 		print "";
-		print "TID      THREAD NAME  RSTCB      FLAGS   STATUS                    LAST READ  LAST WRITE";
+		print "TID      THREAD NAME  RSTCB            FLAGS   STATUS                    LAST READ  LAST WRITE";
 		for (f=1; f<=my_nthreads; f++ )
 		{
 			if ( f == 1 )
 			{
-				printf("%-8s %-12s %-10s %-7s %-25s %-10s %-9s\n", my_tid[f], my_thread_name[f], my_rstcb[f], my_flags[f], my_status[f], my_read_timestamp, my_write_timestamp );
+				printf("%-8s %-12s %-16s %-7s %-25s %-10s %-9s\n", my_tid[f], my_thread_name[f], my_rstcb[f], my_flags[f], my_status[f], my_read_timestamp, my_write_timestamp );
 			}
 			else
 			{
