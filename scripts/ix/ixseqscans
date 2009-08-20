@@ -1,0 +1,104 @@
+#!/bin/ksh
+# Name: $RCSfile$
+# CVS file: $Source$
+# CVS id: $Header$
+# Revision: $Revision$
+# Revised on: $Date$
+# Revised by: $Author$
+# Support: Fernando Nunes - domusonline@gmail.com
+# Licence: This script is licensed as GPL ( http://www.gnu.org/licenses/gpl.html )
+
+
+show_help()
+{
+	echo "${PROGNAME} [ -V ] | [ -h ] | [database[,...] ]">&2
+	echo "     -V : shows version" >&2
+	echo "     -h : shows this help" >&2
+	echo "     database : restricts the info to the specified databases (comma separated list, default is all databases)">&2
+}
+
+show_version()
+{
+        echo "${PROGNAME}: Version ${VERSION}"
+}
+
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
+PROGNAME=`basename $0`
+arg_ok="hV"
+while getopts ${arg_ok} OPTION
+do
+	case ${OPTION} in
+	V)      #show version
+		show_version
+		exit 0
+		;;
+	h)   # show help
+		show_help
+		exit 0
+		;;
+	esac
+done
+shift $OPTIND-1
+
+
+SO=`uname -s | tr [:upper:] [:lower:]`
+case $SO in
+sunos*)
+        AWK=nawk
+        PS_CMD="ps -o \"time,comm\""
+        ;;
+osf*)
+        PS_CMD="ps -o \"time,cmd\""
+        AWK=nawk
+        ;;
+hp-ux)
+        PS_CMD="export UNIX_STD=2003;ps -o \"time,comm\""
+        AWK=gawk
+        ;;
+linux|*)
+        PS_CMD="ps -o \"time,cmd\""
+        AWK=gawk
+        ;;
+esac
+
+if [ $# -gt 0 ]
+then
+	DATABASE_CLAUSE=`echo $1 | ${AWK} -F',' 'BEGIN { printf "AND t1.dbsname IN ( ";}
+{
+	for (f=1;f<=NF;f++)
+	{
+		if (f<NF)
+			{printf "\"%s\"\,",$f}
+		else
+			{printf "\"%s\"",$f}
+	}
+}
+END {printf " )"}'`
+else
+	DATABASE_CLAUSE=""
+fi
+
+TMP_FILE=/tmp/`basename $0`_$$.tmp
+trap "rm -f ${TMP_FILE}" 0
+onstat -g ppf  | awk '{if ($12 != 0) {print $0}}' | grep "^0x" | sort -nk 12 | awk '{print $1"|"$12"|"}' >${TMP_FILE}
+dbaccess sysmaster 2>/dev/null <<EOF 
+create temp table ixseqscans
+(
+        partnum varchar(18),
+        seq_scans integer
+);
+load from ${TMP_FILE} insert into ixseqscans;
+
+SELECT
+	SUBSTR(TRIM(dbsname)||":"||TRIM(tabname),1,30) tablename,
+	t2.seq_scans seqscans,
+	t3.nrows rows,
+	NVL(t2.seq_scans,0) * NVL(t3.nrows,0) weight
+FROM
+	systabnames t1, ixseqscans t2, sysptnhdr t3
+WHERE
+	t1.partnum = t2.partnum AND
+	t3.partnum = t1.partnum $DATABASE_CLAUSE
+ORDER BY 4 DESC, 3 DESC
+EOF
+
