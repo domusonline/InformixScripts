@@ -90,7 +90,7 @@ create temp table ixseqscans
 load from ${TMP_FILE} insert into ixseqscans;
 
 SELECT
-	SUBSTR(TRIM(dbsname)||":"||TRIM(tabname),1,30) tablename,
+	SUBSTR(TRIM(dbsname)||":"||TRIM(tabname),1,35)::CHAR(35) tablename,
 	t2.seq_scans seqscans,
 	t3.nrows rows,
 	NVL(t2.seq_scans,0) * NVL(t3.nrows,0) weight
