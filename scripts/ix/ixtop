@@ -79,56 +79,57 @@ get_args()
 				exit 1
 			fi
 			PARTITION_FLAG=1
+			OPTARG=`echo $OPTARG | tr [:lower:] [:upper:]`
 			case $OPTARG in
-			Database)
+			DATABASE)
 				PARTITION_ORDER_BY=dbsname
 				;;
-			Partname)
+			PARTNAME)
 				PARTITION_ORDER_BY=tabname
 				;;
-			PartNumHex)
+			PARTNUMHEX)
 				PARTITION_ORDER_BY=partnum
 				;;
-			Partnum)
+			PARTNUM)
 				PARTITION_ORDER_BY=4
 				;;
-			LockReqs)
+			LOCKREQS)
 				PARTITION_ORDER_BY=lockreqs
 				;;
-			LkWai)
+			LKWAI)
 				PARTITION_ORDER_BY=lockwts
 				;;
-			DLk)
+			DLK)
 				PARTITION_ORDER_BY=deadlks
 				;;
-			LkT)
+			LKT)
 				PARTITION_ORDER_BY=lktouts
 				;;
-			IsamReads)
+			ISAMREADS)
 				PARTITION_ORDER_BY=isreads
 				;;
-			IsamWrite)
+			ISAMWRITE)
 				PARTITION_ORDER_BY=iswrites
 				;;
-			IsamRWrit)
+			ISAMRWRIT)
 				PARTITION_ORDER_BY=isrewrites
 				;;
-			IsamDel)
+			ISAMDEL)
 				PARTITION_ORDER_BY=isdeletes
 				;;
-			BuffReads)
+			BUFFREADS)
 				PARTITION_ORDER_BY=bufreads
 				;;
-			BuffWrit)
+			BUFFWRIT)
 				PARTITION_ORDER_BY=bufwrites
 				;;
-			PagReads)
+			PAGREADS)
 				PARTITION_ORDER_BY=pagreads
 				;;
-			PagWrite)
+			PAGWRITE)
 				PARTITION_ORDER_BY=pagwrites
 				;;
-			SeqScans)
+			SEQSCANS)
 				PARTITION_ORDER_BY=seqscans
 				;;
 			*)
@@ -539,6 +540,7 @@ top_cpu()
 CREATE TEMP TABLE tmp_ixtop (col1 char(10)) WITH NO LOG;
 LOAD FROM ${TEMP_FILE} INSERT INTO tmp_ixtop;
 UNLOAD TO ${TEMP_FILE} DELIMITER " " SELECT
+	$FIRST_CLAUSE
 	TRUNC(COUNT(*)) Exec,
 	a.sid,
 	a.username as user,
