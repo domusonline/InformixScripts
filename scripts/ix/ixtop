@@ -1,14 +1,39 @@
-#!/bin/sh
+#!/bin/ksh
 # CVS id: $Header$
 # Revision: $Revision$ 
 # Revised on: $Date$
 # Support: Fernando Nunes - domusonline@gmail.com
+# License: This script is licensed as GPL ( http://www.gnu.org/licenses/gpl.html )
 
 show_help()
 {
-	echo "${PROGNAME}:  ${PROGNAME} [ [ -h | -V ] | [ -n <interactions>] [ -c <min-runs> ] ] " >&2
-	echo "      <interactions> : nuber of onstat -g act to trace [default=20]" >&2
-	echo "      <min-runs>     : minimum ocurrences of the thread in the active list [default=2]" >&2
+	echo "${PROGNAME}:  ${PROGNAME} [ -h | -V ] | ">&2
+	echo "            [ -t <top_t_list> ] ">&2
+	echo "            [ [ -C ] [ -n <interactions> ] [ -c <min-runs> ] ]" >&2
+	echo "            [ -p <part_order_by> [ -d <database_list> ] ]" >&2
+	echo "            [ -s | -l  <ses_order_by> [ -u <user_list> ] ]" >&2
+	echo "            [ -m ]" >&2
+	echo " Where: " >&2
+	echo " -C : Get TOP cpu usage sessions">&2
+	echo "      -n <interactions>    : nuber of onstat -g act to trace [default=20]" >&2
+	echo "      -c <min-runs>        : minimum ocurrences of the thread in the active list [default=2]" >&2
+	echo " -p : Get TOP I/O, locks, lockwaits, buffer activity etc. per partition">&2
+	echo "      <database_list> : comma separated list of databases ">&2
+	echo "      <part_order_by> : field to order by: ">&2
+	echo "                       [Database|Partname|PartNumHex|Partnum|LockReqs|LkWai|DLk|LkT|IsamReads|">&2
+	echo "                       IsamWrite|IsamRWrit|IsamDel|BuffReads|BuffWrit|PagReads|PagWrite|SeqScans]">&2
+	echo " -s : Get TOP I/O, buffer activity etc. per session" >&2
+	echo "      <ses_order_by>  : field to order by: ">&2 
+	echo "                       [IsamReads|IsamWrite|IsamRWrit|IsamDels|IsamCommt|IsamRB|LTx|BuffReads|">&2
+	echo "                       BuffWrite|SeqScans|PagRead|PagWrit|TotSrt|DSrt|MaxDSpc]">&2
+	echo " -l : Get TOP locks, lockwaits, logs, logspace usage etc. per session" >&2
+	echo "      <ses_order_by>  : field to order by: ">&2 
+	echo "                       [LockReqs|LkHeld|LkWait|DLk|LkTout|Log|Recs|Log%Use|MaxLgSpc]">&2
+	echo "      <user_list>     : comma separated list of users">&2
+	echo " -m : Get TOP memory usage sessions " >&2
+
+
+
 }
 
 show_version()
@@ -17,128 +42,499 @@ show_version()
 }
 get_args()
 {
-	arg_ok="hVn:c:"
-	list="$*"
-	getopt "${arg_ok}" $list >/dev/null 2>&1
-	# check result of parsing
-	if [ $? != 0 ]
-	then
-		return 1
-	fi
-	set -- `getopt "${arg_ok}" $list`
+	arg_ok="hVt:Cn:c:s:l:p:u:d:m"
 
-	while [ $1 != -- ]
+	while getopts ${arg_ok} OPTION
 	do
-		case $1 in
-		-h)   # show help
-			if [ "X${HELP_FLAG}" = "X1" ]
-			then
-				echo "${PROGNAME}: Erro - Opcao -h ja foi processada" >&2
-				exit 1
-			fi
-			HELP_FLAG=1
+		case ${OPTION} in
+		h)   # show help
 			show_help
 			exit 0
 			;;
-		-V)	#show version
-			if [ "X${VERSION_FLAG}" = "X1" ]
-			then
-				echo "${PROGNAME}: Erro - Opcao -v ja foi processada" >&2
-				exit 1
-			fi
-			VERSION_FLAG=1
+		V)	#show version
 			show_version
 			exit 0
 			;;
-		-n)	#define number of interactions
-			if [ "X"$INTERACTION_FLAG = "X1" ]
+		t)     #define top size...
+			if [ "X"${TOP_SIZE_FLAG} = "X1" ]
 			then
-				echo "${PROGNAME}: Erro - Opcao -n ja foi processada" >&2
+				echo "Error: Option ${OPTION} already processed" >&2
 				exit 1
-			elif [ $# -le 1 ]
-			then
-				echo "${PROGNAME}: Erro - A opcao $1 necessita de um argumento" >&2
-				exit 1
-			else
-				INTERACTIONS=$2
-				shift
 			fi
-			INTERACTION_FLAG=1
+			TOP_SIZE_FLAG=1
+			TOP_SIZE=${OPTARG}
 			;;
-		-c)	#define minimum number of ocurrences
-			if [ "X"$OCURR_FLAG = "X1" ]
+		C)     #flag for cpu TOP
+			if [ "X"${CPU_FLAG} = "X1" ]
 			then
-				echo "${PROGNAME}: Erro - Opcao -c ja foi processada" >&2
+				echo "Error: Option ${OPTION} already processed" >&2
 				exit 1
-			elif [ $# -le 1 ]
-			then
-				echo "${PROGNAME}: Erro - A opcao $1 necessita de um argumento" >&2
-				exit 1
-			else
-				OCURRENCES=$2
-				shift
 			fi
-			OCURR_FLAG=1
+			CPU_FLAG=1
 			;;
-		esac
-		shift
+		p)     #flag for partition TOP
+			if [ "X"${PARTITION_FLAG} = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			PARTITION_FLAG=1
+			case $OPTARG in
+			Database)
+				PARTITION_ORDER_BY=dbsname
+				;;
+			Partname)
+				PARTITION_ORDER_BY=tabname
+				;;
+			PartNumHex)
+				PARTITION_ORDER_BY=partnum
+				;;
+			Partnum)
+				PARTITION_ORDER_BY=4
+				;;
+			LockReqs)
+				PARTITION_ORDER_BY=lockreqs
+				;;
+			LkWai)
+				PARTITION_ORDER_BY=lockwts
+				;;
+			DLk)
+				PARTITION_ORDER_BY=deadlks
+				;;
+			LkT)
+				PARTITION_ORDER_BY=lktouts
+				;;
+			IsamReads)
+				PARTITION_ORDER_BY=isreads
+				;;
+			IsamWrite)
+				PARTITION_ORDER_BY=iswrites
+				;;
+			IsamRWrit)
+				PARTITION_ORDER_BY=isrewrites
+				;;
+			IsamDel)
+				PARTITION_ORDER_BY=isdeletes
+				;;
+			BuffReads)
+				PARTITION_ORDER_BY=bufreads
+				;;
+			BuffWrit)
+				PARTITION_ORDER_BY=bufwrites
+				;;
+			PagReads)
+				PARTITION_ORDER_BY=pagreads
+				;;
+			PagWrite)
+				PARTITION_ORDER_BY=pagwrites
+				;;
+			SeqScans)
+				PARTITION_ORDER_BY=seqscans
+				;;
+			*)
+				echo "Invalid order by clause..." >&2
+				exit 1
+				;;
+                        esac
+			;;
+		s)     #flag for session TOP
+			if [ "X"${SESSION_FLAG} = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			SESSION_FLAG=1
+			OPTARG=`echo $OPTARG | tr [:lower:] [:upper:]`	
+			SESSION_ORDER_BY=${OPTARG}
+			case $OPTARG in
+			ISAMREADS)
+				SESSION_ORDER_BY=isreads
+				;;
+			ISAMWRIT )
+				SESSION_ORDER_BY=iswrites
+				;;
+			ISAMRWRIT )
+				SESSION_ORDER_BY=isrewrites
+				;;
+			ISAMDELS)
+				SESSION_ORDER_BY=isdeletes
+				;;
+			ISAMCOMMT)
+				SESSION_ORDER_BY=iscommits
+				;;
+			ISAMRB)
+				SESSION_ORDER_BY=isrollbacks
+				;;
+			LTX)
+				SESSION_ORDER_BY=longtxs
+				;;
+			BUFFREADS)
+				SESSION_ORDER_BY=bufreads
+				;;
+			BUFFWRITE)
+				SESSION_ORDER_BY=bufwrites
+				;;
+			SEQSCANS)
+				SESSION_ORDER_BY=seqscans
+				;;
+			PAGREAD)
+				SESSION_ORDER_BY=pagreads
+				;;
+			PAGWRIT)
+				SESSION_ORDER_BY=pagwrites
+				;;
+			TOTSRT)
+				SESSION_ORDER_BY=total_sorts
+				;;
+			DSRT)
+				SESSION_ORDER_BY=dsksorts
+				;;
+			MAXDSPC)
+				SESSION_ORDER_BY=max_sortdiskspace
+				;;
+			*)
+				echo "Invalid order by clause..." >&2
+				exit 1
+				;;
+			esac
+			;;
+		l)     #flag for session (l) TOP
+			if [ "X"${SESSION_L_FLAG} = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			SESSION_L_FLAG=1
+			OPTARG=`echo $OPTARG | tr '[:lower:]' '[:upper:]'`
+			case $OPTARG in
+			LOCKREQS)
+				SESSION_ORDER_BY=lockreqs
+				;;
+			LKHELD)
+				SESSION_ORDER_BY=locksheld
+				;;
+		 	LKWAIT)
+				SESSION_ORDER_BY=lockwts
+				;;
+			DLk)
+				SESSION_ORDER_BY=deadlks
+				;;
+			LKTOUT)
+				SESSION_ORDER_BY=lktouts
+				;;
+			LOGRECS)
+				SESSION_ORDER_BY=logrecs
+				;;
+			LOG%USE)
+				SESSION_ORDER_BY=logspused
+				;;
+			MAXLGSPC)
+				SESSION_ORDER_BY=maxlogsp
+				;;
+			*)
+				echo "Invalid order by clause..." >&2
+				exit 1
+				;;
+			esac
+			;;
+		m)     #flag memory usage TOP
+			if [ "X"${MEMORY_FLAG} = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			MEMORY_FLAG=1
+			;;
+		d)     #flag partition DB list
+			if [ "X"${PARTITION_DB_LIST_FLAG} = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			PARTITION_DB_LIST_FLAG=1
+			PARTITION_DB_LIST=${OPTARG}
+			;;
+		u)     #session user list
+			if [ "X${USER_LIST_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			USER_LIST_FLAG=1
+			USER_LIST=${OPTARG}
+			;;
+		n)     #flag CPU number of onstat -g act INTERACTIONS
+			if [ "X${CPU_INTERACTIONS_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			CPU_INTERACTIONS_FLAG=1
+			CPU_INTERACTIONS=${OPTARG}
+			;;
+		c)     #flag CPU minimum number of OCURRENCES
+			if [ "X"${CPU_MIN_OCURRENCES_FLAG} = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			CPU_MIN_OCURRENCES_FLAG=1
+			CPU_MIN_OCURRENCES=${OPTARG}
+			;;
+		*)
+			echo "Error parsing arguments 1..." >&2
+			return 1
+			;;
+    		esac
 	done
 }
 
-VERSION="1.0"
-PROGNAME=`basename $0`
 
-TEMP_DIR=/tmp
-TEMP_FILE=${TEMP_DIR}/ixtop$$.tmp
-INTERACTIONS=20
-OCURRENCES=2
 
-get_args $*
-if [ $? != 0 ]
-then
-	echo "${PROGNAME}: Error - Erro no processamento dos parametros" >&2
-	exit 1
-fi
-SO=`uname -s | tr A-Z a-z`
-case $SO in
-	sunos*)
-		AWK=nawk
-		PS_CMD="ps -o \"time,comm\""
-	;;
-	osf*)
-		PS_CMD="ps -o \"time,cmd\""
-		AWK=nawk
-	;;
-	linux|*)
-		PS_CMD="ps -o \"time,cmd\""
-		AWK=awk
-	;;
-esac
-HOSTNAME=`hostname | cut -f1 -d'.'`
+top_partition()
+{
 
-cat /dev/null > ${TEMP_FILE}
 
-CONT=1
-while true
-do
-	if [ ${CONT} -gt ${INTERACTIONS} ]
+	if [ "X${PARTITION_DB_LIST_FLAG}" = "X1" ]
 	then
-		break
+		DATABASE_CLAUSE=`echo ${PARTITION_DB_LIST} | ${AWK} -F',' 'BEGIN { printf "AND dbsname IN ( ";}
+		{
+			for (f=1;f<=NF;f++)
+			{
+		                if (f<NF)
+					{printf "\"%s\"\,",$f}
+				else
+					{printf "\"%s\"",$f}
+			}
+		}
+		END {printf " )"}'`
+		
+	else
+		DATABASE_CLAUSE=""
 	fi
 
-	onstat -g act | ${AWK} '$1 ~ "^ *[1-9]" {
-	if ( length($1) <=8 )
-	{
-		if ( $3 != 0) print $1 "|" 
+	cat /dev/null > ${TEMP_FILE}
+	dbaccess sysmaster <<EOF 2>/dev/null
+unload to ${TEMP_FILE}
+SELECT
+	$FIRST_CLAUSE
+	dbsname, tabname, partnum, hex(partnum),
+	lockreqs, lockwts, deadlks, lktouts,
+	isreads, iswrites, isrewrites, isdeletes,
+	bufreads, bufwrites,
+	pagreads, pagwrites,
+	seqscans
+FROM
+	sysptprof
+WHERE
+	1 = 1
+	${DB_LIST_CLAUSE}
+ORDER BY ${PARTITION_ORDER_BY} DESC
+EOF
+
+	${AWK} -F'|' '
+
+        function max_length(value, size)
+        {
+                currentsize=length(value);                 if ( currentsize <= size )                         return(value);
+                targetsize=size-2;
+                resp="";
+                if ( targetsize <= 0)
+                {
+                        for (f=1;f<=size;f++)
+                                resp=sprintf("%s%c",resp,"*");
+                        return(resp);
+                }
+                else
+                {                         exponent=currentsize - targetsize;                         targetvalue=value / (10**(exponent));
+                        resp=substr(targetvalue,1,targetsize) "e" exponent;
+                        return(resp);                 } 
+        }
+	BEGIN {
+		printf("%s\n%-10s %-10s %-8s %-5s %-4s %-3s %-9s %-9s %-9s %-9s %-9s %-8s %-8s %-8s %-9s\n", "Database/Partname",
+		"PartNumHex","Partnum   ","LockReqs","LkWai","DLk ","LkT","IsamReads","IsamWrite","IsamRWrit","IsamDel  ","BuffReads","BuffWrit","PagReads","PagWrite", "SeqScans ");
+		printf("%-10s %-10s %-8s %-5s %-4s %-3s %-9s %-9s %-9s %-9s %-9s %-8s %-8s %-8s %-9s\n",
+		"----------","----------","--------","-----","----","---","---------","---------","---------","---------","---------","--------","--------","--------", "---------");
 	}
+	{
+		my_database=$1;
+		my_partition=$2;
+		my_partnum=$3;
+		my_partnum_hex=$4;
+		my_lockreqs=max_length($5,8);
+		my_lockwts=max_length($6,5);
+		my_deadlks=max_length($7,4);
+		my_lktouts=max_length($8,3);
+		my_isreads=max_length($9,9);
+		my_iswrites=max_length($10,9);
+		my_isrewrites=max_length($11,9);
+		my_isdeletes=max_length($12,9);
+		my_bufreads=max_length($13,9);
+		my_bufwrites=max_length($14,8);
+		my_pagreads=max_length($15,8);
+		my_pagwrites=max_length($16,8);
+		my_seqscans=max_length($17,9);
+		printf("%s:%s\n%-10s %-10s %-8s %-5s %-4s %-3s %-9s %-9s %-9s %-9s %-9s %-8s %-8s %-8s %-9s\n", my_database, my_partition, my_partnum_hex, my_partnum,my_lockreqs,my_lockwts,my_deadlks,my_lktouts,my_isreads,my_iswrites,my_isrewrites,my_isdeletes,my_bufreads,my_bufwrites,my_pagreads,my_pagwrites, my_seqscans);
+	} ' ${TEMP_FILE}
+
+}
+
+top_session()
+{
+	TYPE=$1
+	if [ "X${USER_LIST_FLAG}" = "X1" ]
+	then
+		USER_CLAUSE=`echo ${USER_LIST} | ${AWK} -F',' 'BEGIN { printf "AND t2.username IN ( ";}
+		{
+			for (f=1;f<=NF;f++)
+			{
+		                if (f<NF)
+					{printf "\"%s\"\,",$f}
+				else
+					{printf "\"%s\"",$f}
+			}
+		}
+		END {printf " )"}'`
+		
 	else
-		if ($2 != 0 ) print substr($1,1,8) "|"
-	}' >> ${TEMP_FILE}
+		USER_CLAUSE=""
+	fi
+	cat /dev/null > ${TEMP_FILE}
+	dbaccess sysmaster <<EOF 2>/dev/null
+unload to ${TEMP_FILE}
+SELECT
+	$FIRST_CLAUSE
+	t1.sid::integer, t1.lockreqs::int8, t1.locksheld::int8, t1.lockwts::int8,
+	t1.deadlks::int8, t1.lktouts::int8, t1.logrecs::int8, t1.isreads::int8,
+	t1.iswrites::int8, t1.isrewrites::int8, t1.isdeletes::int8, t1.iscommits::int8,
+	t1.isrollbacks::int8, t1.longtxs::int8, t1.bufreads::int8, t1.bufwrites::int8,
+	t1.seqscans::int8, t1.pagreads::int8, t1.pagwrites::int8, t1.total_sorts::int8,
+	t1.dsksorts::int8, t1.max_sortdiskspace::int8, t1.logspused::int8, t1.maxlogsp::int8,
+	t2.username, t2.hostname, t2.cwd, DBINFO('utc_to_datetime',t2.connected),t2.progname, t2.pid
+FROM
+	syssesprof t1, sysscblst t2
+WHERE
+	t1.sid = t2.sid
+	$USER_CLAUSE
+ORDER BY
+	${SESSION_ORDER_BY} DESC
+EOF
 
-	CONT=`expr $CONT + 1`
-done
+	${AWK} -F'|' -v "type=$TYPE" '
 
-dbaccess sysmaster <<EOF 2>/dev/null
+        function max_length(value, size)
+        {
+                currentsize=length(value);                 if ( currentsize <= size )                         return(value);
+                targetsize=size-2;
+                resp="";
+                if ( targetsize <= 0)
+                {
+                        for (f=1;f<=size;f++)
+                                resp=sprintf("%s%c",resp,"*");
+                        return(resp);
+                }
+                else
+                {
+			exponent=currentsize - targetsize;
+			targetvalue=value / (10**(exponent));
+                        resp=substr(targetvalue,1,targetsize) "e" exponent;
+                        return(resp);
+		} 
+        }
+	BEGIN {
+		if (type == "l")
+		{
+			printf("%-34s %-8s/%-8s %-19s %-8s %-6s %-6s %-3s %-6s %-8s %-7s %-8s\n","Username@hostname                 ","SID     ","PID     ", "Connected          ","LockReqs","LkHeld","LkWait","DLk", "LkTout", "Log Recs","Log%Use","MaxLgSpc");
+			printf("%-34s %-8s/%-8s %-19s %-8s %-6s %-6s %-3s %-6s %-8s %-7s %-8s\n","----------------------------------","--------","------  ", "-------------------","--------","------","------","---", "------", "--------","-------","--------");
+		}
+
+		if (type == "s")
+		{
+			printf("%-34s %-8s/%-8s %-19s\n","Username@hostname                 ","SID     ","PID     ", "Connected          ");
+			printf("%-9s %-9s %-9s %-9s %-9s %-6s %-3s %-9s %-9s %-9s %-7s %-7s %-6s %-5s %-8s\n", "IsamReads", "IsamWrite","IsamRWrit", "IsamDels ", "IsamCommt", "IsamRB", "LTx", "BuffReads", "BuffWrite", "SeqScans ", "PagRead", "PagWrit", "TotSrt", "DSrt ","MaxDSpc " );
+
+			printf("%-9s %-9s %-9s %-9s %-9s %-6s %-3s %-9s %-9s %-9s %-7s %-7s %-6s %-5s %-8s\n", "---------", "---------","---------", "---------", "---------", "------", "---", "---------", "---------", "---------", "-------", "-------", "------", "-----","--------" );
+		}
+		
+	}
+	{
+		my_sid=$1;
+		my_lockreqs=max_length($2,8);
+		my_locksheld=max_length($3,6);
+		my_lockwts=max_length($4,6);
+		my_deadlks=max_length($5,3);
+		my_lktouts=max_length($6,6);
+		my_logrecs=max_length($7,8);
+		my_isreads=max_length($8,9);
+		my_iswrites=max_length($9,9);
+		my_isrewrites=max_length($10,9);
+		my_isdeletes=max_length($11,9);
+		my_iscommits=max_length($12,9);
+		my_isrollbacks=max_length($13,6);
+		my_longtxs=max_length($14,3);
+		my_bufreads=max_length($15,9);
+		my_bufwrites=max_length($16,9);
+		my_seqscans=max_length($17,9);
+		my_pagreads=max_length($18,7);
+		my_pagwrites=max_length($19,7);
+		my_total_sorts=max_length($20,6);
+		my_dsksorts=max_length($21,5);
+		my_max_sortdiskspace=max_length($22,8);
+		my_logspused=max_length($23,7);
+		my_maxlogsp=max_length($24,8);
+		my_username=$25;
+		my_hostname=$26;
+		my_cwd=$27;
+		my_connected=$28;
+		my_progname=$29;
+		my_pid=$30;
+
+		my_temp=sprintf("%s@%s", my_username,my_hostname);
+		if (type == "l")
+		{
+			printf("%-34s %-8s/%-8s %-19s %-8s %-6s %-6s %-3s %-6s %-8s %-7s %-8s\n",my_temp,my_sid,my_pid,my_connected,my_lockreqs, my_locksheld, my_lockwts, my_deadlks, my_lktouts, my_logrecs, my_logspused, my_maxlogsp );
+		}
+		if (type == "s")
+		{
+			printf("%-34s %-8s/%-8s %-19s\n",my_temp,my_sid, my_pid, my_connected);
+			printf("%-9s %-9s %-9s %-9s %-9s %-6s %-3s %-9s %-9s %-9s %-7s %-7s %-6s %-5s %-8s\n",
+my_isreads, my_iswrites, my_isrewrites, my_isdeletes, my_iscommits, my_isrollbacks, my_longtxs, my_bufreads, my_bufwrites, my_seqscans, my_pagreads, my_pagwrites, my_total_sorts, my_dsksorts, my_max_sortdiskspace);
+		}
+	} ' ${TEMP_FILE}
+}
+
+top_memory()
+{
+	echo TOP memory not implemented yet... sorry!
+}
+
+top_cpu()
+{
+	HOSTNAME=`hostname | cut -f1 -d'.'`
+
+	cat /dev/null > ${TEMP_FILE}
+
+	CONT=1
+	while true
+	do
+		if [ ${CONT} -gt ${CPU_INTERACTIONS} ]
+		then
+			break
+		fi
+
+		onstat -g act | ${AWK} '$1 ~ "^ *[1-9]" {
+		if ( length($1) <=8 )
+		{
+			if ( $3 != 0) print $1 "|"
+		}
+		else
+			if ($2 != 0 ) print substr($1,1,8) "|"
+		}' >> ${TEMP_FILE}
+
+		CONT=`expr $CONT + 1`
+	done
+
+	dbaccess sysmaster <<EOF 2>/dev/null
 
 CREATE TEMP TABLE tmp_ixtop (col1 char(10)) WITH NO LOG;
 LOAD FROM ${TEMP_FILE} INSERT INTO tmp_ixtop;
@@ -155,53 +551,127 @@ WHERE
 --	a.addresspad = b.scbpad AND
 	bitval(b.flags, '0x80000') = 1 AND
 	b.tid = x.col1
-	GROUP BY 2,3,4,5 HAVING COUNT(*)>=${OCURRENCES} ORDER BY 1 DESC
+	GROUP BY 2,3,4,5 HAVING COUNT(*)>=${CPU_MIN_OCURRENCES} ORDER BY 1 DESC
 EOF
 
-cat ${TEMP_FILE} | ${AWK} -v "PS_CMD=$PS_CMD" -v "HOSTNAME=$HOSTNAME" ' \
+	cat ${TEMP_FILE} | ${AWK} -v "PS_CMD=$PS_CMD" -v "HOSTNAME=$HOSTNAME" ' \
 
-BEGIN {
-	first=1;
+	BEGIN {
+		first=1;
+	}
+	{
+		if ( first == 1)
+		{
+			printf "Seen  SessionID Username           PID    Hostname           Process\n";
+			printf "----- --------- ------------------ ------ ------------------ --------------------------------------------------\n";
+			first=0;
+		}
+
+		my_seen=int($1);
+		my_sessionid=$2;
+		my_username=$3;
+		my_pid=$4;
+		my_hostname=$5;
+		pos=match(my_hostname,"\\.");
+		if (pos == 0)
+		{
+			my_host=$5;
+		}
+		else
+		{
+			my_host=substr(my_hostname,1,pos-1);
+		}
+
+
+		if (HOSTNAME == my_host)
+		{
+			command=sprintf("%s -p %s", PS_CMD, my_pid);
+			command | getline;
+			command | getline;
+			my_time=$1;
+			my_command=$2 " " $3 " " $4;
+			close(command);
+		}
+		else
+		{
+			my_command="Remote command";
+		}
+
+		printf("%-5s %-9s %-18s %-6s %-18s %s\n", my_seen, my_sessionid, my_username, my_pid, my_hostname, my_command);
+	}'
 }
-{
-
-	if ( first == 1)
-	{
-		printf "Seen  SessionID Username           PID    Hostname           Process\n";
-		printf "----- --------- ------------------ ------ ------------------ --------------------------------------------------\n";
-		first=0;
-	}
-
-	my_seen=int($1);
-	my_sessionid=$2;
-	my_username=$3;
-	my_pid=$4;
-	my_hostname=$5;
-	pos=match(my_hostname,"\\.");
-	if (pos == 0)
-	{
-		my_host=$5;
-	}
-	else
-	{
-		my_host=substr(my_hostname,1,pos-1);
-	}
 
 
-	if (HOSTNAME == my_host)
-	{
-		command=sprintf("%s -p %s", PS_CMD, my_pid);
-		command | getline;
-		command | getline;
-		my_time=$1;
-		my_command=$2 " " $3 " " $4;
-		close(command);
-	}
-	else
-	{
-		my_command="Remote command";
-	}
+PROGNAME=`basename $0`
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
 
-	printf("%-5s %-9s %-18s %-6s %-18s %s\n", my_seen, my_sessionid, my_username, my_pid, my_hostname, my_command);
-}'
-rm -f ${TEMP_FILE}
+TEMP_DIR=/tmp
+TEMP_FILE=${TEMP_DIR}/ixtop$$.tmp
+trap "rm -f ${TEMP_FILE}" 0
+CPU_INTERACTIONS=20
+CPU_MIN_OCURRENCES=2
+TOP_SIZE=10
+
+get_args $*
+if [ $? != 0 ]
+then
+	show_help
+	exit 1
+fi
+
+SO=`uname -s | tr [:upper:] [:lower:]`
+case $SO in
+	sunos*)
+		AWK=nawk
+		PS_CMD="ps -o \"time,comm\""
+		;;
+	osf*)
+		PS_CMD="ps -o \"time,cmd\""
+		AWK=nawk
+		;;
+	hp-ux)
+		PS_CMD="export UNIX_STD=2003;ps -o \"time,comm\""
+		AWK=gawk
+		;;
+	linux|*)
+		PS_CMD="ps -o \"time,cmd\""
+		AWK=awk
+		;;
+esac
+
+if [ "X${TOP_SIZE_FLAG}" = "X1" ]
+then
+	FIRST_CLAUSE="FIRST ${TOP_SIZE}"
+else
+	FIRST_CLAUSE=""
+fi
+
+if [ "X${CPU_FLAG}" != "X1" -a  "X${SESSION_FLAG}" != "X1" -a "X${SESSION_L_FLAG}" != "X1" -a "X${MEMORY_FLAG}" != "X1" -a "X${PARTITION_FLAG}" != "X1" ]
+then
+	CPU_FLAG=1
+fi
+
+if [ "X${CPU_FLAG}" = "X1" ]
+then
+	top_cpu
+fi
+
+if [ "X${SESSION_FLAG}" = "X1" ]
+then
+	top_session s
+fi
+
+if [ "X${SESSION_L_FLAG}" = "X1" ]
+then
+	top_session l
+fi
+
+if [ "X${MEMORY_FLAG}" = "X1" ]
+then
+	top_memory
+fi
+
+if [ "X${PARTITION_FLAG}" = "X1" ]
+then
+	top_partition
+fi
