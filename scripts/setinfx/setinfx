@@ -65,17 +65,32 @@ SO=`uname -s | tr "[A-Z]" "[a-z]"`
 case $SO in
 sunos*)
 	AWK=nawk
+	AWK_FALLBACK=awk
 	ID_FLAGS=-a
 	;;
-osf*)
-	AWK=nawk
+osf*|hp-ux)
+	AWK=gawk
+	AWK_FALLBACK=awk
 	ID_FLAGS=
 	;;
 linux|*)
 	AWK=awk
+	AWK_FALLBACK=NO
 	ID_FLAGS=
 	;;
 esac
+
+which ${AWK} | grep "^/.*${AWK}$" >/dev/null
+if [ $? != 0 ]
+then
+	if [ "X${AWK_FALLBACK}" = "XNO" -o "X${AWK_FALLBACK}" = "X" ]
+	then
+		echo "Cannot find ${AWK} and there is no AWK_FALLBACK defined" >&2
+		return 1
+	else
+		AWK=${AWK_FALLBACK}
+	fi
+fi
 
 export AWK
 
@@ -133,6 +148,23 @@ else
 	usertype="prg"
 fi
 
+case $1 in
+L)
+	usertype="prg"
+	set l
+	;;
+-[0-9][0-9]*)
+	usertype="prg"
+	set `echo $1 | sed 's/\-//g'`
+	;;
+[0-9]|[0-9][0-9]|[0-9][0-9][0-9]|l)
+	dummy=1
+	;;
+*)
+	echo "Error in parameter (function main): $1" >&2
+	return 1
+	;;
+esac
 server_ok=0
 
 
