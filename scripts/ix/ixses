@@ -12,18 +12,25 @@
 
 ix_help()
 {
-	echo "${PROGNAME}: -V | -h | { [-a] | [session [ sessions...]] } [ -r wait ]" >&1
+	echo "${PROGNAME}: -V | -h | { [-a] | [session [ sessions...]] | -u | -U | -q <SID> } [ -r wait ]" >&1
 	echo "               -V shows script version" >&1
 	echo "               -h shows this help" >&1
 	echo "               -a executes for all session" >&1
 	echo "               -s no separator lines between sessions" >&1
+	echo "               -u lists user sessions, like onstat -u" >&1
+	echo "               -U lists user sessions, like onstat -g sql" >&1
+	echo "               -q lists SQL info for a session, like onstat -g sql <SID>" >&1
 	echo "               session [ sessions...] session(s) number(s)" >&1
 	echo "Ex: ${PROGNAME} -r 4 23345" >&1
 }
 
+clean_up_function()
+{
+	rm -f $TMP_FILE
+}
 get_args()
 {
-	arg_ok='r:Vhas'
+	arg_ok='r:VhasuUq:'
 	list="$*"
 	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing                                                
@@ -47,9 +54,27 @@ get_args()
 		-a)   # set up the -a (all sessions flag)
 			ALL_SESSIONS_FLAG=1
 			;;
+		-U)   # set up the -u (list user sessions flag)
+			LIST_USER_SESSIONS_FLAG=2
+			;;
+		-u)   # set up the -u (list user sessions flag)
+			LIST_USER_SESSIONS_FLAG=1
+			;;
 		-s)   # set up the -s (no separators flag)
 			NO_SEPARATOR_FLAG=1
 			NO_SEPARATOR=1
+			;;
+		-q)   # set up the -q
+			GET_SESSION_SQL_FLAG=1
+			GET_SESSION_SQL_SES=$2
+			echo ${GET_SESSION_SQL_SES} | grep "^[0-9][0-9]*$" 1>/dev/null 2>/dev/null
+			RES=$?
+			if [ "X${RES}" != "X0" ]
+			then
+				echo "${PROGNAME}: Syntax error - Session id must be numeric" >&2
+				return 1
+			fi
+			shift
 			;;
 		-r)   # set up the -r (repeat flag)
 			REPEAT_FLAG=1
@@ -91,6 +116,21 @@ get_args()
 				shift
 			fi
 			;;
+		-u|-U)   # set up the -u (list user sessions flag)
+			if [ "X${LIST_USER_SESSIONS_FLAG" != "X" ]
+			then
+				echo "${PROGNAME}: Syntax error - LIST_USER_SESSIONS_FLAG was already processed" >&2
+				return 1
+			else
+				if [ $1 = "-u" ]
+				then
+					LIST_USER_SESSIONS_FLAG=1
+				else
+					LIST_USER_SESSIONS_FLAG=2
+				fi
+				shift
+			fi
+			;;
 		-r)
 			if [ "X${REPEAT_FLAG}" = "X1" ]	
 			then
@@ -111,6 +151,30 @@ get_args()
 					fi
 				else
 					echo "${PROGNAME}: Syntax error - REPEAT flag requires a value" >&2
+					return 1
+				fi
+			fi
+			;;
+		-q)
+			if [ "X${GET_SESSION_SQL_FLAG}" = "X1" ]	
+			then
+				echo "${PROGNAME}: Syntax error - GET_SESSION_SQL_FLAG flag was already interpreted" >&2
+				return 1
+			else
+				if [ $# = 2 ]
+				then
+					GET_SESSION_SQL_FLAG=1
+					shift
+					GET_SESSION_SQL_SES=$2
+					echo ${GET_SESSION_SQL_SES} | grep "^[0-9][0-9]*$" 1>/dev/null 2>/dev/null
+					RES=$?
+					if [ "X${RES}" != "X0" ]
+					then
+						echo "${PROGNAME}: Syntax error - Session id must be numeric" >&2
+						return 1
+					fi
+				else
+					echo "${PROGNAME}: Syntax error - GET_SESSION_SQL_FLAG flag requires a value" >&2
 					return 1
 				fi
 			fi
@@ -186,7 +250,343 @@ HOSTNAME=`hostname | cut -f1 -d'.'`
 TZ_LOCAL_HOUR=`date +"%H"`
 TZ_GMT_HOUR=`date -u +"%H"`
 TZ_DIFF=`expr ${TZ_LOCAL_HOUR} - ${TZ_GMT_HOUR}`
+TMP_FILE=/tmp/$PROGNAME_$$
 
+trap clean_up_function 0
+
+if [ "X${GET_SESSION_SQL_FLAG}" != "X" ]
+then
+
+	while true
+	do
+	dbaccess sysmaster <<EOF 2>/dev/null 1>&2
+UNLOAD TO $TMP_FILE
+SELECT
+        "C", sdb_name, sdb_id, sdb_bufreads, sdb_pagereads,
+        sdb_bufwrites, sdb_pagewrites, sdb_totsorts, sdb_dsksorts, sdb_sortspmax,
+	sdb_sqerrno, sdb_sqiserrno, sdb_errstr, cbl_estcost, cbl_estrows,
+	cbl_seqscan, cbl_srtscan, cbl_autoindex, cbl_index, cbl_remsql,
+	cbl_mrgjoin, cbl_dynhashjoin, cbl_keyonly, cbl_tempfile, cbl_tempview,
+        cbl_secthreads, cbl_stmt, sqs_dbname,
+	CASE sqs_iso
+		WHEN 0 THEN
+			'No Log  '::CHAR(8)
+		WHEN 1 THEN
+			'DR      '::CHAR(8)
+		WHEN 2 THEN
+			'CR      '::CHAR(8)
+		WHEN 3 THEN
+			'CS      '::CHAR(8)
+		WHEN 5 THEN
+			'RR      '::CHAR(8)
+		WHEN 7 THEN
+			'DR RUL  '::CHAR(8)
+		WHEN 8 THEN
+			'CR RUL  '::CHAR(8)
+		WHEN 9 THEN
+			'CS RUL  ' ::CHAR(8)
+		WHEN 11 THEN
+			'CR LComm'::CHAR(8)
+		ELSE
+			'?       '::CHAR(8)
+	END,
+	CASE sqs_lockmode
+		WHEN -1 THEN
+			'Wait    '::CHAR(8)
+		WHEN 0 THEN
+			'Not Wait'::CHAR(8)
+		ELSE
+			('Wait '||sqs_lockmode)::CHAR(8)
+	END,
+	sqs_sqlerror, sqs_isamerror, sqs_feversion, sqs_statement, NVL(SUBSTR(ft.txt,4,14), "-")
+FROM
+        syssqlstat sqls, outer (sysconblock con, flags_text ft, outer syssdblock sdb)
+WHERE
+        sqls.sqs_sessionid = $GET_SESSION_SQL_SES
+	and sdb.sdb_sessionid = $GET_SESSION_SQL_SES
+	and cbl_sessionid = $GET_SESSION_SQL_SES
+        and sdb_iscurrent = "Y"
+	and cbl_ismainblock = "Y"
+        and sqs_sessionid = sdb_sessionid
+        and sqs_sessionid = cbl_sessionid
+        and sdb_sessionid = cbl_sessionid
+	and cbl_selflag = ft.flags and ft.tabname = 'sqltype'
+
+UNION
+SELECT
+        "L",
+        sql_stmtname::char(128),
+        0::smallint, sql_bfreads, sql_pgreads, sql_bfwrites, sql_pgwrites,
+        sql_sorttotal, sql_sortdisk, 0::integer, 0::smallint, 0::smallint, 0::char(64),
+        0::integer, 0::integer, 0::smallint, 0::smallint, 0::smallint, 0::smallint,
+        0::smallint, 0::smallint, 0::smallint, 0::smallint, 0::smallint, 0::smallint,
+        0::smallint, sql_statement::char(32000),
+	""::char(128), ""::CHAR(8), ""::CHAR(8),0::smallint,0::smallint,""::char(4), ""::char(200), SUBSTR(sql_stmtname,1,14)
+FROM syssqltrace sql1
+WHERE
+        sql_sid = $GET_SESSION_SQL_SES
+        and sql_id = (select max(sql_id) from syssqltrace sql2 where sql2.sql_sid = $GET_SESSION_SQL_SES )
+ORDER BY 1;
+EOF
+	sed 's/\\\|/PIPE/g' $TMP_FILE | sed -e :a -e '/\\$/N; s/\\\n/ /; ta' | $AWK -F'|' -v "my_sessionid=$GET_SESSION_SQL_SES" 'BEGIN { header = 0;got_last=0}
+	{
+	my_sql_line_type=$1;
+	my_stmtname=$2;
+	my_bufreads=$4;
+	my_pagereads=$5;
+	my_bufwrites=$6;
+	my_pagewrites=$7;
+	my_totsorts=$8;
+	my_dsksorts=$9;
+	my_sortspmax=$10;
+	my_sqerrno=$11;
+	my_isamerr=$12;
+	my_errmsg=$13;
+	my_estcost=$14;
+	my_estrows=$15;
+	my_seqscan=$16;
+	my_srtscan=$17;
+	my_autoindex=$18;
+	my_index=$19;
+	my_remsql=$20;
+	my_mrgjoin=$21;
+	my_dynhashjoin=$22;
+	my_keyonly=$23;
+	my_tempfile=$24;
+	my_tempview=$25;
+	my_secthreads=$26;
+	my_sql=$27;
+	gsub("PIPE","|", my_sql);
+	my_header_dbname=$28;
+	my_header_iso=$29;
+	my_header_lockmode=$30;
+	my_header_sqlerror=$31;
+	my_header_isamerror=$32;
+	my_header_feversion=$33;
+	my_header_lastsql=$34;
+	gsub("PIPE","|", my_header_lastsql);
+	my_header_stmttype=$35;
+	if ( header == 0 )
+	{
+	header=1;
+	printf("\n\n");
+	printf("%-10s %-14s %-18s %-8s %-10s %-9s %-10s %-10s\n","Sessionid", "SQL stmt type", "Current Database", "Iso Lv", "Lock Mode", "SQL Error", "Isam Error", "FE Version");
+	printf("%-10s %-14s %-18s %-8s %-10s %-9s %-10s %-10s\n", my_sessionid,my_header_stmttype,my_header_dbname,my_header_iso,my_header_lockmode,my_header_sqlerror,my_header_isamerror,my_header_feversion);
+	}
+	if ( my_sql_line_type == "C" )
+	{
+
+		if (  my_sql != "" )
+		{
+			if ( my_stmtname != "" )
+			{
+				printf("\nCurrent statement name: %s\n", my_stmtname);
+			}
+			printf( "\nCurrent SQL statement:\n");
+			printf( "  %s\n\n", my_sql );
+		}
+		my_last_resource=my_header_lastsql;
+	}
+	if ( my_sql_line_type == "L" && my_sql != "" )
+	{
+		printf( "Last parsed SQL statement:\n");
+		printf( "  %s\n\n", my_sql );
+		got_last=1;
+	}
+
+	} END { if ( got_last == 0) {
+					printf( "Last parsed SQL statement:\n");
+					printf( "  %s\n\n", my_last_resource );
+				}
+					printf("\n");} '
+				
+
+	#cat $TMP_FILE
+
+	if [ "X${REPEAT_FLAG}" = "X" ]
+	then
+		break
+	else
+		if [ "X${NO_SEPARATOR}" = "X" ]
+		then
+			echo
+			echo  "#------------------- LOOP -------------------"
+			echo
+		fi
+		sleep ${REPEAT_WAIT}
+	fi
+	done
+
+	exit 0
+fi
+
+if [ "X${LIST_USER_SESSIONS_FLAG}" != "X" ]
+then
+	while true
+	do
+	dbaccess sysmaster <<EOF 2>/dev/null 1>&2
+UNLOAD TO $TMP_FILE
+SELECT
+	SUBSTR(HEX(r.address),3) address,
+	CASE
+		WHEN wtcondp != 0 THEN
+			'Y'
+		WHEN bitval(r.flags, '0x2') = 1 THEN
+			'S'
+		WHEN bitval(r.flags, '0x4') = 1 THEN
+			'L'
+		WHEN bitval(r.flags, '0x8') = 1 THEN
+			'B'
+		WHEN bitval(r.flags, '0x10') = 1 THEN
+			'C'
+		WHEN bitval(r.flags, '0x1000') = 1 THEN
+			'G'
+		WHEN bitval(r.flags, '0x40000') = 1 THEN
+			'T'
+		ELSE
+			'-'
+	END ||                                               -- Position 1
+	'-' ||                                               -- Position 2
+	CASE
+		WHEN bitval(r.flags, '0x400') = 1 THEN
+			'A'
+		WHEN bitval(tx.flags, '0x00000400') = 1 THEN
+			'B'
+		WHEN bitval(tx.flags, '0x00002000') = 1 THEN
+			'R'
+		WHEN bitval(tx.flags, '0x00000100') = 1 THEN
+			'C'
+		ELSE
+			'-'
+	END ||                                              -- Position 3
+	CASE
+		WHEN bitval(r.flags, '0x80000') = 1 THEN
+			'P'
+		ELSE
+			'-'
+	END ||                                              -- Position 4
+	CASE
+		WHEN bitval(r.flags, '0x20') = 1 THEN
+			'R'
+		WHEN bitval(r.flags, '0x100') = 1 THEN
+			'X'
+		ELSE
+			'-'
+	END ||                                              -- Postiion 5
+	'-' ||                                              -- Position 6
+	CASE
+		WHEN bitval(r.flags, '0x200000') = 1 THEN
+			'B'
+		WHEN bitval(r.flags, '0x000800') = 1 THEN
+			'C'
+		WHEN bitval(r.flags, '0x000200') = 1 THEN
+			'D'
+		WHEN bitval(r.flags, '0x002000') = 1 THEN
+			'F'
+		WHEN bitval(r.flags, '0x000080') = 1 THEN
+			'M'
+		ELSE
+			'-'
+	END flags,
+	r.sid sessid,
+	r.username user,
+	NVL(s.ttyerr,'-') tty, 
+	CASE t.wtcondp
+		WHEN 0 THEN
+			'0'
+		ELSE
+			SUBSTR(HEX(t.wtcondp),3)
+	END wait,
+	r.timeout tout,
+	r.nlocks locks,                                         -- #8
+	r.nreads nreads,                                        -- #9
+	r.nwrites nwrites,                                      -- #10
+	s.pid,                                                  -- #11
+	CASE s.connected
+		WHEN null THEN
+			null
+		ELSE
+			DBINFO('utc_to_datetime',s.connected)
+	END connected,                                          -- #12
+	s.progname,                                             -- #13
+	t.statedetail,                                          -- #14
+	s.hostname,                                             -- #15
+	sqls.sqs_dbname,                                        -- #16
+	CASE sqls.sqs_iso
+		WHEN 0 THEN
+			'NL'
+		WHEN 1 THEN
+			'DR'
+		WHEN 2 THEN
+			'CR'
+		WHEN 3 THEN
+			'CS'
+		WHEN 5 THEN
+			'RR'
+		WHEN 7 THEN
+			'dr'
+		WHEN 8 THEN
+			'cr'
+		WHEN 9 THEN
+			'cs'
+		WHEN 11 THEN
+			'LC'
+		ELSE
+			'--'
+	END,                                                   -- #17
+	sqls.sqs_lockmode,                                     -- #18
+	sqls.sqs_sqlerror,                                     -- #19
+	sqls.sqs_isamerror                                     -- #20
+	
+		
+
+FROM
+	sysrstcb r,  sysscblst s, outer systcblst t, outer systxptab tx, outer syssqlstat sqls
+WHERE
+        s.address = r.scb AND
+	r.tid = t.tid AND
+	tx.address = r.txp AND
+	bitval(r.flags, '0x1') = 1 AND
+	sqls.sqs_sessionid = r.sid;
+EOF
+
+	case $LIST_USER_SESSIONS_FLAG in
+	1)
+		$AWK -F'|' ' BEGIN {
+		printf("%-16s %-7s %-8s %-8s %-8s %-16s %-4s %-5s %-8s %-8s \n","address", "flags", "sessid", "user","tty","wait","tout","locks","nreads","nwrites");}
+			{
+				n=split($5,a,"/");
+				printf("%-16s %-7s %-8s %-8s %-8s %-16s %-4s %-5s %-8s %-8s \n",$1,$2,$3,$4,a[n],$6,$7,$8,$9,$10);
+			}' $TMP_FILE
+		;;
+	2)
+		$AWK -F'|' ' BEGIN {
+		printf("%-7s %-18s %-8s %-16s %-7s %-6s %-3s %-6s %-6s %-6s %-8s %-30s\n", "Sessid", "Database","User", "Hostname","TTY","Pid","IL","LkMode","SqlErr","IsamEr","Locks","State");}
+			{	
+				n=split($5,a,"/");
+		printf("%-7s %-18s %-8s %-16s %-7s %-6s %-3s %-6s %-6s %-6s %-8s %-30s\n", $3, $16,$4, $15,a[n],$11,$17,$18,$19,$20,$8,$14);
+			}' $TMP_FILE
+		;;
+	esac
+
+	if [ "X${REPEAT_FLAG}" = "X" ]
+	then
+		break
+	else
+		if [ "X${NO_SEPARATOR}" = "X" ]
+		then
+			echo
+			echo  "#------------------- LOOP -------------------"
+			echo
+		fi
+		sleep ${REPEAT_WAIT}
+	fi
+done
+		
+	rm -f $TMP_FILE
+
+	exit 0
+fi
 if [ "X${ALL_SESSIONS_FLAG}" = "X1" ]
 then
 	SESSION_LIST="${SESSION_LIST} `onstat -u | ${AWK} '{if ( $2 ~ /.*([DF]$|active)/ ) {next} else {print $3}}' | grep '^[0-9]'`"
