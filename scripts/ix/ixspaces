@@ -1,0 +1,186 @@
+#!/bin/ksh
+# Name: $RCSfile$
+# CVS file: $Source$
+# CVS id: $Header$
+# Revision: $Revision$
+# Revised on: $Date$
+# Revised by: $Author$
+# Support: Fernando Nunes - domusonline@gmail.com
+
+show_help()
+{
+	echo "${PROGNAME}: -V | -h | [ -d <dbspace_list> ] [ -k|-K|-m|-M|-g|G|p ]" >&1
+	echo "               -V shows script version and exit" >&1
+	echo "               -h shows this help and exit" >&1
+	echo "               -d <dbspace_list> shows info for the list of dbspaces provided (separated by commas)" >&1
+	echo "               -k shows units in KiB (1024 bytes)" >&1
+	echo "               -K shows units in KB (1000 bytes)" >&1
+	echo "               -m shows units in MiB (1024 KiBytes)" >&1
+	echo "               -M shows units in MB (1000 KBytes)" >&1
+	echo "               -g shows units in GiB (1024 MiBytes)" >&1
+	echo "               -G shows units in GB (1000 MBytes)" >&1
+	echo "               -p shows units in pages" >&1
+        echo "Ex: ${PROGNAME} -i d rootdbs,data_dbs1 -G" >&1
+}
+
+clean_up_function()
+{
+	rm -f $TMP_FILE_1
+	rm -f $TMP_FILE_2	
+}
+
+
+trap clean_up_function 0
+
+PROGNAME=`basename $0`
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
+
+SO=`uname -s | tr [:upper:] [:lower:]`
+case $SO in
+sunos*)
+        AWK=nawk
+        ;;
+osf*)
+        AWK=nawk
+        ;;
+hp-ux)
+        AWK=gawk
+        ;;
+linux|*)
+        AWK=gawk
+        ;;
+esac
+
+#fallback to an existing awk
+
+type ${AWK} 2>/dev/null 1>/dev/null
+RES=$?
+if [ ${RES} != 0 ]
+then
+        AWK=awk
+fi
+
+UNITS_FLAG=0
+#Units in MiB is the default
+UNITS=1048576
+FORMAT_UNITS="MiB"
+
+arg_ok='Vhd:kKmMgGp'
+while getopts ${arg_ok} FLAG 2>/dev/null
+do
+        case $FLAG in
+        h)   # show help
+                show_help
+                exit 0
+                ;;
+        V)   # show version
+                printf "${PROGNAME} ${VERSION}\n" >&1
+                exit 0
+                ;;
+        d)   # 
+                DBSPACE_LIST_FLAG=1
+                DBSPACE_LIST=`echo "$OPTARG" | tr [:upper:] [:lower:]`
+		echo $DBSPACE_LIST | grep "^[a-z][a-z0-9_]*\(,[a-z][a-z0-9_]*\)*$" >/dev/null
+		if [ $? != 0 ]
+		then
+			echo "${PROGNAME}: Error - Invalid DBSpace list. Must be comma separeted" >&2
+			exit 1
+		fi
+                ;;
+	k|K|m|M|g|G|p)
+		UNITS_FLAG=1
+		case $FLAG in
+		k)
+			UNITS=1024
+			FORMAT_UNITS="KiB"
+			;;
+		K)
+			UNITS=1000
+			FORMAT_UNITS="KiB"
+			;;
+		m)
+			UNITS=1048576
+			FORMAT_UNITS="MiB"
+			;;
+		M)
+			UNITS=1000000
+			FORMAT_UNITS="MB"
+			;;
+		g)
+			UNITS=1073741824
+			FORMAT_UNITS="GiB"
+			;;
+		G)
+			UNITS=1000000000
+			FORMAT_UNITS="GB"
+			;;
+		p)
+			UNITS=1
+			FORMAT_UNITS="Pages"
+			;;
+		esac
+		;;
+	:|?)   # Invalid argument
+		printf "${PROGNAME}: Invalid argument given! $FLAG  $OPTIND  $OPTARG\n">&2
+		show_help
+		exit 1
+		;;
+	esac
+done
+
+if [ "X${DBSPACE_LIST_FLAG}" = "X1" ]
+then
+	DBSPACE_CLAUSE=`echo $DBSPACE_LIST | sed -e  's/\,/","/g' -e 's/^/AND d.name in ("/' -e 's/$/" )/'`
+else
+	DBSPACE_CLAUSE=""
+fi
+
+TMP_FILE_1=/tmp/${PROGNAME}.$$_1
+TMP_FILE_2=/tmp/${PROGNAME}.$$_2
+
+dbaccess sysmaster <<EOF 1>$TMP_FILE_1 2>&1
+UNLOAD TO $TMP_FILE_2
+SELECT
+    d.dbsnum,
+    name dbspace,
+    ROUND(SUM(chksize * c.pagesize) / $UNITS ,2) size_MiB,
+    ROUND(SUM(nfree * c.pagesize) / $UNITS ,2) free_MiB,
+    ROUND((SUM(chksize * c.pagesize) - SUM(nfree * c.pagesize)) / $UNITS ,2)  used_MiB,
+    ROUND((SUM(nfree)) / (SUM(chksize)) * 100, 1) Percent_free,
+    d.pagesize, COUNT(*)::INTEGER,
+    CASE
+      WHEN bitval(d.flags, '0x10') = 1 THEN
+        'BLOB'
+      WHEN bitval(d.flags, '0x8000') = 1 THEN
+        'SLOB'
+      WHEN bitval(d.flags, '0x2000') = 1 THEN
+        'TEMP'
+      ELSE
+        'NORM'
+    END
+FROM
+    sysmaster:sysdbstab d, sysmaster:syschunks c
+WHERE
+    d.dbsnum = c.dbsnum 
+   $DBSPACE_CLAUSE 
+GROUP BY 1, 2, 7, 9
+ORDER By 1;
+
+
+EOF
+
+
+if [ $? != 0 ]
+then
+	echo "Error accessing sysmaster database:" >&2
+	cat $TMP_FILE_1 >&2
+	exit 1
+fi
+
+$AWK -F'|' -v "FORMAT_UNITS=$FORMAT_UNITS" ' BEGIN {
+		printf("%-6s %-32s %-20s %-20s %-20s %-6s %-6s %-6s %-4s\n", "DBSNum", "DBSpace name", "Size ("FORMAT_UNITS")", "Free ("FORMAT_UNITS")", "Used ("FORMAT_UNITS")", "% Free", "Pg Siz", "Chunks","Type");
+		printf("%-6s %-32s %-20s %-20s %-20s %-6s %-6s %-6s %-4s\n", "------", "--------------------------------", "--------------------", "--------------------", "--------------------", "------", "------", "------", "----");
+	}
+	{
+		printf("%-6s %-32s %-20s %-20s %-20s %-6s %-6s %-6s %-4s\n", $1, $2, $3, $4, $5, $6, $7, $8, $9);
+	} ' $TMP_FILE_2
