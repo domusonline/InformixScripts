@@ -117,7 +117,7 @@ get_args()
 			fi
 			;;
 		-u|-U)   # set up the -u (list user sessions flag)
-			if [ "X${LIST_USER_SESSIONS_FLAG" != "X" ]
+			if [ "X${LIST_USER_SESSIONS_FLAG}" != "X" ]
 			then
 				echo "${PROGNAME}: Syntax error - LIST_USER_SESSIONS_FLAG was already processed" >&2
 				return 1
