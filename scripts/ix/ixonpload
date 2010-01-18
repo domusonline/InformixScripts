@@ -1,0 +1,50 @@
+#!/bin/ksh
+# Name: $RCSfile$
+# CVS file: $Source$
+# CVS id: $Header$
+# Revision: $Revision$
+# Revised on: $Date$
+# Revised by: $Author$
+# Support: Fernando Nunes - domusonline@gmail.com
+# Licence: This script is licensed as GPL ( http://www.gnu.org/licenses/gpl.html )
+# History:
+
+#comment the following line to avoid the script to remove the output files
+DELETE_FILES=1
+
+PROGNAME=`basename $0`
+TMP_FILE=/tmp/${PROGNAME}_$$.output
+SESSION_ID=$1
+DATABASE=$2
+MYUSER=$3
+shift 3
+
+ARGS=$*
+
+clean_func()
+{
+	rm -f $TMP_FILE
+}
+
+if [ "X${DELETE_FILES}" = "X1" ]
+then
+	trap clean_func 0
+fi
+
+CMD="onpload $ARGS"
+printf "0|" >$TMP_FILE
+onpload $ARGS 2>>${TMP_FILE} 1>&2 
+RES=$?
+
+dbaccess ${DATABASE} <<!EOF
+
+LOAD FROM $TMP_FILE INSERT INTO onpload_results(id, result_text);
+UPDATE onpload_results
+SET username = "$MYUSER",
+session_id = $SESSION_ID,
+tstamp = CURRENT YEAR TO FRACTION(5),
+cmd = "$CMD",
+result_code = $RES
+WHERE
+id = DBINFO('sqlca.sqlerrd1');
+!EOF
