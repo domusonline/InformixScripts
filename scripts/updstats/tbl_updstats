@@ -46,12 +46,17 @@ show_help()
 	echo "               [-X] Display and execute" >&2
 	echo "               [-x] Display only. Don't execute" >&2
 	echo "               [-T] Include timings in de SQL generated" >&2
+	echo "               [-o user] define owner for ANSI databases" >&2
+	echo "               [-i] Set DIRTY READ isolation level" >&2
+	echo "               [-a] Database is ANSI (includes COMMIT after each UPD. STAT. cmd to avoid locking)" >&2
+	echo "               [-w N] Set LOCK MODE TO WAIT N seconds" >&2
+#	echo "               [-S user] SET SESSION AUTH TO user (run as...)" >&2
 
 }
 
 get_args()
 {
-	arg_ok="d:t:p:m:r:R:c:E:hleVTxX"
+	arg_ok="d:t:p:m:r:R:c:E:hleVTxXo:S:iaw:"
 	list="$*"
 	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing                                                
@@ -86,6 +91,12 @@ get_args()
 			explain_file=$2
 			shift
 			;;
+		-i)   # set up the -i (set DIRTY_READ flag)
+			DIRTY_READ_FLAG=1
+			;;
+		-a)   # set up the -i (set DIRTY_READ flag)
+			ANSI_FLAG=1
+			;;
 		-x)   # set up the -x (set DISPLAY_ONLY flag)
 			DISPLAY_FLAG=1
 			;;
@@ -107,6 +118,17 @@ get_args()
 			priority=$2
 			shift
 			;;
+		-w)   # set up the -w ( LOCK MODE flag)
+			LOCK_MODE_FLAG=1
+			LOCK_MODE_TIME=$2
+			echo ${LOCK_MODE_TIME} | grep "^[1-9][0-9]*" >/dev/null
+ 			if [ $? != 0  ]
+			then
+				echo "${PROGNAME} Syntax error: LOCK WAIT time must be between a number >= 1" >&2
+				return 1
+			fi
+			shift
+			;;
 		-m)   # set up the -m (sampling flag)
 			SAMPLING_FLAG=1
 			sampling=$2
@@ -125,6 +147,16 @@ get_args()
 		-c)   # set up the -c (confidence flag)
 			CONFIDENCE_FLAG=1
 			confidence=$2
+			shift
+			;;
+		-o)   # set up the -u (ANSI user flag)
+			ANSI_USER_FLAG=1
+			ANSI_USER=$2
+			shift
+			;;
+		-S)   # set up the -S (SET SESSION flag)
+			SET_AUTH_FLAG=1
+			SET_AUTH_USER=$2
 			shift
 			;;
 		esac
@@ -175,6 +207,24 @@ get_args()
 				return 1
 			else
 				LOW_MODE=1
+				shift
+			fi;;
+		-i)
+			if [ "X"$DIRTY_READ_FLAG != "X" ]	
+			then
+				echo "${PROGNAME}: Syntax error: DIRTY READ already processed" >&2
+				return 1
+			else
+				DIRTY_READ_FLAG=1
+				shift
+			fi;;
+		-a)
+			if [ "X"ANSI_FLAG != "X" ]	
+			then
+				echo "${PROGNAME}: Syntax error: ANSI flag already processed" >&2
+				return 1
+			else
+				ANSI_FLAG=1
 				shift
 			fi;;
 		-T)
@@ -246,6 +296,26 @@ get_args()
 					if [ ${priority} -lt 1 -o ${priority} -gt 100 ]
 					then
 						echo "Error: PDQPRIORITY value must be between 0 and 100" >&2
+						return 1
+					fi
+					shift 2
+			fi;;
+		-w)
+			if [ "X"$LOCK_MODE_FLAG = "X1" ]
+			then
+				echo "${PROGNAME} Syntax error: LOCK WAIT already processed" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "${PROGNAME} Syntax error: Option $1 requires an argument" >&2
+					return 1
+				else
+					LOCK_MODE_FLAG=1
+					LOCK_MODE_TIME=$2
+					echo ${LOCK_MODE_TIME} | grep "^[1-9][0-9]*" >/dev/null
+ 					if [ $? != 0  ]
+					then
+						echo "${PROGNAME} Syntax error: LOCK WAIT time must be between a number >= 1" >&2
 						return 1
 					fi
 					shift 2
@@ -332,9 +402,39 @@ get_args()
 						
 						echo "Error: CONFIDENCE value must be between 0.80 and 0.99" >&2
 						return 1
-				fi
+					fi
 				shift 2
 			fi;;
+		-o)
+			if [ "X"$ANSI_USER_FLAG = "X1" ]
+			then
+				echo "Syntax error: ANSI user already processed" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "Syntax error: Option $1 requires an argument" >&2
+					return 1
+				else
+					ANSI_USER_FLAG=1
+					ANSI_USER=$2
+			fi
+			shift 2
+			;;
+		-S)
+			if [ "X"$SET_AUTH_FLAG = "X1" ]
+			then
+				echo "Syntax error: SET AUTH already processed" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "Syntax error: Option $1 requires an argument" >&2
+					return 1
+				else
+					SET_AUTH_FLAG=1
+					SET_AUTH_USER=$2
+			fi
+			shift 2
+			;;
 		*)
 			if [ "X"$DATABASE_FLAG != "X1" ]	
 			then
@@ -448,6 +548,33 @@ clean_up()
 }
 trap clean_up 0
  
+if [ "X"${ANSI_USER_FLAG} = "X1" ]
+then
+	ANSI_CLAUSE="and t.owner = '${ANSI_USER}'"
+else
+	ANSI_CLAUSE=""
+fi
+
+if [ "X${SET_AUTH_FLAG}" = "X1" ]
+then
+	SET_AUTH_CLAUSE="SET SESSION AUTHORIZATION TO '${SET_AUTH_USER}';"
+else
+	SET_AUTH_CLAUSE=""
+fi
+
+if [ "X${DIRTY_READ_FLAG}" = "X1" ]
+then
+	ISOLATION_CLAUSE="SET ISOLATION TO DIRTY READ;"
+else
+	ISOLATION_CLAUSE=""
+fi
+
+if [ "X${LOCK_MODE_FLAG}" = "X1" ]
+then
+	LOCK_MODE_CLAUSE="SET LOCK MODE TO WAIT ${LOCK_MODE_TIME};"
+else
+	LOCK_MODE_CLAUSE=""
+fi
 
 #--------------------------------------------------------
 # get the aux column files...
@@ -456,13 +583,17 @@ dbaccess ${DATABASE} 1>/dev/null 2>${SQL_ERROR_FILE} <<EOSQL
 -------------------------------------------------------
 -- find the index header columns
 -------------------------------------------------------
+$ISOLATION_CLAUSE
+$LOCK_MODE_CLAUSE
+$SET_AUTH_CLAUSE
 unload to ${IDX_HEADER_COLUMNS_FILE} delimiter ' '
 select unique trim(colname)
-from systables t, sysindexes i, syscolumns c
+from informix.systables t, informix.sysindexes i, informix.syscolumns c
 where tabname = '${tabname}' 
 and t.tabid = i.tabid
 and t.tabid = c.tabid
 and colno = abs(part1)
+$ANSI_CLAUSE
 order by 1;
 
 --------------------------------------------------------
@@ -470,38 +601,40 @@ order by 1;
 --------------------------------------------------------
 unload to ${NONINDEX_HEADER_COLUMNS_FILE} delimiter ' '
 select unique trim(colname)
-from syscolumns c, systables t
+from informix.syscolumns c, informix.systables t
 where c.tabid = t.tabid
 and t.tabname = '${tabname}'
-and c.colno not in ( select abs(i.part1) from sysindexes i where i.tabid = t.tabid)
+and c.colno not in ( select abs(i.part1) from informix.sysindexes i where i.tabid = t.tabid)
+$ANSI_CLAUSE
 order by 1;
 
 --------------------------------------------------------
 -- find the indexed columns
 --------------------------------------------------------
-select i.part1  part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
-select i.part2  part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
-select i.part3  part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
-select i.part4  part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
-select i.part5  part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
-select i.part6  part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
-select i.part7  part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
-select i.part8  part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
-select i.part9  part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
-select i.part10 part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
-select i.part11 part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
-select i.part12 part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
-select i.part13 part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
-select i.part14 part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
-select i.part15 part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid UNION
-select i.part16 part_x from sysindexes i, systables t where t.tabname = '${tabname}' and i.tabid = t.tabid
+select i.part1  part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid UNION
+select i.part2  part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid UNION
+select i.part3  part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid UNION
+select i.part4  part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid UNION
+select i.part5  part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid UNION
+select i.part6  part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid UNION
+select i.part7  part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid UNION
+select i.part8  part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid UNION
+select i.part9  part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid UNION
+select i.part10 part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid UNION
+select i.part11 part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid UNION
+select i.part12 part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid UNION
+select i.part13 part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid UNION
+select i.part14 part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid UNION
+select i.part15 part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid UNION
+select i.part16 part_x from informix.sysindexes i, informix.systables t where t.tabname = '${tabname}' $ANSI_CLAUSE and i.tabid = t.tabid
 into temp t_aux;
 
 unload to ${INDEXED_COLUMNS_FILE} delimiter ' '
 select unique trim(colname)
-from syscolumns c, systables t
+from informix.syscolumns c, informix.systables t
 where c.tabid = t.tabid
 and t.tabname = '${tabname}'
+$ANSI_CLAUSE
 and c.colno in (select abs(part_x)  from t_aux)
 order by 1;
 
@@ -510,9 +643,10 @@ order by 1;
 --------------------------------------------------------
 unload to ${NON_INDEXED_COLUMNS_FILE} delimiter ' '
 select unique trim(colname)
-from syscolumns c, systables t
+from informix.syscolumns c, informix.systables t
 where c.tabid = t.tabid
 and t.tabname = '${tabname}'
+$ANSI_CLAUSE
 and c.colno not in (select abs(part_x) from t_aux)
 order by 1;
 EOSQL
@@ -521,20 +655,40 @@ if [ $? != 0 ]
 then
 	printf "${PROGNAME} Error: dbaccess error when fetching column information for table ${DATABASE}@${INFORMIXSERVER}:${tabname}\n">&2
 	cat ${SQL_ERROR_FILE} >&2
+	echo $SET_AUTH_CLAUSE
 	exit 1
 fi
 
 #--------------------------------------------------------
 # start the SQL script preparation
 #--------------------------------------------------------
-echo > ${SQL_FILE}
+echo ""> ${SQL_FILE}
 OUTPUT_PREFIX=""
 #OUTPUT_PREFIX="${DATABASE}@${INFORMIXSERVER}:"
 printf "\n-- Update statistics for table ${DATABASE}@${INFORMIXSERVER}:${tabname}\n-- Generated by ${PROGNAME} ${VERSION} on `date` \n\n" >>${SQL_FILE}
 
+if [ "X${DIRTY_READ_FLAG}" = "X1" ]
+then
+	
+	printf "\n-- SET ISOLATION CLAUSE\n${ISOLATION_CLAUSE}\n" >> ${SQL_FILE}
+fi
+
+if [ "X${LOCK_MODE_FLAG}" = "X1" ]
+then
+	printf "\n-- SET LOCK MODE CLAUSE\n${LOCK_MODE_CLAUSE}\n" >> ${SQL_FILE}
+fi
+
+printf "\n${SET_AUTH_CLAUSE}\n" >>${SQL_FILE}
+
+if [ "X${ANSI_USER_FLAG}" = "X1" ]
+then
+	tabowner="\"$ANSI_USER\"."
+else
+	tabowner=""
+fi
 if [ "X${TIMINGS_FLAG}" = "X1" ]
 then
-	printf "\n-- Show stats timings\noutput to pipe 'grep -v \"^[ 	]*$\"' without headings select '${OUTPUT_PREFIX}${tabname} S: '||current year to fraction(3) from systables where tabid = 1;\n" >>${SQL_FILE}
+	printf "\n-- Show stats timings\noutput to pipe 'grep -v \"^[ 	]*$\"' without headings select '${OUTPUT_PREFIX}${tabowner}${tabname} S: '||current year to fraction(3) from informix.systables where tabid = 1;\n" >>${SQL_FILE}
 fi
 
 if [ "X${EXPLAIN_FLAG}" = "X1" ]
@@ -577,10 +731,10 @@ then
 	fi
 	if [ "X${TIMINGS_FLAG}" = "X1" ]
 	then
-		printf "\n-- Show stats timings\noutput to pipe 'grep -v \"^[ 	]*$\"' without headings select '${OUTPUT_PREFIX}${tabname} M: '||current year to fraction(3) from systables where tabid = 1;\n" >>${SQL_FILE}
+		printf "\n-- Show stats timings\noutput to pipe 'grep -v \"^[ 	]*$\"' without headings select '${OUTPUT_PREFIX}${tabowner}${tabname} M: '||current year to fraction(3) from informix.systables where tabid = 1;\n" >>${SQL_FILE}
 	fi
 
-	printf "\n-- MEDIUM distributions only for all columns that are not head of any index\nupdate statistics medium for table \"${tabname}\"\n    (" >>${SQL_FILE}
+	printf "\n-- MEDIUM distributions only for all columns that are not head of any index\nupdate statistics medium for table ${tabowner}\"${tabname}\"\n    (" >>${SQL_FILE}
 	FIRST=1
 	while read COLNAME
 	do
@@ -593,6 +747,10 @@ then
 		fi
 	done < ${NONINDEX_HEADER_COLUMNS_FILE}
 	printf  ")\n${sampling_clause}${resolution_clause_medium} distributions only;\n" >>${SQL_FILE}
+fi
+if [ "X${ANSI_FLAG}" = "X1" ]
+then
+	printf "\nCOMMIT;\n" >>${SQL_FILE}
 fi
  
 #-------------------------------------------------------
@@ -608,10 +766,10 @@ then
 	fi
 	if [ "X${TIMINGS_FLAG}" = "X1" ]
 	then
-		printf "\n-- Show stats timings\noutput to pipe 'grep -v \"^[ 	]*$\"' without headings select '${OUTPUT_PREFIX}${tabname} H: '||current year to fraction(3) from systables where tabid = 1;\n" >>${SQL_FILE}
+		printf "\n-- Show stats timings\noutput to pipe 'grep -v \"^[ 	]*$\"' without headings select '${OUTPUT_PREFIX}${tabowner}${tabname} H: '||current year to fraction(3) from informix.systables where tabid = 1;\n" >>${SQL_FILE}
 	fi
 
-	printf  "\n-- HIGH distributions only for all columns that are head of any index\nupdate statistics high for table \"${tabname}\"\n    (" >>${SQL_FILE}
+	printf  "\n-- HIGH distributions only for all columns that are head of any index\nupdate statistics high for table ${tabowner}\"${tabname}\"\n    (" >>${SQL_FILE}
 	FIRST=1
 	while read COLNAME
 	do
@@ -625,13 +783,18 @@ then
 	done <${IDX_HEADER_COLUMNS_FILE}
 	printf ")\n${resolution_clause_high} distributions only;\n" >>${SQL_FILE}
 fi
+if [ "X${ANSI_FLAG}" = "X1" ]
+then
+	printf "\nCOMMIT;\n" >>${SQL_FILE}
+fi
+
  
 #-------------------------------------------------------
 # Create sql statements for low 
 #-------------------------------------------------------
 if [ "X${TIMINGS_FLAG}" = "X1" ]
 then
-	printf "\n-- Show stats timings\noutput to pipe 'grep -v \"^[ 	]*$\"' without headings select '${OUTPUT_PREFIX}${tabname} L: '||current year to fraction(3) from systables where tabid = 1;\n" >>${SQL_FILE}
+	printf "\n-- Show stats timings\noutput to pipe 'grep -v \"^[ 	]*$\"' without headings select '${OUTPUT_PREFIX}${tabowner}${tabname} L: '||current year to fraction(3) from informix.systables where tabid = 1;\n" >>${SQL_FILE}
 fi
 
 case "X${LOW_MODE_FLAG}" in
@@ -639,7 +802,7 @@ X)
 	LINE_COUNT=`wc -l ${INDEXED_COLUMNS_FILE} | awk '{print $1}'`
 	if [ "X${LINE_COUNT}" != "X0" ]
 	then
-		printf  "\n-- LOW for all columns beloging to any index\nupdate statistics low for table \"${tabname}\"\n    (" >>${SQL_FILE}
+		printf  "\n-- LOW for all columns beloging to any index\nupdate statistics low for table ${tabowner}\"${tabname}\"\n    (" >>${SQL_FILE}
 		FIRST=1
 		while read COLNAME
 		do
@@ -653,14 +816,14 @@ X)
 		done <${INDEXED_COLUMNS_FILE}
 		printf ");\n\n" >>${SQL_FILE}
 	else
-		printf "\n-- LOW for table if table has no indexes\nupdate statistics low for table \"${tabname}\";\n\n" >>${SQL_FILE}
+		printf "\n-- LOW for table if table has no indexes\nupdate statistics low for table ${tabowner}\"${tabname}\";\n\n" >>${SQL_FILE}
 	fi
 	;;
 X1)
 	LINE_COUNT=`wc -l ${NON_INDEXED_COLUMNS_FILE} | awk '{print $1}'`
 	if [ "X${LINE_COUNT}" != "X0" ]
 	then
-		printf  "\n-- Using LOW quick mode... LOW for all columns NOT beloging to any index\nupdate statistics low for table \"${tabname}\"\n    (" >>${SQL_FILE}
+		printf  "\n-- Using LOW quick mode... LOW for all columns NOT beloging to any index\nupdate statistics low for table ${tabowner}\"${tabname}\"\n    (" >>${SQL_FILE}
 		FIRST=1
 		while read COLNAME
 		do
@@ -675,14 +838,19 @@ X1)
 		printf ");\n\n" >>${SQL_FILE}
 	else
 		COLNAME=`head -1 ${INDEXED_COLUMNS_FILE}`
-		printf "\n-- Using LOW quick mode, but all columns are indexed! Using just one column...\nupdate statistics low for table \"${tabname}\"( ${COLNAME} );\n\n" >>${SQL_FILE}
+		printf "\n-- Using LOW quick mode, but all columns are indexed! Using just one column...\nupdate statistics low for table${tabowner} \"${tabname}\"( ${COLNAME} );\n\n" >>${SQL_FILE}
 	fi
 	;;
 esac
 
+if [ "X${ANSI_FLAG}" = "X1" ]
+then
+	printf "\nCOMMIT;\n" >>${SQL_FILE}
+fi
+
 if [ "X${TIMINGS_FLAG}" = "X1" ]
 then
-printf "\n-- Show stats timings\noutput to pipe 'grep -v \"^[ 	]*$\"' without headings select '${OUTPUT_PREFIX}${tabname} E: '||current year to fraction(3) from systables where tabid = 1;\n" >>${SQL_FILE}
+printf "\n-- Show stats timings\noutput to pipe 'grep -v \"^[ 	]*$\"' without headings select '${OUTPUT_PREFIX}${tabowner}${tabname} E: '||current year to fraction(3) from informix.systables where tabid = 1;\n" >>${SQL_FILE}
 fi
 
 

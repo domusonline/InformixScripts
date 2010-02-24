@@ -36,14 +36,15 @@ show_help()
 	echo "               [-X] Option for tbl_updstats. Display and execute".>&2
 	echo "               [-z] Display only. Do not execute" >&2
 	echo "               [-Z] Display and execute" >&2
-	echo "               [-X] Display and execute" >&2
 	echo "               [-y] Allow multiple parallel executions">&2
+	echo "               [-o] Specify user for tbl_updstats (ANSI databases)">&2
+	echo "               [-w N ] Set LOCK MODE WAIT N seconds">&2
 	echo "Ex: dbs_updstats -d stores7 -f \\\" and tabname like \\'l%\\'\\\"" >&2
 }
 
 get_args()
 {
-	arg_ok='p:d:f:m:r:R:c:E:lePNVhTsyxXzZ'
+	arg_ok='p:d:f:m:r:R:c:E:lePNVhTsyxXzZow:'
 	list="$*"
 	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing                                                
@@ -131,6 +132,25 @@ get_args()
 			confidence=$2
 			shift
 			;;
+		-o)   # set up the -o (ANSI user flag)
+			ANSI_USER_FLAG=1
+			;;
+		-S)   # set SET SESSION AUTH flag
+			SET_AUTH_FLAG=1
+			SET_AUTH_USER=$2
+			shift
+			;;
+		-w)   # set up the -w (LOCK WAIT flag)
+			LOCK_MODE_FLAG=1
+			LOCK_MODE_TIME=$2
+			echo ${LOCK_MODE_TIME} | grep "^[1-9][0-9]*" >/dev/null
+			if [ $? != 0  ]
+			then
+				echo "${PROGNAME} Syntax error: LOCK WAIT time must be between a number >= 1" >&2
+				return 1
+			fi
+			shift
+			;;
 		-f)   # set up the -f (filter flag)
 			FILTER_FLAG=1
 			case $2 in
@@ -146,7 +166,7 @@ get_args()
 			then
 				return
 			fi
-			arg_ok='p:d:f:m:r:R:c:E:lePNVhTsyxXzZ'
+			arg_ok='p:d:f:m:r:R:c:E:lePNVhTsyxXzZow:'
 			set -- `getopt "${arg_ok}" $resto`
 			continue
 			;;
@@ -279,6 +299,26 @@ get_args()
 					fi
 					shift 2
 			fi;;
+		-w)
+			if [ "X"$LOCK_MODE_FLAG = "X1" ]	
+			then
+				echo "${PROGNAME} Syntax error: LOCK WAIT already processed" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "${PROGNAME} Syntax error: Option $1 requires an argument" >&2
+					return 1
+				else
+					LOCK_MODE_FLAG=1
+					LOCK_MODE_TIME=$2
+					echo ${LOCK_MODE_TIME} | grep "^[1-9][0-9]*" >/dev/null
+					if [ $? != 0  ]
+					then
+						echo "${PROGNAME} Syntax error: LOCK WAIT time must be between a number >= 1" >&2
+						return 1
+					fi
+					shift 2
+			fi;;
 		-m)
 			if [ "X"$SAMPLING_FLAG = "X1" ]
 			then
@@ -361,9 +401,32 @@ get_args()
 						
 						echo "${PROGNAME} Syntax error: CONFIDENCE value must be between 0.80 and 0.99" >&2
 						return 1
-				fi
-				shift 2
+					fi
+					shift 2
 			fi;;
+		-S)
+			if [ "X"$SET_AUTH_FLAG = "X1" ]
+			then
+				echo "${PROGNAME} Syntax error: SET SESSION AUTH already processed" >&2
+				return 1
+			elif [ $# -le 1 ]
+				then
+					echo "${PROGNAME} Syntax error: Option $1 requires and argument" >&2
+					return 1
+				else
+					SET_AUTH_FLAG=1
+					SET_AUTH_USER=$2
+					shift 2
+			fi;;
+		o)
+			if [ "X"$ANSI_USER_FLAG = "X1" ]
+			then
+				echo "${PROGNAME} Syntax error: user flag already processed" >&2
+			else
+				ANSI_USER_FLAG=1
+			fi
+			shift
+			;;
 		-f)
 			if [ "X"$FILTER_FLAG = "X1" ]	
 			then
@@ -388,7 +451,7 @@ get_args()
 					then
 						return
 					fi
-					arg_ok='p:d:f:m:r:R:c:E:lePNVhTsyxXzZ'
+					arg_ok='p:d:f:m:r:R:c:E:lePNVhTsyxXzZow:'
 					set -- `getopt "${arg_ok}" $resto`
 					continue
 			fi;;
@@ -452,7 +515,7 @@ then
 		echo "${PROGNAME} Syntax error: RESOLUTION MEDIUM value must be numeric and less than or equal to 100" >&2
 		exit 1
 	else
-		resolution_clause_medium=" -r ${resolution_medium} "
+		resolution_clause_medium="-r ${resolution_medium} "
 	fi
 fi
 
@@ -478,7 +541,7 @@ then
 		echo "${PROGNAME} Syntax error: SAMPLING value must be numeric and greater than 0" >&2
 		exit 1
 	else
-		sampling_clause=" -m ${sampling} "
+		sampling_clause="-m ${sampling} "
 	fi
 fi
 
@@ -491,13 +554,13 @@ then
 		echo "${PROGNAME} Syntax error: CONFIDENCE must be between 0.80 and 0.99" >&2
 		exit 1
 	else
-		confidence_clause=" -c ${confidence} "
+		confidence_clause="-c ${confidence} "
 	fi
 fi
 
 if [ "X${QUICK_LOW_MODE_FLAG}" = "X1" ]
 then
-	low_mode_flag="-l"
+	low_mode_flag="-l "
 fi
 
 if [ "X"$PROCEDURES_FLAG = "X" ]
@@ -551,18 +614,47 @@ echo $$ > ${DBS_DATABASE_LOCK_FILE}
 #-----------------------------------------------------
 if [ "X${SYSTABLES_FLAG}" != "X1" ]
 then
-	sel_filter="tabid > 99 and tabtype = 'T' $sel_filter"
+	sel_filter="t.tabid > 99 and t.tabtype = 'T' $sel_filter"
 else
-	sel_filter="tabname not like ' %' and tabtype = 'T' $sel_filter"
+	sel_filter="t.tabname not like ' %' and t.tabtype = 'T' $sel_filter"
 fi
 
 
 #-----------------------------------------------------
 # obtain table list
 #-----------------------------------------------------
-dbaccess ${dbserver} - <<EOSQL 1>&2 2>${SQL_ERROR_FILE}
+if [ "X$SET_AUTH_FLAG" = "X1" ]
+then
+	SET_AUTH_CLAUSE="SET SESSION AUTHORIZATION TO '${SET_AUTH_USER}';"
+else
+	SET_AUTH_CLAUSE=""
+fi
+
+LOGGING_FLAGS=`dbaccess sysmaster - <<EOSQL 2>${SQL_ERROR_FILE} | grep "LOGGING:" | awk '{print $NF}' 
+SELECT 'LOGGING: '|| is_logging || is_ansi
+FROM sysdatabases
+WHERE name = '${dbserver}';
+EOSQL
+`
+
+case "${LOGGING_FLAGS}" in
+11|10|00)
+	LOGGING_FLAG=`echo ${LOGGING_FLAGS} | cut -c1`
+	ANSI_FLAG=`echo ${LOGGING_FLAGS} | cut -c2`
+	;;
+*)
+	echo "${PROGNAME} Error: DBACCESS error trying to check database logging mode" >&2
+	cat < ${SQL_ERROR_FILE} >&2
+	exit 1
+	;;
+esac
+	
+	
+
+dbaccess ${dbserver} - <<EOSQL 1>&2 2>${SQL_ERROR_FILE} 
+${SET_AUTH_CLAUSE}
 output to pipe "cat  | grep -v '^$' >${TABLE_LIST_FILE}" without headings
-select tabname from systables
+select trim(tabname) || ' ' ||trim(owner) from informix.systables t
 where $sel_filter
 order by 1;
 EOSQL
@@ -588,10 +680,10 @@ fi
 #-----------------------------------------------------
 case  "X$EXPLAIN_FLAG" in
 X1)
-	CMD_FLAGS="-e"
+	CMD_FLAGS="-e "
 	;;
 X2)
-	CMD_FLAGS="-E ${EXPLAIN_TMP_FILE}"
+	CMD_FLAGS="-E ${EXPLAIN_TMP_FILE} "
 	;;
 esac
 
@@ -605,27 +697,58 @@ then
 	CMD_FLAGS="${CMD_FLAGS} -T"
 fi
 
+COMMENT_STRING="#"
 if [ "X${CMD_DISPLAY_FLAG}" != "X" ]
 then
 	CMD_FLAGS="${CMD_FLAGS} ${CMD_DISPLAY_FLAG}"
+	COMMENT_STRING="--"
 fi
+
+if [ "X$SET_AUTH_FLAG" = "X1" ]
+then
+        CMD_FLAGS="${CMD_FLAGS} -S ${SET_AUTH_USER}"
+fi
+
+
+if [ "X$ANSI_FLAG" = "X1" ]
+then
+        CMD_FLAGS="${CMD_FLAGS} -i -a"
+else
+	if [ "X$LOGGING_FLAG" = "X1" ]
+	then
+	        CMD_FLAGS="${CMD_FLAGS} -i"
+	fi
+fi
+
+if [ "X${LOCK_MODE_FLAG}" = "X1" ]
+then
+	CMD_FLAGS="${CMD_FLAGS} -w ${LOCK_MODE_TIME}"
+fi
+
 
 #-----------------------------------------------------
 # Launch/display or both...
 #-----------------------------------------------------
-while read tblname
+while read tblname owner
 do
-	echo "#${PROGNAME} Processing table ${dbserver}@${INFORMIXSERVER}:${tblname} at `date` ..."
+	if [ "X$ANSI_USER_FLAG" = "X1" ]
+	then
+		ANSI_USER_CLAUSE="-o $owner "
+	else
+		ANSI_USER_CLAUSE=""
+	fi
+
+	echo "${COMMENT_STRING}${PROGNAME} Processing table ${dbserver}@${INFORMIXSERVER}:${tblname} at `date` ..."
 	case "X${DISPLAY_FLAG}" in
 	X1)
 		#--- display only...
-		echo "#Command: tbl_updstats -d ${dbserver} -t ${tblname} ${low_mode_flag} ${resolution_clause_high} ${sampling_clause} ${resolution_clause_medium} ${confidence_clause} ${CMD_FLAGS}"
+		echo "${COMMENT_STRING}Command: tbl_updstats -d ${dbserver} -t ${tblname} ${ANSI_USER_CLAUSE}${low_mode_flag}${resolution_clause_high}${sampling_clause}${resolution_clause_medium}${confidence_clause}${CMD_FLAGS}"
 		;;
 	X2)
 		#--- display and execute 
-		echo "#Command: tbl_updstats -d ${dbserver} -t ${tblname} ${low_mode_flag} ${resolution_clause_high} ${sampling_clause} ${resolution_clause_medium} ${confidence_clause} ${CMD_FLAGS}"
+		echo "${COMMENT_STRING}Command: tbl_updstats -d ${dbserver} -t ${tblname} ${ANSI_USER_CLAUSE}${low_mode_flag}${resolution_clause_high}${sampling_clause}${resolution_clause_medium}${confidence_clause}${CMD_FLAGS}"
 		cat /dev/null >${EXPLAIN_TMP_FILE}
-		tbl_updstats -d ${dbserver} -t ${tblname} ${low_mode_flag} ${resolution_clause_high} ${sampling_clause} ${resolution_clause_medium} ${confidence_clause} ${CMD_FLAGS}
+		tbl_updstats -d ${dbserver} -t ${tblname} ${ANSI_USER_CLAUSE}${low_mode_flag}${resolution_clause_high}${sampling_clause}${resolution_clause_medium}${confidence_clause}${CMD_FLAGS}
 		if [ "X${EXPLAIN_FLAG}" = "X1" ]
 		then
 			cat ${EXPLAIN_TMP_FILE} >>${explain_file}
@@ -634,7 +757,7 @@ do
 	X*)
 		#--- execute only
 		cat /dev/null >${EXPLAIN_TMP_FILE}
-		tbl_updstats -d ${dbserver} -t ${tblname} ${low_mode_flag} ${resolution_clause_high} ${sampling_clause} ${resolution_clause_medium} ${confidence_clause} ${CMD_FLAGS}
+		tbl_updstats -d ${dbserver} -t ${tblname} ${ANSI_USER_CLAUSE}${low_mode_flag}${resolution_clause_high}${sampling_clause}${resolution_clause_medium}${confidence_clause}${CMD_FLAGS}
 		if [ "X${EXPLAIN_FLAG}" = "X2" ]
 		then
 			cat ${EXPLAIN_TMP_FILE} >>${explain_file}
@@ -648,7 +771,7 @@ done <${TABLE_LIST_FILE}
 #-----------------------------------------------------
 if [ "X"$PROCEDURES_FLAG = "X1" ]
 then
-	echo "#${PROGNAME} Processing procedures at `date` ..."
+	echo "${COMMENT_STRING}${PROGNAME} Processing procedures at `date` ..."
 	case "X${EXPLAIN_FLAG}" in
 	X1)
 		EXPLAIN_CLAUSE="set explain on;"
@@ -658,6 +781,7 @@ then
 		;;
 	esac
 	dbaccess ${dbserver} <<!EOF 2>${SQL_ERROR_FILE} 1>${SQL_OUTPUT_FILE}
+${SET_AUTH_CLAUSE}
 ${EXPLAIN_CLAUSE}
 
 update statistics for procedure;
@@ -672,4 +796,4 @@ update statistics for procedure;
 		cat ${SQL_OUTPUT_FILE}
 	fi
 fi
-echo "#${PROGNAME} Ended at `date` ..."
+echo "${COMMENT_STRING}${PROGNAME} Ended at `date` ..."
