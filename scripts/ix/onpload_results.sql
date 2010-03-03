@@ -26,16 +26,19 @@ CREATE INDEX ix_onpload_results_2 ON onpload_results(username,tstamp);
 GRANT select,insert ON onpload_results TO public;
 
 
-DROP PROCEDURE STArt_onpload;
+DROP PROCEDURE start_onpload;
 
-CREATE PROCEDURE start_onpload(args CHAR(200)) RETURNING INT, INT;
+CREATE PROCEDURE start_onpload(args CHAR(200)) RETURNING INT AS return_code, INT AS return_id;
 
 
-	DEFINE command CHAR(255); -- build command string here
+	DEFINE command CHAR(500); -- build command string here
 	DEFINE osname  CHAR(128); -- Operating System name.
 
 	DEFINE v_result_id, v_result_code, v_sessionid INT;
 	DEFINE v_result_text CHAR(1000);
+	DEFINE v_servername CHAR(128);
+	DEFINE v_serverdir CHAR(128);
+	DEFINE v_serversqlhosts CHAR(128);
 
 	LET v_sessionid = DBINFO('sessionid');
 
@@ -45,10 +48,14 @@ CREATE PROCEDURE start_onpload(args CHAR(200)) RETURNING INT, INT;
 
 	SELECT os_name INTO osname FROM sysmaster:sysmachineinfo;
 
+	SELECT env_value INTO v_servername FROM sysmaster:sysenv WHERE env_name = 'INFORMIXSERVER';
+	SELECT env_value INTO v_serverdir FROM sysmaster:sysenv WHERE env_name = 'INFORMIXDIR';
+	SELECT env_value INTO v_serversqlhosts FROM sysmaster:sysenv WHERE env_name = 'INFORMIXSQLHOSTS';
+
 	IF (osname = 'Windows') then
 		LET command = 'cmd /c %INFORMIXDIR%\bin\onpload ' || args;
 	ELSE
-		LET command = '/usr/informix/bin/ixonpload ' || v_sessionid || " gbdia " || USER || " " || args;
+		LET command = '/usr/informix/bin/ixonpload ' || TRIM(v_servername) || " " || TRIM(v_serverdir) || " " || TRIM(v_serversqlhosts) || " " || v_sessionid || " gbdia " || USER || " " || args;
 	END IF;
 
 	LET v_result_id = NULL;

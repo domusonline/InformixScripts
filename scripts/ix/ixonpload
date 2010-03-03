@@ -14,12 +14,20 @@ DELETE_FILES=1
 
 PROGNAME=`basename $0`
 TMP_FILE=/tmp/${PROGNAME}_$$.output
-SESSION_ID=$1
-DATABASE=$2
-MYUSER=$3
-shift 3
+INFORMIX_SERVER=$1
+INFORMIX_DIR=$2
+INFORMIX_SQLHOSTS=$3
+SESSION_ID=$4
+DATABASE=$5
+MYUSER=$6
+shift 6
 
 ARGS=$*
+
+perm_func()
+{
+	chmod 666 $TMP_FILE
+}
 
 clean_func()
 {
@@ -29,12 +37,31 @@ clean_func()
 if [ "X${DELETE_FILES}" = "X1" ]
 then
 	trap clean_func 0
+else
+	trap perm_func 0
 fi
 
+INFORMIXSERVER=$INFORMIX_SERVER
+INFORMIXSQLHOSTS=$INFORMIX_SQLHOSTS
+INFORMIXDIR=$INFORMIX_DIR
+
+PATH=$INFORMIXDIR/bin:$PATH
+
+export INFORMIXSERVER INFORMIXSQLHOSTS INFORMIXDIR PATH
+
 CMD="onpload $ARGS"
-printf "0|" >$TMP_FILE
+printf "0| " >$TMP_FILE
 onpload $ARGS 2>>${TMP_FILE} 1>&2 
 RES=$?
+
+#Workaround para os casos em que o onpload da RC=0 (job not found):
+#Job specified by jobname 'oad_factura' is not found, SQL error 100, ISAM error 0
+
+grep "Job specified by jobname .* is not found" ${TMP_FILE} >/dev/null
+if [ $? = 0 ]
+then
+	RES=2
+fi
 
 dbaccess ${DATABASE} <<!EOF
 
@@ -48,3 +75,8 @@ result_code = $RES
 WHERE
 id = DBINFO('sqlca.sqlerrd1');
 !EOF
+
+if [ $? != 0 ]
+then
+	exit 4
+fi
