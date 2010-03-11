@@ -271,7 +271,7 @@ Top10Locks()
 	echo "== ======== ======== ================" | \
 	$IX_AWK '{ printf("%2s %8s %8s %-16s\n",$1,$2,$3,$4) }'
 
-	onstat -u | egrep "^[0-9]" |  ${IX_AWK} '{ print $8,$3,$4 }' | \
+	onstat -u | egrep "^[0-9a-f][0-9a-f]* " |  ${IX_AWK} '{ print $8,$3,$4 }' | \
 	sort -nr -k1,1 | head -10 | ${IX_AWK} '{ printf("%2d %8d %8d %-16s\n",FNR,$1,$2,$3) }'
 }
 
