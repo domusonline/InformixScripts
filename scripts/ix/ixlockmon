@@ -1,0 +1,134 @@
+#!/bin/ksh
+# Name: $RCSfile$
+# CVS file: $Source$
+# CVS id: $Header$
+# Revision: $Revision$
+# Revised on: $Date$
+# Revised by: $Author$
+# Support: Fernando Nunes - domusonline@gmail.com
+# Licence: This script is licensed as GPL ( http://www.gnu.org/licenses/gpl.html )
+# History:
+
+show_help()
+{
+        echo "${PROGNAME}: -V | -h |  -l lock_limit [ -u <user_list> ] [ -k | -r ]" >&1
+        echo "               -V shows script version" >&1
+        echo "               -h shows this help" >&1
+        echo "               -l <lock_limit> Maximum number of locks accepted" >&1
+        echo "               -u <user_list> list of users for exceptions (comma separated)" >&1
+	echo "               -k Force the kill of the sessions" >&1
+	echo "               -r Just report the offending sessions" >&1
+        echo "Ex: ${PROGNAME} -l 50000 -u informix,johndoe" >&1
+}
+
+PROGNAME=`basename $0`
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
+LOGFILE=/usr/informix/etc/${PROGNAME}.${INFORMIXSERVER}.log
+
+arg_ok='Vhl:u:rk'
+while getopts ${arg_ok} FLAG
+do
+        case $FLAG in
+        h)   # show help
+                show_help
+                exit 0
+                ;;
+        V)   # show version
+                echo "${PROGNAME} ${VERSION}" >&1
+                exit 0
+                ;;
+        l)   # Limit locks
+		LIMIT_LOCK_FLAG=1
+                LIMIT_LOCK_NUMBER="$OPTARG"
+                echo ${LIMIT_LOCK_NUMBER} | grep "^[0-9][0-9]*$" >/dev/null
+                if [ $? != 0 ]
+                then
+                        printf "${PROGNAME}: Lock Limit for -l option has to be numeric\n" >&2
+                        exit 1
+                fi
+                ;;
+        u)   # USER_EXCEPTION
+                USER_EXCEPTION_FLAG=1
+                USER_EXCEPTION_LIST="${OPTARG}"
+                echo ${USER_EXCEPTION_LIST} | egrep "^[a-z_][a-z0-9]*(,[a-z][a-z0-9]*)*$" >/dev/null
+                if [ $? != 0 ]
+                then
+                        printf "${PROGNAME}: User list must be a comma separated list of valid usernames\n" >&2
+                        exit 1
+                fi
+                ;;
+	k)
+		# KILL SESSION
+		KILL_FLAG=1
+		if [ "X${REPORT_FLAG}" = "X1" ]
+		then
+			printf "${PROGNAME}: Kill flag and report flag are mutually exclusive\n" >&2
+			exit 1
+		fi
+		;;
+	r)
+		# Report Only
+		REPORT_FLAG=1
+		if [ "X${KILL_FLAG}" = "X1" ]
+		then
+			printf "${PROGNAME}: Report flag and kill flag are mutually exclusive\n" >&2
+			exit 1
+		fi
+		;;
+        :|?)   # Invalid argument
+                printf "${PROGNAME}: Invalid argument given! $FLAG | $OPTIND | $OPTARG\n">&2
+                show_help
+                ;;
+        esac
+done
+
+
+if [ "X${LIMIT_LOCK_FLAG}" != "X1" ]
+then
+	printf "${PROGNAME} lock limit flag is required\n" >&2
+	exit 1	
+fi
+
+if [ "X${KILL_FLAG}" != "X1" -a "X${REPORT_FLAG}" != "X1" ]
+then
+	printf "${PROGNAME} Kill or report flag must be specified\n" >&2
+	exit 1
+fi
+
+
+if [ "X${USER_EXCEPTION_FLAG}" = "X0" ]
+then
+	USER_EXCEPTION_LIST=`echo "${USER_EXCEPTION_LIST} " | sed 's/,/ /'`
+fi
+
+SESSION_COMMAND="onstat -g ses"
+KILL_COMMAND="onmode -z "
+HEADER=0
+MYDATE=`date +"%Y%m%d %H:%M:%S"`
+onstat -u | awk -v LIMIT_LOCK_NUMBER="$LIMIT_LOCK_NUMBER" '{if ( int($8) > LIMIT_LOCK_NUMBER ) { print $3 " " $4 " " $8}}' | while read MYSESSION MYUSER MYNLOCKS
+do
+	if [ "X${HEADER}" = "X0" ]
+	then
+		HEADER=1
+		printf "#-- START CYCLE ${MYDATE} -- Sessions with nr of locks > %-10s --------------------------------\n\n" $LIMIT_LOCK_NUMBER >>${LOGFILE}
+	fi
+	printf "\n#- START SESSION: $MYSESSION $MYUSER ( $MYNLOCKS )\n" >>${LOGFILE}
+	$SESSION_COMMAND $MYSESSION >>${LOGFILE}
+
+	if [ "X${KILL_FLAG}" = "X1" ]
+	then
+		echo "$USER_EXCEPTION_LIST " | grep "${MYUSER} " > /dev/null
+		if [ $? != 0 ]
+		then
+			printf "#-- Killing session %-10s --------------------------------------------------------------------------------\n" $MYSESSION >>${LOGFILE}
+			${KILL_COMMAND} $MYSESSION
+		fi
+	fi
+done
+
+
+MYDATE=`date +"%Y%m%d %H:%M:%S"`
+if [ "X${HEADER}" = "X1" ]
+then
+	printf "#-- END CYCLE ${MYDATE} -------------------------------------------------------------------------------\n">>${LOGFILE}
+fi
