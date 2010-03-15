@@ -2,21 +2,22 @@
 
 show_help()
 {
-        echo "${PROGNAME}: -V | -h |  -l lock_limit [ -u <user_list> ] [ -k | -r ]" >&1
+        echo "${PROGNAME}: -V | -h |  -l lock_limit [ -u <user_list> ] [ -k | -r ] [ -o <log_file> ]" >&1
         echo "               -V shows script version" >&1
         echo "               -h shows this help" >&1
         echo "               -l <lock_limit> Maximum number of locks accepted" >&1
         echo "               -u <user_list> list of users for exceptions (comma separated)" >&1
 	echo "               -k Force the kill of the sessions" >&1
 	echo "               -r Just report the offending sessions" >&1
+	echo "               -f <log_file > use log_file for recording the script activity" >&1
         echo "Ex: ${PROGNAME} -l 50000 -u informix,johndoe" >&1
 }
 
 PROGNAME=`basename $0`
 VERSION=1.0
-LOGFILE=/usr/informix/etc/${PROGNAME}.${INFORMIXSERVER}.log
+LOG_FILE=/usr/informix/etc/${PROGNAME}.${INFORMIXSERVER}.log
 
-arg_ok='Vhl:u:rk'
+arg_ok='Vhl:u:rko:'
 while getopts ${arg_ok} FLAG
 do
         case $FLAG in
@@ -66,6 +67,10 @@ do
 			exit 1
 		fi
 		;;
+	o)
+		# Log file
+		LOG_FILE="${OPTARG}"
+		;;
         :|?)   # Invalid argument
                 printf "${PROGNAME}: Invalid argument given! $FLAG | $OPTIND | $OPTARG\n">&2
                 show_help
@@ -92,45 +97,89 @@ then
 	USER_EXCEPTION_LIST=`echo "${USER_EXCEPTION_LIST} " | sed 's/,/ /'`
 fi
 
+if [ -d "${LOG_FILE}" ]
+then
+	echo "Log file ${LOG_FILE} option must point to a file, not a directory" >&2
+	exit 1
+else
+	if [ -f "${LOG_FILE}" ]
+	then
+		if [ ! -w "${LOG_FILE}" ]
+		then
+			echo "Log file ${LOG_FILE} must have write permissions" >&2
+			exit 1
+		fi
+	else
+		LOG_FILE_DIR=`dirname ${LOG_FILE}`
+		if [ ! -d "${LOG_FILE_DIR}" ]
+		then
+			echo "Log file ${LOG_FILE} points to a non-existent directory, or no access permissions" >&2
+			exit 1
+		else
+			if [ ! -w "${LOG_FILE_DIR}" ]
+			then
+				echo "Log file directory "${LOG_FILE_DIR}" has no write permissions" >&2
+				exit 1
+			fi
+		fi
+	fi
+fi
+
 SESSION_COMMAND="onstat -g ses"
 KILL_COMMAND="onmode -z "
 HEADER=0
+PREV_SESSION=0
 MYDATE=`date +"%Y%m%d %H:%M:%S"`
-onstat -u | awk -v LIMIT_LOCK_NUMBER="$LIMIT_LOCK_NUMBER" '{if ( int($8) > LIMIT_LOCK_NUMBER ) { print $3 " " $4 " " $8}}' | while read MYSESSION MYUSER MYNLOCKS
+onstat -u | awk -v LIMIT_LOCK_NUMBER="$LIMIT_LOCK_NUMBER" '{if ( int($8) > LIMIT_LOCK_NUMBER ) { print $3 " " $4 " " $8}}' | sort -nk 1 | while read MYSESSION MYUSER MYNLOCKS
 do
+	if [ $MYSESSION = $PREV_SESSION ]
+	then
+		continue
+	else
+		PREV_SESSION=$MYSESSION
+	fi
+
 	if [ "X${HEADER}" = "X0" ]
 	then
 		HEADER=1
-		printf "#-- START CYCLE ${MYDATE} -- Sessions with nr of locks > %-10s --------------------------------\n\n" $LIMIT_LOCK_NUMBER >>${LOGFILE}
+		printf "#-- START CYCLE ${MYDATE} -- Sessions with nr of locks > %-10s --------------------------------\n\n" $LIMIT_LOCK_NUMBER >>${LOG_FILE}
 	fi
 
-	ALARM_SCRIPT=`grep -v "^[       ]*#" $INFORMIXDIR/etc/$ONCONFIG | grep "^[      ]*ALARMPROGRAM" | awk '{print $2}'| cut -f1 -d'#'`
+	ALARM_SCRIPT=`grep -v "^[ 	]*#" $INFORMIXDIR/etc/$ONCONFIG | grep "^[ 	]*ALARMPROGRAM[ 	]" | awk '{print $2}'| cut -f1 -d'#'`
 
 
-	EXPR_ALARM_CLASS_ID=910
-	EXPR_ALARM_SEVERITY=4
-	EXPR_ALARM_CLASS_MSG="Too many locks"
-	EXPR_ALARM_SEND="Session $MYSESSION has more locks than the maximum defined $MYNLOCKS/$LIMIT_LOCK_NUMBER"
 
-	${ALARM_SCRIPT} ${EXPR_ALARM_SEVERITY} ${EXPR_ALARM_CLASS_ID} "${EXPR_ALARM_CLASS_MSG}" "${EXPR_ALARM_SEND}"
+	printf "\n#- START SESSION: $MYSESSION $MYUSER ( $MYNLOCKS )\n" >>${LOG_FILE}
+	$SESSION_COMMAND $MYSESSION >>${LOG_FILE}
 
-	printf "\n#- START SESSION: $MYSESSION $MYUSER ( $MYNLOCKS )\n" >>${LOGFILE}
-	$SESSION_COMMAND $MYSESSION >>${LOGFILE}
-
+	KILLED=n
 	if [ "X${KILL_FLAG}" = "X1" ]
 	then
 		echo "$USER_EXCEPTION_LIST " | grep "${MYUSER} " > /dev/null
 		if [ $? != 0 ]
 		then
-			printf "#-- Killing session %-10s --------------------------------------------------------------------------------\n" $MYSESSION >>${LOGFILE}
+			printf "#-- Killing session %-10s --------------------------------------------------------------------------------\n" $MYSESSION >>${LOG_FILE}
 			${KILL_COMMAND} $MYSESSION
+			KILLED=y
 		fi
 	fi
+
+	EXPR_ALARM_CLASS_ID=910
+	EXPR_ALARM_SEVERITY=4
+	EXPR_ALARM_CLASS_MSG="Too many locks"
+	if [ "X${KILLED}" = "Xy" ]
+	then
+		EXPR_ALARM_SEND="Session $MYSESSION from user $MYUSER had more locks than the max defined: $MYNLOCKS/$LIMIT_LOCK_NUMBER :Killed!"
+	else
+		EXPR_ALARM_SEND="Session $MYSESSION from user $MYUSER has more locks than the max defined: $MYNLOCKS/$LIMIT_LOCK_NUMBER"
+	fi
+
+	${ALARM_SCRIPT} ${EXPR_ALARM_SEVERITY} ${EXPR_ALARM_CLASS_ID} "${EXPR_ALARM_CLASS_MSG}" "${EXPR_ALARM_SEND}"
 done
 
 
 MYDATE=`date +"%Y%m%d %H:%M:%S"`
 if [ "X${HEADER}" = "X1" ]
 then
-	printf "#-- END CYCLE ${MYDATE} -------------------------------------------------------------------------------\n">>${LOGFILE}
+	printf "#-- END CYCLE ${MYDATE} -------------------------------------------------------------------------------\n">>${LOG_FILE}
 fi
