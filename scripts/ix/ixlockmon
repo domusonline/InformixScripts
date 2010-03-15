@@ -14,7 +14,7 @@ show_help()
 }
 
 PROGNAME=`basename $0`
-VERSION=1.0
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
 LOG_FILE=/usr/informix/etc/${PROGNAME}.${INFORMIXSERVER}.log
 
 arg_ok='Vhl:u:rko:'
@@ -125,7 +125,15 @@ else
 	fi
 fi
 
-SESSION_COMMAND="onstat -g ses"
+which ixses | grep "^no ixses" >/dev/null 2>/dev/null
+if [ $? = 0 ]
+then
+	SESSION_COMMAND="onstat -g ses"
+else
+	SESSION_COMMAND="ixses"
+fi
+
+
 KILL_COMMAND="onmode -z "
 HEADER=0
 PREV_SESSION=0
