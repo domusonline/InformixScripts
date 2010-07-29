@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- $Id$ -->
+<lang module="lang_ixlocks">
+
+<page_title><![CDATA[Gestor de locks]]></page_title>
+
+<TableLocksWithWaiters><![CDATA[Locks com fila de espera]]></TableLocksWithWaiters>
+<out_lock_id><![CDATA[Id Lock]]></out_lock_id>
+<out_lock_type><![CDATA[Tipo]]></out_lock_type>
+<out_rowidr><![CDATA[ID linha]]></out_rowidr>
+<out_keynum><![CDATA[Chave]]></out_keynum>
+<out_lock_establish><![CDATA[Establecido]]></out_lock_establish>
+<out_wait_sid><![CDATA[SID espera]]></out_wait_sid>
+<out_wait_user><![CDATA[Util. espera]]></out_wait_user>
+<out_owner_sid><![CDATA[SID Dono]]></out_owner_sid>
+<out_owner_user><![CDATA[Dono]]></out_owner_user>
+<out_tabname><![CDATA[Tabela/Ind&iacute;ce]]></out_tabname>
+<out_lock_duration><![CDATA[Dura&ccedil;&atilde;o]]></out_lock_duration>
+<out_lock_wait><![CDATA[Tempo espera]]></out_lock_wait>
+<out_owner_pid><![CDATA[PID Dono]]></out_owner_pid>
+<out_owner_hostname><![CDATA[M&aacute;quina Dono]]></out_owner_hostname>
+<out_wait_pid><![CDATA[PID espera]]></out_wait_pid>
+<out_wait_hostname><![CDATA[M&aacute;quina espera]]></out_wait_hostname>
+
+<TableLocksPerSession><![CDATA[Locks por Sess&atilde;o]]></TableLocksPerSession>
+<Sid><![CDATA[SID]]></Sid>
+<User><![CDATA[Utilizador]]></User>
+<Locks><![CDATA[Locks]]></Locks>
+<LockReqs><![CDATA[Pedidos de lock]]></LockReqs>
+<LockWaits><![CDATA[Esperas por locks]]></LockWaits>
+<DeadLocks><![CDATA[Deadlocks]]></DeadLocks>
+<LocksTout><![CDATA[Expira&ccedil;&atilde;o Locks]]></LocksTout>
+<Host><![CDATA[M&aacute;quina]]></Host>
+<Pid><![CDATA[PID]]></Pid>
+<SidIsolationLevel><![CDATA[N&iacute;vel Isolamento]]></SidIsolationLevel>
+<Connected><![CDATA[Conectado em]]></Connected>
+
+<TableLocksPerTable><![CDATA[Locking por tabela]]></TableLocksPerTable>
+<Database><![CDATA[Base dados]]></Database>
+<TableName><![CDATA[Tabela]]></TableName>
+</lang>

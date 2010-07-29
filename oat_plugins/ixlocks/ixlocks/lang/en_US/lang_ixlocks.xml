@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- $Id$ -->
+<lang module="lang_ixlocks">
+
+<page_title><![CDATA[Locks Manager]]></page_title>
+
+<TableLocksWithWaiters><![CDATA[Locks with waiters]]></TableLocksWithWaiters>
+<out_lock_id><![CDATA[Lock Id]]></out_lock_id>
+<out_lock_type><![CDATA[Type]]></out_lock_type>
+<out_rowidr><![CDATA[Row ID]]></out_rowidr>
+<out_keynum><![CDATA[Key]]></out_keynum>
+<out_lock_establish><![CDATA[Lock Set]]></out_lock_establish>
+<out_wait_sid><![CDATA[Waiter SID]]></out_wait_sid>
+<out_wait_user><![CDATA[Waiter User]]></out_wait_user>
+<out_owner_sid><![CDATA[Owner SID]]></out_owner_sid>
+<out_owner_user><![CDATA[Owner]]></out_owner_user>
+<out_tabname><![CDATA[Table/Index]]></out_tabname>
+<out_lock_duration><![CDATA[Lock Duration]]></out_lock_duration>
+<out_lock_wait><![CDATA[Waiting Time]]></out_lock_wait>
+<out_owner_pid><![CDATA[Owner PID]]></out_owner_pid>
+<out_owner_hostname><![CDATA[Owner Host]]></out_owner_hostname>
+<out_wait_pid><![CDATA[Waiter PID]]></out_wait_pid>
+<out_wait_hostname><![CDATA[Waiter Host]]></out_wait_hostname>
+
+<TableLocksPerSession><![CDATA[Locks per Session]]></TableLocksPerSession>
+<Sid><![CDATA[SID]]></Sid>
+<User><![CDATA[User]]></User>
+<Locks><![CDATA[Locks]]></Locks>
+<LockReqs><![CDATA[Lock Requests]]></LockReqs>
+<LockWaits><![CDATA[Lock Waits]]></LockWaits>
+<DeadLocks><![CDATA[Deadlocks]]></DeadLocks>
+<LocksTout><![CDATA[Locks timeout]]></LocksTout>
+<Host><![CDATA[Hostname]]></Host>
+<Database><![CDATA[Database]]></Database>
+<SidIsolationLevel><![CDATA[Isolation Level]]></SidIsolationLevel>
+<Pid><![CDATA[PID]]></Pid>
+<Connected><![CDATA[Connected]]></Connected>
+
+<TableLocksPerTable><![CDATA[Locking per table]]></TableLocksPerTable>
+<TableName><![CDATA[Table]]></TableName>
+</lang>

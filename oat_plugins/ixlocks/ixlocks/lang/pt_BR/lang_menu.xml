@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- $Id$ -->
+<lang module="lang_menu">
+<locks><![CDATA[Gestor de Locks]]></locks>
+<lockwaiters><![CDATA[Locks com fila de espera]]></lockwaiters>
+<lockingpertable><![CDATA[Locks por tabela]]></lockingpertable>
+<lockingpersession><![CDATA[Locks por sess&atilde;o]]></lockingpersession>
+</lang>
