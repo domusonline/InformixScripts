@@ -41,7 +41,7 @@
 <LockCnt><![CDATA[Bloqueios Activos]]></LockCnt>
 
 
-<TableLockList><![CDATA[Lista de bloqueios da inst&acirc;ia]]></TableLockList>
+<TableLockList><![CDATA[Lista de bloqueios da inst&acirc;ncia]]></TableLockList>
 <LkAddr><![CDATA[Endereço]]></LkAddr>
 <LkSame><![CDATA[Mesmo]]></LkSame>
 <LkWaitUser><![CDATA[Util. em espera]]></LkWaitUser>
