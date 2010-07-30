@@ -3,9 +3,9 @@
     <plugin_info>
         <plugin_name>Locks manager Plugin-In</plugin_name> 
         <plugin_author>Fernando Nunes</plugin_author>
-        <plugin_desc>This plugins enables the DBA to easily monitor and manage locks in the instance</plugin_desc>  
-        <plugin_version>0.02</plugin_version>
-        <plugin_buildtime>7/26/2010 18:10pm</plugin_buildtime>
+        <plugin_desc>This plugins enables the DBA to easily monitor locks in the instance</plugin_desc>  
+        <plugin_version>0.9b</plugin_version>
+        <plugin_buildtime>7/30/2010 16:30pm</plugin_buildtime>
         <plugin_server_version>11.10</plugin_server_version> 
         <plugin_upgrade_url>none</plugin_upgrade_url> 
         <!--  <plugin_license>{LICENSE FILE}</plugin_license> -->
@@ -13,6 +13,7 @@
     <plugin_menu>
     	<menu_pos>SQLToolBox</menu_pos>
         <menu id="locks" name="Lock Manager" lang="locks" >
+            <item name="LockList"  link="index.php?act=ixlocks/ixlocks&amp;do=locklist&amp;orderby=1&amp;" title="Instance Locks" lang="lockinglist" />
             <item name="LockWaiters"  link="index.php?act=ixlocks/ixlocks&amp;do=lockwaiters" title="Locks with waiters" lang="lockwaiters" />
             <item name="LocksPerPart"  link="index.php?act=ixlocks/ixlocks&amp;do=lockspertable&amp;orderby=3&amp;orderway=DESC" title="Locking per table" lang="lockingpertable" />
             <item name="LocksPerSession"  link="index.php?act=ixlocks/ixlocks&amp;do=lockspersession&amp;orderby=3&amp;orderway=DESC" title="Locking per session" lang="lockingpersession" />
