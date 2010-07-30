@@ -1,0 +1,84 @@
+INTRODUCTION:
+====================================================================================================
+
+This is the first public release (0.9b) of ixlocks, an Open Admin Tool (OAT) plugin to monitor locks.
+The software is distributed accordingly to the Apache license:
+
+ http://www.apache.org/licenses/LICENSE-2.0
+
+DISCLAIMER:
+====================================================================================================
+
+This software is provided AS IS, without any kind of guarantee. Use at your own risk.
+Although the author is an IBM employee, this software was developed outside his job scope. As such
+all responsability and credits is due to the author.
+
+
+REQUIREMENTS:
+====================================================================================================
+This plugin requires OAT 2.27 or higher. It was tested mostly on 2.28.
+
+
+INSTALL:
+====================================================================================================
+
+Just copy the ZIP file into the plugin_install subdirectory of your OAT installation.
+For example, if you installed it in /usr/informix/oat, this would be something like:
+
+/usr/informix/oat/Apache*/htdocs/openadmin/plugin_install
+
+After that access your OAT administration page and choose "Plug-in Manager".
+You should see the plugin listed in the "Plug-ins not installed yet".
+
+Just click on INSTALL button and make sure it's marked as enabled
+
+
+USAGE:
+====================================================================================================
+
+After installation you should have a new menu group (Lock Manager) just below the SQL Toolbox.
+The group has four menu items:
+
+- Lock list
+	Shows information similar (but hopefully more complete and easier) to onstat -K
+- Locks with waiters
+	Shows locks which have sessions waiting on them
+- Locks per table
+	Shows the number of active locks, lock requests, lock timeouts and lock waitings for the
+	active tables in your system
+- Locks per session
+	Shows the number of active locks, lock requests, lock timeouts and lock waitings for the
+	existing sessions in your instance
+
+
+Some fields like Session IDs are clickable and will take you into OAT standard session pages
+
+This plugin includes the standard English localization as well as Portuguese. The Portuguese
+messages are probably more addapted to European Portuguese while the Portuguese translation of OAT
+is for Brazilian Portuguese.
+
+
+TODO:
+====================================================================================================
+
+Some more tests need to be done. Some issues are already known:
+
+- The lock list page is not doing any pagination. So if you have a large number of active locks in
+your system this page can get HUGE. Be careful!
+
+Some improvements are being considered:
+- Implementing pagination where relevant
+- Making more fields "clickable"
+- Allow the DBA to kill sessions from the output of the plugins
+- Allow the user to filter off the system databases
+- More languages (It's impossible for me to do it, but if someone creates the messages, I'd be glad
+to include it in a future version)
+
+
+The author would really like to receive feedback and improvement suggestions.
+News about the plugin (if any) will be posted in the author's blog at:
+
+http://informix-technology.blogspot.com
+
+The author can be reached by email at: domusonline@gmail.com
+
