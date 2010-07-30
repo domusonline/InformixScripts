@@ -2,7 +2,8 @@
 <!-- $Id$ -->
 <lang module="lang_menu">
 <locks><![CDATA[Gestor de Locks]]></locks>
-<lockwaiters><![CDATA[Locks com fila de espera]]></lockwaiters>
-<lockingpertable><![CDATA[Locks por tabela]]></lockingpertable>
-<lockingpersession><![CDATA[Locks por sess&atilde;o]]></lockingpersession>
+<lockwaiters><![CDATA[Bloqueios com espera]]></lockwaiters>
+<lockingpertable><![CDATA[Bloqueios por tabela]]></lockingpertable>
+<lockingpersession><![CDATA[Bloqueios por sess&atilde;o]]></lockingpersession>
+<lockinglist><![CDATA[Lista de bloqueios]]></lockinglist>
 </lang>

@@ -38,4 +38,18 @@
 
 <TableLocksPerTable><![CDATA[Locking per table]]></TableLocksPerTable>
 <TableName><![CDATA[Table]]></TableName>
+<LockCnt><![CDATA[Active Locks]]></LockCnt>
+
+<TableLockList><![CDATA[Instance lock list]]></TableLockList>
+<LkAddr><![CDATA[Address]]></LkAddr>
+<LkSame><![CDATA[Same]]></LkSame>
+<LkWaitUser><![CDATA[Waiter User]]></LkWaitUser>
+<LkWaitSid><![CDATA[Waiter SID]]></LkWaitSid>
+<LkOwnerUser><![CDATA[Owner User]]></LkOwnerUser>
+<LkOwnerSid><![CDATA[Owner Sid]]></LkOwnerSid>
+<LkType><![CDATA[Type]]></LkType>
+<LkObject><![CDATA[Object]]></LkObject>
+<LkRowId><![CDATA[Row Id]]></LkRowId>
+<LkPartnum><![CDATA[Partnum]]></LkPartnum>
+<LkGranted><![CDATA[Established]]></LkGranted>
 </lang>

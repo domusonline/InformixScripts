@@ -2,10 +2,10 @@
 <!-- $Id$ -->
 <lang module="lang_ixlocks">
 
-<page_title><![CDATA[Gestor de locks]]></page_title>
+<page_title><![CDATA[Gestor de bloqueios]]></page_title>
 
-<TableLocksWithWaiters><![CDATA[Locks com fila de espera]]></TableLocksWithWaiters>
-<out_lock_id><![CDATA[Id Lock]]></out_lock_id>
+<TableLocksWithWaiters><![CDATA[Bloqueios com fila de espera]]></TableLocksWithWaiters>
+<out_lock_id><![CDATA[Id Bloqueio]]></out_lock_id>
 <out_lock_type><![CDATA[Tipo]]></out_lock_type>
 <out_rowidr><![CDATA[ID linha]]></out_rowidr>
 <out_keynum><![CDATA[Chave]]></out_keynum>
@@ -22,20 +22,35 @@
 <out_wait_pid><![CDATA[PID espera]]></out_wait_pid>
 <out_wait_hostname><![CDATA[M&aacute;quina espera]]></out_wait_hostname>
 
-<TableLocksPerSession><![CDATA[Locks por Sess&atilde;o]]></TableLocksPerSession>
+<TableLocksPerSession><![CDATA[Bloqueamento por Sess&atilde;o]]></TableLocksPerSession>
 <Sid><![CDATA[SID]]></Sid>
 <User><![CDATA[Utilizador]]></User>
-<Locks><![CDATA[Locks]]></Locks>
-<LockReqs><![CDATA[Pedidos de lock]]></LockReqs>
-<LockWaits><![CDATA[Esperas por locks]]></LockWaits>
+<Locks><![CDATA[Bloqueios]]></Locks>
+<LockReqs><![CDATA[Pedidos de bloqueio]]></LockReqs>
+<LockWaits><![CDATA[Esperas por bloqueios]]></LockWaits>
 <DeadLocks><![CDATA[Deadlocks]]></DeadLocks>
-<LocksTout><![CDATA[Expira&ccedil;&atilde;o Locks]]></LocksTout>
+<LocksTout><![CDATA[Expira&ccedil;&atilde;o Bloqueios]]></LocksTout>
 <Host><![CDATA[M&aacute;quina]]></Host>
 <Pid><![CDATA[PID]]></Pid>
 <SidIsolationLevel><![CDATA[N&iacute;vel Isolamento]]></SidIsolationLevel>
 <Connected><![CDATA[Conectado em]]></Connected>
 
-<TableLocksPerTable><![CDATA[Locking por tabela]]></TableLocksPerTable>
+<TableLocksPerTable><![CDATA[Bloqueamento por tabela]]></TableLocksPerTable>
 <Database><![CDATA[Base dados]]></Database>
 <TableName><![CDATA[Tabela]]></TableName>
+<LockCnt><![CDATA[Bloqueios Activos]]></LockCnt>
+
+
+<TableLockList><![CDATA[Lista de bloqueios da inst&acirc;ia]]></TableLockList>
+<LkAddr><![CDATA[Endereço]]></LkAddr>
+<LkSame><![CDATA[Mesmo]]></LkSame>
+<LkWaitUser><![CDATA[Util. em espera]]></LkWaitUser>
+<LkWaitSid><![CDATA[SID em espera]]></LkWaitSid>
+<LkOwnerUser><![CDATA[Dono]]></LkOwnerUser>
+<LkOwnerSid><![CDATA[SID Dono]]></LkOwnerSid>
+<LkType><![CDATA[Tipo]]></LkType>
+<LkObject><![CDATA[Objecto]]></LkObject>
+<LkRowId><![CDATA[ID Linha]]></LkRowId>
+<LkPartnum><![CDATA[Partnum]]></LkPartnum>
+<LkGranted><![CDATA[Estabelecido]]></LkGranted>
 </lang>

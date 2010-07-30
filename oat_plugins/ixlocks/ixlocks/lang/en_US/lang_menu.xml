@@ -5,4 +5,5 @@
 <lockwaiters><![CDATA[Locks with waiters]]></lockwaiters>
 <lockingpertable><![CDATA[Locks per table]]></lockingpertable>
 <lockingpersession><![CDATA[Locks per session]]></lockingpersession>
+<lockinglist><![CDATA[Lock list]]></lockinglist>
 </lang>
