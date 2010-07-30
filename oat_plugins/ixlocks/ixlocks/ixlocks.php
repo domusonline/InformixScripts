@@ -90,12 +90,106 @@ class ixlocks {
 			case "lockspersession":
 				$this->lockspersession();
 				break;
+			case "locklist":
+				$this->locklist();
+				break;
 			default:
-				$this->lockwaiters();
+				$this->locklist();
 		}
 		
 	} // end of function run
 
+
+	/**
+	* The function to show the lock list
+	*/
+
+	function locklist()
+	{
+		if ( isset($this->idsadmin->in['orderby']))
+		{
+			$ORDER_BY_CLAUSE="ORDER BY " . $this->idsadmin->in['orderby'];
+			if ( isset( $this->idsadmin->in['orderway']) )
+			{
+				$ORDER_BY_CLAUSE=$ORDER_BY_CLAUSE .  " " . $this->idsadmin->in['orderway'];
+			}
+		}
+		else
+		{
+			$ORDER_BY_CLAUSE="";
+		}
+		/**
+		* we first need a 'connection' to the database.
+		*/
+		$db = $this->idsadmin->get_database("sysmaster");
+
+		/**
+		* now we write our query
+		*/
+
+		require_once ROOT_PATH."lib/gentab.php";
+		$tab = new gentab(&$this->idsadmin);
+
+
+		$qry =  "SELECT " .
+		"HEX(lk_addr) addr, " .
+		"CASE " .
+		"	WHEN lk_same = 0 THEN " .
+		"		'' " .
+		"	ELSE " .
+		"		HEX(lk_same) " .
+		"END same, " .
+		"TRIM(r1.username) wait_user , " .
+		"r1.sid wait_sid, " .
+		"TRIM(r.username) owner_user, " .
+		"r.sid owner_sid, " .
+		"CASE " .
+		"        WHEN (MOD(lk_flags,2*2) >= 2) THEN " .
+		"                'HDR+'||f.txt " .
+		"        ELSE " .
+		"                f.txt " .
+		"END lock_type, " .
+		"CASE " .
+		"        WHEN lk_keynum = 0 THEN " .
+		"                TRIM(t2.dbsname)||':'||TRIM(t2.tabname) " .
+		"        ELSE " .
+		"                TRIM(t2.dbsname)||':'||TRIM(t2.tabname)||'#'||TRIM(t1.tabname) " .
+		"        END locked_object, " .
+		"lk_rowid, " .
+		"lk_partnum, " .
+		"DBINFO('utc_to_datetime', lk_grtime) " .
+		"FROM syslocktab l, flags_text f, systabnames t1, sysptnhdr p, systabnames t2, systxptab tx, sysrstcb r, outer sysrstcb r1 " .
+		"WHERE " .
+		"p.partnum = l.lk_partnum AND " .
+		"t2.partnum = p.lockid AND " .
+		"t1.partnum = l.lk_partnum AND " .
+		"l.lk_type =  f.flags AND " .
+		"f.tabname = 'syslcktab' AND " .
+		"tx.address = lk_owner AND " .
+		"r.address = tx.owner AND " .
+		"r1.address = lk_wtlist AND " .
+		"r.sid != DBINFO('sessionid') " .
+		"$ORDER_BY_CLAUSE";
+
+		$tab->display_tab_max("{$this->idsadmin->lang('TableLockList')}",
+		array(
+			"1" => "{$this->idsadmin->lang('LkAddr')}",
+			"2" => "{$this->idsadmin->lang('LkSame')}",
+			"3" => "{$this->idsadmin->lang('LkWaitUser')}",
+			"4" => "{$this->idsadmin->lang('LkWaitSid')}",
+			"5" => "{$this->idsadmin->lang('LkOwnerUser')}",
+			"6" => "{$this->idsadmin->lang('LkOwnerSid')}",
+			"7" => "{$this->idsadmin->lang('LkType')}",
+			"8" => "{$this->idsadmin->lang('LkObject')}",
+			"9" => "{$this->idsadmin->lang('LkRowId')}",
+			"10" => "{$this->idsadmin->lang('LkPartnum')}",
+			"11" => "{$this->idsadmin->lang('LkGranted')}",
+		),
+		$qry,
+		"template_gentab_order_locks.php",
+		$db,-1);
+
+	} // end locklist()
 
 
 	/**
@@ -149,7 +243,8 @@ class ixlocks {
 		"d.odb_sessionid = t.sid AND " .
 		"odb_iscurrent = 'Y' AND " .
 		"f.tabname = 'sysopendb' AND " .
-		"f.flags = d.odb_isolation " .
+		"f.flags = d.odb_isolation AND " .
+		"t.sid != DBINFO('sessionid') " .
 		"GROUP BY 1,2,8,9,10,11,12 " .
 		"$ORDER_BY_CLAUSE";
 
@@ -211,26 +306,29 @@ class ixlocks {
 		$tab = new gentab(&$this->idsadmin);
 
 		$qry =  "SELECT " .
-		"dbsname , " .
-		"tabname, " .
-		"SUM(pf_rqlock) AS lockreq, " .
-		"SUM(pf_wtlock) AS lockwaits, " .
-		"SUM(pf_deadlk) AS deadlocks, " .
-		"SUM(pf_lktouts) AS locktimeouts " .
-		"FROM sysptntab, systabnames  " .
-		"WHERE sysptntab.tablock = systabnames.partnum " .
+		"t.dbsname , " .
+		"t.tabname, " .
+		"COUNT(l.partnum) AS lockcnt, " .
+		"SUM(p.pf_rqlock) AS lockreq, " .
+		"SUM(p.pf_wtlock) AS lockwaits, " .
+		"SUM(p.pf_deadlk) AS deadlocks, " .
+		"SUM(p.pf_lktouts) AS locktimeouts " .
+		"FROM sysptntab p, systabnames t, outer syslcktab l " .
+		"WHERE p.tablock = t.partnum AND " .
+		"( (l.partnum = p.tablock AND l.rowidn != 0) OR (l.partnum = p.partnum AND l.rowidn = 0) ) " .
 		"GROUP BY 1,2 " .
-		"HAVING SUM(pf_rqlock) > 0 " . 
+		"HAVING SUM(p.pf_rqlock) > 0 " . 
 		"$ORDER_BY_CLAUSE" ;
 
 		$tab->display_tab_max("{$this->idsadmin->lang('TableLocksPerTable')}",
 		array(
 			"1" => "{$this->idsadmin->lang('Database')}",
 			"2" => "{$this->idsadmin->lang('TableName')}",
-			"3" => "{$this->idsadmin->lang('LockReqs')}",
-			"4" => "{$this->idsadmin->lang('LockWaits')}",
-			"5" => "{$this->idsadmin->lang('DeadLocks')}",
-			"6" => "{$this->idsadmin->lang('LocksTout')}",
+			"3" => "{$this->idsadmin->lang('LockCnt')}",
+			"4" => "{$this->idsadmin->lang('LockReqs')}",
+			"5" => "{$this->idsadmin->lang('LockWaits')}",
+			"6" => "{$this->idsadmin->lang('DeadLocks')}",
+			"7" => "{$this->idsadmin->lang('LocksTout')}",
 		),
 		$qry,
 		"template_gentab_order.php",
