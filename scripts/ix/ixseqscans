@@ -41,7 +41,7 @@ done
 shift $OPTIND-1
 
 
-SO=`uname -s | tr [:upper:] [:lower:]`
+SO=`uname -s | tr "[:upper:]" "[:lower:]"`
 case $SO in
 sunos*)
         AWK=nawk

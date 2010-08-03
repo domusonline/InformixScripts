@@ -291,7 +291,7 @@ run_worker()
 	fi
 
 
-	IDS_MAJOR_VERSION=`onstat -V | tr [:upper:] [:lower:] | sed "s/\(.* \)\([0-9]\{1,2\}\)\(\..*\)/\2/"`
+	IDS_MAJOR_VERSION=`onstat -V | tr "[:upper:]" "[:lower:]" | sed "s/\(.* \)\([0-9]\{1,2\}\)\(\..*\)/\2/"`
 
 	if [ -x ${FUNCTION_FILE} ]
 	then

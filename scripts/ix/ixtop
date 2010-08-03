@@ -79,7 +79,7 @@ get_args()
 				exit 1
 			fi
 			PARTITION_FLAG=1
-			OPTARG=`echo $OPTARG | tr [:lower:] [:upper:]`
+			OPTARG=`echo $OPTARG | tr "[:lower:]" "[:upper:]"`
 			case $OPTARG in
 			DATABASE)
 				PARTITION_ORDER_BY=dbsname
@@ -145,7 +145,7 @@ get_args()
 				exit 1
 			fi
 			SESSION_FLAG=1
-			OPTARG=`echo $OPTARG | tr [:lower:] [:upper:]`	
+			OPTARG=`echo $OPTARG | tr "[:lower:]" "[:upper:]"`	
 			SESSION_ORDER_BY=${OPTARG}
 			case $OPTARG in
 			ISAMREADS)
@@ -621,7 +621,7 @@ then
 	exit 1
 fi
 
-SO=`uname -s | tr [:upper:] [:lower:]`
+SO=`uname -s | tr "[:upper:]" "[:lower:]"`
 case $SO in
 	sunos*)
 		AWK=nawk

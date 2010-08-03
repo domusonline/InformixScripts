@@ -35,7 +35,7 @@ trap clean_up_function 0
 PROGNAME=`basename $0`
 VERSION=`echo "$Revision$" | cut -f2 -d' '`
 
-SO=`uname -s | tr [:upper:] [:lower:]`
+SO=`uname -s | tr "[:upper:]" "[:lower:]"`
 case $SO in
 sunos*)
         AWK=nawk
@@ -79,7 +79,7 @@ do
                 ;;
         d)   # 
                 DBSPACE_LIST_FLAG=1
-                DBSPACE_LIST=`echo "$OPTARG" | tr [:upper:] [:lower:]`
+                DBSPACE_LIST=`echo "$OPTARG" | tr "[:upper:]" "[:lower:]"`
 		echo $DBSPACE_LIST | grep "^[a-z][a-z0-9_]*\(,[a-z][a-z0-9_]*\)*$" >/dev/null
 		if [ $? != 0 ]
 		then
