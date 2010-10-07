@@ -393,16 +393,36 @@ TableLocks()
 		#Table given in database:table syntax
 		DBNAME=`echo ${TABLE} | cut -f1 -d':'`
 		TABNAME=`echo ${TABLE} | cut -f2 -d':'`
+		echo $TABNAME | grep "\." > /dev/null
+		if [ $? = 0 ]
+		then
+			OWNER=`echo ${TABNAME} | cut -f1 -d '.'`	
+			TABNAME=`echo ${TABNAME} | cut -f2 -d '.'`	
+		else
+			OWNER='%'
+		fi
 	        PARTNUM=`dbaccess sysmaster <<EOF 2>/dev/null | grep "^partnum:*"
 SELECT "partnum:"||partnum
 FROM systabnames
 WHERE dbsname = "$DBNAME"
-AND tabname = "$TABNAME";
+AND tabname = "$TABNAME"
+AND owner LIKE "$OWNER";
 EOF
 `
+
+		if [ "X${PARTNUM}" = "X" ]
+		then
+			echo "${PROGNAME}: Table ${TABLE} was not found!" >&2
+			exit 1
+		fi
 		PARTNUM=`echo $PARTNUM | cut -f2 -d':'`
 		PARTNUM=` echo $PARTNUM | ${IX_AWK} '{ printf("%x\n",$1) }'`
-		echo "Database ($DBNAME); Table ($TABNAME); PartNum ($PARTNUM)"
+		if [ "X${OWNER}" != "%" ]
+		then
+			echo "Database ($DBNAME); Table (${OWNER}.${TABNAME}); PartNum ($PARTNUM)"
+		else
+			echo "Database ($DBNAME); Table ($TABNAME); PartNum ($PARTNUM)"
+		fi
 	else
 		TABLE=`echo $TABLE | tr "[:upper:]" "[:lower:]"`
 		echo $TABLE | grep "[a-f]"  >/dev/null
@@ -653,11 +673,19 @@ fi
 if [ "X${TABLE_LOCK_FLAG}" = "X1" ]
 then
 	TableLocks
+	if [ $? != 0 ]
+	then
+		break
+	fi
 fi
 
 if [ "X${TABLE_XLOCK_FLAG}" = "X1" ]
 then
 	TableXLocks
+	if [ $? != 0 ]
+	then
+		break
+	fi
 fi
 
 if [ "X${USER_LOCK_FLAG}" = "X1" ]
