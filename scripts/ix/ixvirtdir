@@ -13,7 +13,7 @@ usage()
 {
 	echo "$PROGNAME Usage:" >&2
 	echo "$PROGNAME <existing INFORMIXDIR> <new virt INFORMIXDIR> <version> [ {DBSA GROUP} {AAO_GROUP} {DBSSO_GROUP} ]" >&2
-	echo "          <version> is 7, 9 10, 11 or 11.5" >&2
+	echo "          <version> is 7, 9 10, 11, 11.5 or 11.7" >&2
 }
 
 
@@ -79,8 +79,14 @@ case $IX_VERSION in
 	IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp ids_license gskit gsk"
 	OPTIONAL_DIRS=snmp
 	;;
+11.7)
+	IX_SUB_DIRS="SDK aaodir bin dbssodir demo doc etc extend forms gls gskit help incl isa lib license msg properties release ssl tmp uninstall jdbc"
+	IX_DIRS="SDK bin demo doc extend forms gls gskit help incl isa lib license msg properties release ism jdbc"
+	OPTIONAL_DIRS="jdbc ism"
+	#ism as optional?
+	;;
 *)
-	echo "Version can only be 7, 9, 10, 11 or 11.5" >&2
+	echo "Version can only be 7, 9, 10, 11 or 11.5, 11.7" >&2
 	usage
 	exit 1
 	;;
@@ -142,15 +148,22 @@ for dir in $IX_SUB_DIRS
 do
 	if [ ! -d $EXISTING_IXDIR/$dir ]
 	then
-		case $dir in
-		${OPTIONAL_DIRS})
-			echo "$EXISTING_IXDIR/$dir does not exist!... Skiping..." >&2
-			;;
-		*)
+		AUX_FLAG=0
+		for aux in ${OPTIONAL_DIRS}
+		do
+			if [ "X${dir}" = "X${aux}" ]
+			then
+				echo "$EXISTING_IXDIR/$dir does not exist!... Skiping..."
+				AUX_FLAG=1
+				break
+			fi
+		done
+				
+		if [ $AUX_FLAG = 0 ]
+		then
 			echo "$EXISTING_IXDIR/$dir does not exist!... Aborting..." >&2
 			exit 1
-			;;
-		esac
+		fi
 	fi
 done
 
