@@ -1,0 +1,65 @@
+INTRODUCTION:
+====================================================================================================
+
+This is the first public release of my updstats shell scripts
+The software is distributed accordingly to the GPL 2.0 license:
+
+http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+DISCLAIMER:
+====================================================================================================
+
+This software is provided AS IS, without any kind of guarantee. Use at your own risk.
+Although the author is an IBM employee, this software was developed outside his job scope. As such
+any responsability and credits are due solely to the author.
+
+
+REQUIREMENTS:
+====================================================================================================
+This software should work in any Unix/Linux version, using KSH or BASH. CSH usage may be possible
+but has not been tested
+
+
+INSTALL:
+====================================================================================================
+
+Unpack the two scripts (tbl_udpstats and dbs_updstats) into a directory in your PATH
+
+
+USAGE:
+====================================================================================================
+
+dbs_updstats will allow you to run statistics for a whole database, a subset of tables and
+procedures
+
+tbl_updstats will allow you to run statistics for one specific table.
+
+Both scripts accept -V to show version and -h to show help.
+Help should be self explanatory... in any case a few notes:
+
+1- tbl_updstats -l option allows a quick LOW mode to be run. Although LOW suggests it's quick,
+in reality it can be the slowest step of update statistics. This is because the system will have to
+read all the index pages in an ordered way which causes physical scatered reads.
+Option -l will workaround this by running low with a column that does not belong to any index.
+This of course will have consequences. Only number of rows and number of pages in systables will be
+updated. No index info will be collected.
+
+2- Traditionaly there was a problemwith update statisctis in ANSI databases. Since the updates on
+systables is done in a transaction (due to the nature of ANSI databases), some locking errors would
+happen. If this is an issue check APAR IC57589:
+
+http://www.ibm.com/support/docview.wss?uid=swg1IC57589
+
+
+
+TODO:
+====================================================================================================
+
+- Create some documentation besides the help included in the scripts
+- When we run dbs_updstats it calls tbl_updstats for each table. This then calls dbacces...
+For system with many small (or empty) tables like Baan/Infor systems this may have a noticeable
+performance impact. Ideally dbs_updstats would prepare all the SQL statements and run all of them
+in just dbaccess session.
+
+The author can be reached by email at: domusonline@gmail.com
+
