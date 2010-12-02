@@ -7,23 +7,27 @@
 # Revised by: $Author$ 
 # Support: Fernando Nunes - domusonline@gmail.com
 
-set_clean_path()
+setinfx_trap_int()
 {
-	old_path="$1"
+	return 6
+}
 
-	if [ -r ${INFX_ETC}/${INFX_PARAMS} ]
-	then
-		a=1
-	else
-		echo "Cannot locate file $INFX_ETC/$INFX_PARAMS" >&2
-		return 1
-	fi
-	new_path=`echo "$old_path" | $AWK -F: ' \
-	BEGIN { a=0;
+setinfx_set_clean_path()
+{
+	SETINFX_OLD_PATH="$1"
+	SETINFX_OLD_LIB_PATH="$2"
+
+	$AWK -v SYSTEM_LIB_PATH="${SETINFX_SYS_LD_LIB_PATH=}" -F: ' \
+	BEGIN { 
+		#-----------------------------------------------------
+		# Creates a list of paths to clean
+		#-----------------------------------------------------
+		a=0;
 		idx=0;
-		params_file=sprintf("%s/'$INFX_PARAMS'","'$INFX_ETC'");
-		while ( getline ifmxpath[++idx] < params_file ) {
-			if  ( ifmxpath[idx] ~ "^[a-z]*:.*" )
+		params_file=sprintf("%s/'$INFX_PARAMS'","'$IFMXETC'");
+		while ( getline ifmxpath[++idx] < params_file )
+		{
+			if  ( ifmxpath[idx] ~ /^[a-z_A-Z][a-z_A-Z]*:.*/ )
 			{
 				idx--;
 			}
@@ -32,393 +36,438 @@ set_clean_path()
 				a=1;
 			}
 		}
-		if ( a == 0 ) {
+		PATH_IDX=idx;
+		#-----------------------------------------------------
+		# Add SYSTEM_LIB_PATH to the above list...
+		#-----------------------------------------------------
+		i=split(SYSTEM_LIB_PATH,system_ld,'/:/')
+		for (n=1;n<=i;n++)
+		{
+			ifmxpath[++idx]=system_ld[n];
+		}
+		LIB_PATH_IDX=idx;
+		if ( a == 0 )
+		{
 			print "NO param lines !";
 			exit (-1);
 		}
 	}
-	{ 
-		for ( wrd=1; wrd<=NF; wrd++) {
+	{
+		ADD_SEP=0;
+		for ( wrd=1; wrd<=NF; wrd++)
+		{
 			if ( $wrd == " " )
 				next;
 			dontprint=0;
-			for ( jdx=1;jdx<=idx;jdx++ ) {
-				if ( $wrd ~ "^"ifmxpath[jdx] ) {
+			for ( jdx=1;jdx<=LIB_PATH_IDX;jdx++ )
+			{
+				if (NR == 1 && ( (jdx+0) > (PATH_IDX+0)) )
+					break;
+				if ( $wrd ~ "^"ifmxpath[jdx] )
+				{
 					dontprint=1;
 					jdx=idx+1;
 				}
 			}
-			if ( dontprint == 0 && $wrd != "" ) {
-				printf("%s:",$wrd);
+			if ( dontprint == 0 && $wrd != "" )
+			{
+				if (ADD_SEP == 0)
+				{
+					printf("%s",$wrd);
+					ADD_SEP=1;
+				}
+				else
+					printf(":%s",$wrd);
 			} 
 		}
-	} '`
-	echo $new_path
+		printf " ";
+	}' <<EOF
+$SETINFX_OLD_PATH
+$SETINFX_OLD_LIB_PATH
+EOF
 } 
 
 
 
-main()
+setinfx_main()
 {
 
-SO=`uname -s | tr "[A-Z]" "[a-z]"`
-case $SO in
-sunos*)
-	AWK=nawk
-	AWK_FALLBACK=awk
-	ID_FLAGS=-a
-	;;
-osf*|hp-ux)
-	AWK=gawk
-	AWK_FALLBACK=awk
-	ID_FLAGS=
-	;;
-linux|*)
-	AWK=awk
-	AWK_FALLBACK=NO
-	ID_FLAGS=
-	;;
-esac
+# to prevent background jobs when CTRL+C in read... (Tru64)
+trap setinfx_trap_int 2
 
-which ${AWK} | grep "^/.*${AWK}$" >/dev/null
-if [ $? != 0 ]
-then
-	if [ "X${AWK_FALLBACK}" = "XNO" -o "X${AWK_FALLBACK}" = "X" ]
-	then
-		echo "Cannot find ${AWK} and there is no AWK_FALLBACK defined" >&2
-		return 1
-	else
-		AWK=${AWK_FALLBACK}
-	fi
-fi
+SETINFX_HOSTNAME=`hostname`
 
-export AWK
+#----------------------------------------------------------------------------
+# Find the configuration file...
+#----------------------------------------------------------------------------
 
-# test tty if run by background
-if [ "X$SETINFX_SILENT" = "X" ]
-then
-        tty 1>/dev/null 2>/dev/null
-        not_a_tty=$?
-else
-        not_a_tty=1
-fi
-
-
-INFORMIX_HOME=`grep "^informix:" /etc/passwd | cut -f6 -d':'`
-CONF_DIRS="${INFORMIX_HOME}/etc /usr/bin/utils /usr/bin/scripts"
-for DIR in ${CONF_DIRS}
+# ~informix is not expanded in some systems
+SETINFX_INFORMIX_HOME=`grep "^informix:" /etc/passwd | cut -f6 -d':'`
+SETINFX_CONF_DIRS="${SETINFX_INFORMIX_HOME}/etc /usr/bin/utils /usr/bin/scripts"
+unset SETINFX_INFORMIX_HOME
+for SETINFX_DIR in ${SETINFX_CONF_DIRS}
 do
-	if [ -r ${DIR}/${INFX_CONF} ]
+	if [ -r ${SETINFX_DIR}/${INFX_CONF} ]
 	then
-		INFX_ETC=${DIR}
-		export INFX_ETC
+		IFMXETC=${SETINFX_DIR}
+		export IFMXETC
 		break
 	fi
 done
-if [ "X${INFX_ETC}" = "X" ]
+unset SETINFX_CONF_DIRS SETINFX_DIR
+
+if [ "X${IFMXETC}" = "X" ]
 then
 	echo "Configuration files not found" >&2
 	return 1
 fi
 
-user=`id | $AWK -F"[()]" ' { print $2 } '`
-ixadmingroups="`grep '^admingroups:' ${INFX_ETC}/${INFX_PARAMS}`"
-if [ $? = 0 ]
+if [ ! -r ${IFMXETC}/${INFX_PARAMS} ]
 then
-	ixadmingroups=`echo "$ixadmingroups" | cut -f2 -d':'`
-else
-	ixadmingroups=ixdba
+	echo "Cannot locate file $IFMXETC/$INFX_PARAMS" >&2
+	return 1
 fi
 
-userdba=0
-for ixadmingroup in $ixadmingroups
-do
-	id ${ID_FLAGS} | grep "(${ixadmingroup})" >/dev/null
-	if [ $? = 0 ]
-	then
-		userdba=1
-		break
-	fi
-done
+#----------------------------------------------------------------------------
+# Check the user
+#----------------------------------------------------------------------------
+SETINFX_USER=`id | $AWK -F"[()]" ' { print $2 } '`
 
-if [ $user = "informix" -o $user = "root" -o ${userdba} = 1 ]
+#----------------------------------------------------------------------------------------------
+# Check the specified System Library Path. If defined should be put at the head of the variable
+#----------------------------------------------------------------------------------------------
+SETINFX_SYS_LD_LIB_PATH="`grep '^system_ld_library_path *:' ${IFMXETC}/${INFX_PARAMS}`"
+if [ $? = 0 ]
 then
-	usertype="adm"
+	SETINFX_SYS_LD_LIB_PATH=`echo $SETINFX_SYS_LD_LIB_PATH | $AWK -F':' '{print $2}'`
 else
-	usertype="prg"
+	SETINFX_SYS_LD_LIB_PATH=""
 fi
 
 case $1 in
 L)
-	usertype="prg"
+	#-----------------------------------------------------------
+	# To allow privilege users to see unprivileged users options
+	#-----------------------------------------------------------
+	SETINFX_USERTYPE="prg"
 	set l
 	;;
--[0-9][0-9]*)
-	usertype="prg"
+-[0-9]|-[0-9][0-9]|-[0-9][0-9][0-9])
+	#-----------------------------------------------------------
+	# To allow privilege users choose unprivileged users options
+	#-----------------------------------------------------------
+	SETINFX_USERTYPE="prg"
 	set `echo $1 | sed 's/\-//g'`
 	;;
 [0-9]|[0-9][0-9]|[0-9][0-9][0-9]|l)
-	dummy=1
+	if [ $SETINFX_USER = "informix" -o $SETINFX_USER = "root" ]
+	then
+		SETINFX_USERTYPE="adm"
+	else
+		SETINFX_USERTYPE="prg"
+		SETINFX_IX_ADMIN_GROUPS="`grep '^admingroups *:' ${IFMXETC}/${INFX_PARAMS}`"
+		if [ $? = 0 ]
+		then
+			SETINFX_IX_ADMIN_GROUPS=`echo "$SETINFX_IX_ADMIN_GROUPS" | cut -f2 -d':'`
+			for SETINFX_ADMIN_GROUP in $SETINFX_IX_ADMIN_GROUPS
+			do
+				id ${SETINFX_ID_FLAGS} | grep "(${SETINFX_ADMIN_GROUP})" >/dev/null
+				if [ $? = 0 ]
+				then
+					SETINFX_USERTYPE="adm"
+					break
+				fi
+			done
+		fi
+	fi
 	;;
 *)
-	echo "Error in parameter (function main): $1" >&2
+	echo "Error in parameter (function setinfx_main): $1" >&2
 	return 1
 	;;
 esac
-server_ok=0
 
+SETINFX_AUX="`setinfx_set_clean_path $PATH $LD_LIBRARY_PATH`"
+read SETINFX_CLEAN_PATH SETINFX_CLEAN_LD_LIB_PATH<<EOF
+$SETINFX_AUX
+EOF
 
-#-----------------------------------------
-# Real number of environments in this file
-# Create a list of "inactive" environments
-#-----------------------------------------
-fmaux=`$AWK -F"|" ' BEGIN { usertype="'$usertype'";lnnum=0 }
-$1 !~ "#" && $0 !~ "^$" \
-{
-	if ( NF < 7)
-	{
-		if ( $1 ~ "^inactivo")
-		{
-				invalid_list=sprintf("%s%d ", invalid_list,++lnnum);
-		}
+SETINFX_SELECT_OPT=$1
+
+SETINFX_LINHA_CONF=\
+`$AWK -F"|" -v NOPRINT=${SETINFX_NOT_A_TTY} ' BEGIN { 
+		SELECT_OPT="'$SETINFX_SELECT_OPT'";
+		idx=0;
+		if ( SELECT_OPT == "l" )
+			if ( NOPRINT == 0 ) printf("List of available INFORMIX environments on %s      (setinfx version '$SETINFX_VERSION')\n\n","'$SETINFX_HOSTNAME'") > "/dev/tty" ;
+		lnnum=0;
+		TOOLS_CR_FILES[1]="I4GL";
+		TOOLS_CR_FILES[2]="I4GP";
+		TOOLS_CR_FILES[3]="ISQL";
+		TOOLS_CR_FILES[4]="ClientSDK";
+		TOOLS_CR_LIMIT=4;
 	}
-	else
-	{
-		if ( "'$usertype'" != "adm" && $7 == "S" ) {next} ;
-		lnnum++
-		if ( $1 ~ "^inactivo")
+	$1 !~ "#" && $0 !~ "^$" { 
+		if ( NF < 7 ) 
+		{ 
+			if ( $1 !~ "^inactiv")
+			{
+				printf ("Line # %d in configuration file has incorrect format\n", FNR) > "/dev/tty";
+				exit 1;
+			}
+			else
+			{
+				lnnum++;
+				next
+			}
+		}	
+		if ( "'$SETINFX_USERTYPE'" != "adm" && $7 == "S" )
 		{
-			invalid_list=sprintf("%s%d ", invalid_list,lnnum);
+			next ;
 		}
-	}
-} 
-END { print lnnum "+" invalid_list } ' ${INFX_ETC}/${INFX_CONF}`
+		if ( $1 ~ "^inactiv")
+		{
+			lnnum++;
+			next
+		}
+		lnnum++;
+		if ( $7 !~ "[SsDdY]" ) { 
+			printf("Line %d : INVALID envtype %s\n",lnnum,$7) > "/dev/tty";
+			exit 2;
+		}
+		if ( $2 == "" ) {
+			printf("Line %d : NULL INFORMIXSERVER\n",lnnum) > "/dev/tty";
+			exit 2;
+		}
+		if ( $4 == "" ) {
+			printf("Line %d : NULL INFORMIXDIR\n",lnnum) > "/dev/tty";
+			exit 2;
+		}
+		if ( $3 == "" )
+		{
+			if ( $7 ~ "[Ss]")
+			{
+				printf("Line %d : NULL ONCONFIG\n",lnnum) > "/dev/tty";
+				exit 2;
+			}
+			ONCONFIG="NULL";
+		}
+		else
+			ONCONFIG=$3;
 
+		if ( $6 == "" )
+			SQLHOSTS="NULL";
+		else
+			SQLHOSTS=$6;
 
-maxsrv=`echo "$fmaux" | cut -f1 -d'+'`
-INVALID_LIST=`echo $fmaux | cut -f2 -d'+'`
-
-if [ $1 = "l" ]
-then
-	option="list"
-else
-	if [ $1 -ge 1 -a $1 -le $maxsrv ]
-	then
-		for f in $INVALID_LIST
-		do
-			if [ $1 -eq $f ]
-			then
-				echo "Invalid environment selected" >&2
-				return 1
-			fi
-		done
-		option="chosen"
-		server_num=$1
-	else
-		echo "Usage: . setinfx < l(ist) |  1-$maxsrv >"
-		return 1
-	fi
-fi
-
-clean_path=`set_clean_path $PATH`
-
-if [ $option = "list" ]
-then
-	attempts=0
-	while [ $server_ok -eq 0 ]
-	do
-		clear
-		attempts=`expr $attempts + 1`
-		if [ $attempts -gt 5 ]
-		then
-			echo "too many attempts, exiting"
-			return 1
-		fi
-		$AWK -F"|" ' BEGIN \
-			{ 
+		if ( $10 == "" )
+			EXTRA_SCRIPT="NULL";
+		else
+			EXTRA_SCRIPT=$10;
 			
-			"hostname" | getline HOSTNAME
-			printf("List of available INFORMIX environments on %s      (setinfx version '$VERSION')\n\n",HOSTNAME) > "/dev/tty" ;
-			usertype="'$usertype'";
-			lnnum=0;
-			} #BEGIN
-			$1 !~ "#" && $0 !~ "^$" \
-			{ 
-					if ( NF < 7 ) 
-					{ 
-						if ( $1 !~ "^inactivo")
+		lines[lnnum]=sprintf("%s %s %s %s %s %s %s %s %s\n", lnnum, $2, ONCONFIG, $4, $5, SQLHOSTS, $7, EXTRA_SCRIPT, $1);
+		if ( SELECT_OPT == "l")
+		{
+	
+			if ( $7 ~ "[Ss]" ) {
+				cmd1=sprintf("ls -1t %s/etc/*-cr | egrep \"IDS|IIF\" | head -1",$4);
+				cmd1 | getline file;
+				close(cmd1);
+			}
+
+
+			if ( $7 ~ "[Dd]" )
+			{
+				for ( n=1;n<=TOOLS_CR_LIMIT;n++)
+				{
+					file=sprintf("%s/etc/%s-cr",$4,TOOLS_CR_FILES[n]);
+					aux=getline dummy_var < file;
+					close(file);
+					if ( aux != -1 )
+					{
+						break;
+					}
+				}
+				if ( aux == -1 )
+				{
+					printf "No valid CR file for environment %d\n", lnnum > "/dev/tty";
+					exit 2;
+				}
+		
+				
+				
+			}
+			if ( $7 == "Y" )
+				file=sprintf("%s/etc/D4GL-cr",$5);
+				cmd=sprintf("cat %s/etc/D4GL-cr",$5);
+	
+			getline vers < file;
+			close(file);
+			if ( NOPRINT == 0 ) printf("%2d) %-30s (%s)\n",lnnum,$1,vers) > "/dev/tty" ;
+		}
+		
+		display[lnnum]=sprintf("%2d) %-30s (%s)\n",lnnum,$1,vers);
+		if ( SELECT_OPT != "l")
+		{
+			if (lnnum == SELECT_OPT)
+			{
+				printf "%s\n", lines[lnnum];
+				exit 0;
+			}
+			else
+			{
+				if ((lnnum + 0) > (SELECT_OPT+0))
+				{
+					printf "The selected environment is inactive %s %s!\n",lnnum,SELECT_OPT > "/dev/tty"
+					exit 2;
+				}
+			}
+		}
+	} 
+	END {
+		
+		ATTEMPTS=5;
+		if ( SELECT_OPT == "l")
+		{
+			while(ATTEMPTS>0) \
+			{
+				if ( NOPRINT == 0 ) printf("\nChoose an environment number (1-%d q to quit) : ",lnnum) > "/dev/tty";
+				getline SELECT_OPT <"/dev/tty";
+				if ( SELECT_OPT ~ /^[0-9][0-9]*/ )
+				{
+					if (SELECT_OPT > lnnum )
+					{
+						if ( NOPRINT == 0 ) printf "Invalid environment selected (environment does not exist)\n" >"/dev/tty";
+					}
+					else
+					{
+						if ( lines[SELECT_OPT] != "" )
 						{
-							printf ("Line # %d in configuration file has incorrect format\n",
-							FNR) > "/dev/tty";
-							exit -1;
+							print lines[SELECT_OPT];
+							exit 0;
 						}
 						else
 						{
-							lnnum++;
-							next
+							if ( NOPRINT == 0 ) printf "An inactive environment was selected\n" > "/dev/tty";
 						}
-					}	
-					if ( "'$usertype'" != "adm" && $7 == "S" ) next ;
-					if ( $1 ~ "^inactivo")
-					{
-						lnnum++;
-						next
 					}
-						
-					cmd="";
-
-					if ( $7 !~ "[SsDdY]" ) { 
-						printf("Line %d : INVALID envtype %s\n",lnnum+1,$7);
-						exit -1;
-					}
-
-					if ( $7 ~ "[Ss]" ) {
-						cmd1=sprintf("ls -1t %s/etc/*-cr | egrep \"IDS|IIF\" | head -1",$4)
-						cmd1 | getline file;
-						close(cmd1);
-						cmd=sprintf("cat %s",file);
-					}
-
-
-					if ( $7 ~ "[Dd]" )
-					{
-						cmd1=sprintf("ls -1t %s/etc/*-cr | egrep \"I4GL|ClientSDK|ISQL\" | head -1",$4)
-						cmd1 | getline file;
-						close(cmd1);
-						cmd=sprintf("cat %s",file);
-					}
-					if ( $7 == "Y" )  cmd=sprintf("cat %s/etc/D4GL-cr",$5);
-
-					cmd | getline vers;
-					close(cmd);
-					printf("%2d) %-30s (%s)\n",++lnnum,$1,vers) > "/dev/tty" 
-			} 
-			END {
-				printf("\nChoose an environment number (1-%d q to quit) : ",lnnum) \
-				> "/dev/tty"  }  \
-				' $INFX_ETC/$INFX_CONF
-
-			if [ $? -ne 0 ]
-			then
-				echo "Configuration file has incorrect format" >&2
-				return 1
-			fi
-			read server_num
-			case $server_num in
-			[Qq] )
-				echo "Exiting without choosing an environment"
-				return 1;;
-			[0-9]*)
-				a=1;;
-			*)
-				server_ok=0
-				continue ;;
-			esac
-			if [ $server_num -gt 0 ] && [ $server_num -le $maxsrv ]
-			then
-				server_ok=1
-				for f in $INVALID_LIST
-				do
-					if [ $server_num -eq $f ]
-					then
-						server_ok=0
-					fi
-				done
-			else
-				server_ok=0
-			fi	
-		done
-	fi
-
-	the_fnr=`$AWK -F"|" ' BEGIN {line_num=0;server_num='$server_num' } \
-	$1 !~ "#" && $0 !~ "^$" \
-	{ 
-		if ( "'$usertype'" != "adm" && $7 == "S" ) next;
-		if (++line_num == server_num) 
-		{ 
-			if ( '$not_a_tty' == 0 ) printf("\nWelcome to %s\n",$1) > "/dev/tty";
-			print FNR;exit
+				}
+				else
+				{
+						if ( SELECT_OPT ~ /[qQ]/ )
+						{
+							if ( NOPRINT == 0 ) printf "Exiting without choosing an environment\n" > "/dev/tty";
+							exit 1;
+						}
+						else
+							if ( NOPRINT == 0 ) printf "Invalid input. Must be numeric" >"/dev/tty";
+				}
+				if ( NOPRINT == 0 ) printf "\033[2J\033[;H" > "/dev/tty";
+				if ( NOPRINT == 0 ) printf("List of available INFORMIX environments on %s      (setinfx version '$SETINFX_VERSION')\n\n","'$SETINFX_HOSTNAME'") > "/dev/tty" ;
+				for(n=1;n<=lnnum;n++)
+				{
+					if ( display[n] != "" )
+						if ( NOPRINT == 0 ) printf "%s", display[n] > "/dev/tty";
+				}
+				ATTEMPTS--;
+			}
+			if ( NOPRINT == 0 ) printf "too many attempts, exiting\n" > "/dev/tty";
+			exit 3;
 		}
+		else
+			if ((SELECT_OPT+0) > (lnnum +0))
+			{
+				printf "Invalid environment selected (environment does not exist)\n" >"/dev/tty";
+				exit 2;
+			}
 	}
-' $INFX_ETC/$INFX_CONF`
-# now we export ALL the environment
+	' $IFMXETC/$INFX_CONF`
 
-#ENV_FILE=""
-#ENV_FILE=\
-#`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
-#NR == the_fnr { print $10 ; exit } ' $INFX_ETC/$INFX_CONF`
+SETINFX_RC=$?
+if [ $SETINFX_RC != 0 ]
+then
+	return $SETINFX_RC
+fi
 
+read SETINFX_CURRENT INFORMIXSERVER ONCONFIG INFORMIXDIR SETINFX_LNK_DIR INFORMIXSQLHOSTS SETINFX_ENVTYPE SETINFX_ENV_FILE SETINFX_ENV_DESC<<EOF
+$SETINFX_LINHA_CONF
+EOF
 
-LINHA_CONF=\
-`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' }
-NR == the_fnr \
-{ if ( $7 ~ "[SsDY]" ) { print $0 ; exit 0 } } ' $INFX_ETC/$INFX_CONF`
-
-ENVTYPE=`echo $LINHA_CONF | cut -f7 -d'|'`
-INFORMIXSERVER=`echo $LINHA_CONF | cut -f2 -d'|'`
-ONCONFIG=`echo $LINHA_CONF | cut -f3 -d'|'`
-INFORMIXDIR=`echo $LINHA_CONF | cut -f4 -d'|'`
-LNK_DIR=`echo $LINHA_CONF | cut -f5 -d'|'`
-INFORMIXSQLHOSTS=`echo $LINHA_CONF | cut -f6 -d'|'`
-IFMXDIR=$INFORMIXDIR
-ENV_FILE=""
-ENV_FILE=`echo $LINHA_CONF | cut -f10 -d'|'`
-
-export ENVTYPE
-export INFORMIXSERVER
-export INFORMIXSQLHOSTS
-export ONCONFIG
-export INFORMIXDIR
-export IFMXDIR
-export LNK_DIR
-
-
+if [ $SETINFX_NOT_A_TTY = 0 ]
+then
+	printf "Welcome to $SETINFX_ENV_DESC\n"
+fi
 
 if [ ! -d $INFORMIXDIR ]
 then
 	echo "INFORMIXDIR not valid $INFORMIXDIR"
 	return 1
 fi
-if [ "$ONCONFIG" != "" ]
-
+if [ "$ONCONFIG" != "NULL" ]
 then
 	if [ ! -r $INFORMIXDIR/etc/$ONCONFIG ]
 	then
 		echo "ONCONFIG not valid $ONCONFIG"
 		return 1
 	fi
+else
+	unset ONCONFIG
 fi
 
-if [ $ENVTYPE = "D" -o $ENVTYPE = "Y" ]
-then
-	clean_ld_library_path=`set_clean_path $LD_LIBRARY_PATH`
-
+case $SETINFX_ENVTYPE in
+s|S)
+	if [ -z "$SETINFX_CLEAN_LD_LIB_PATH" ]
+	then
+		unset LD_LIBRARY_PATH
+	else
+		LD_LIBRARY_PATH=$SETINFX_CLEAN_LD_LIB_PATH
+	fi
+	PATH="$SETINFX_CLEAN_PATH:$INFORMIXDIR/bin"
+	;;
+D|Y)
+	if [ ! -z "$SETINFX_CLEAN_LD_LIB_PATH" ]
+	then
+		SETINFX_CLEAN_LD_LIB_PATH="$SETINFX_CLEAN_LD_LIB_PATH:"
+	fi
 	LD_LIBRARY_PATH=`find $INFORMIXDIR/lib -type d | \
-	$AWK ' { if ( ld_l_p != "" ) ld_l_p=sprintf("%s:%s",ld_l_p,$1); \
-	else ld_l_p=$1;} END { printf("%s:%s",ld_l_p,"'$clean_ld_library_path'") }' `
+	$AWK -v system_ld_lib_path="${SETINFX_SYS_LD_LIB_PATH}" ' {
+		if ( ld_l_p != "" )
+		{
+			ld_l_p=sprintf("%s:%s",ld_l_p,$1);
+		}
+		else
+		{
+			ld_l_p=$1;
+		}		
+	}
+	END {
+		
+		if ( system_ld_lib_path != "" )
+			printf("%s:%s%s",system_ld_lib_path,"'$SETINFX_CLEAN_LD_LIB_PATH'", ld_l_p);
+		else
+			printf("%s%s","'$SETINFX_CLEAN_LD_LIB_PATH'", ld_l_p);
+	 }' `
 	export LD_LIBRARY_PATH
 
-	if [ $ENVTYPE = "D" ]
+	if [ $SETINFX_ENVTYPE = "D" ]
 	then
 		# Making aliases with servers utilities
 		# building pseudo tools in $INFORMIXDIR
-		IFMXSRVRDIR=$LNK_DIR
+		IFMXSRVRDIR=$SETINFX_LNK_DIR
 		export IFMXSRVRDIR
+		PATH=$SETINFX_CLEAN_PATH:$INFORMIXDIR/bin
 	fi
-	if [ $ENVTYPE = "Y" ] 
+	if [ $SETINFX_ENVTYPE = "Y" ] 
 	then
-		LINE=`tty | sed -e "s/^.*tty//"`
-		# preparing FGLSERVER
-		USERNAME=`who am i | $AWK '{ print $1 }'`
+		USERNAME=$SETINFX_USER
 		[ -z "$FGLSERVER" ] && FGLSERVER=`who am i | cut -f2 -d'(' | cut -f1 -d')'`
 		export FGLSERVER
 		FGLGUI=1
 		export FGLGUI
-		export FGLDIR=`$AWK -F"|" ' BEGIN { the_fnr='$the_fnr' } \
-		NR == the_fnr { print $5 ; exit } ' $INFX_ETC/$INFX_CONF`
-		# echo "FGLDIR $FGLDIR"
-		clean_path=$FGLDIR/bin:$clean_path
-		export clean_path
+		FGLDIR=$SETINFX_LNK_DIR
+		export FGLDIR
+		PATH=$SETINFX_CLEAN_PATH:$FGLDIR/bin:$INFORMIXDIR/bin
+
 		#------- Database frontend version
 
 		FGLDBS="ix711"
@@ -435,85 +484,149 @@ then
 
 		FGLLIBSYS="-ltli -lxti -lc -lm"
 		export FGLLIBSYS
-		LD_LIBRARY="zz"
-		export LD_LIBRARY
 	fi 
-fi
+	;;
+esac
 
 
 if [ ! -f $INFORMIXSQLHOSTS ]
 then
 	INFORMIXSQLHOSTS=$INFORMIXDIR/etc/sqlhosts
-	export INFORMIXSQLHOSTS
 	if [ ! -f "$INFORMIXSQLHOSTS" ]
 	then
 		echo "sqlhosts file not found, cannot connect"
 		return 1
 	fi
 fi
-sqlhok=\
-`$AWK ' $1 == "'$INFORMIXSERVER'" { ok++ } END { print ok }' $INFORMIXSQLHOSTS`
-if [ "$sqlhok" != "1" ]
+grep "^$INFORMIXSERVER[ 	]" $INFORMIXSQLHOSTS >/dev/null
+if [ $? != 0 ]
 then
 	echo "$INFORMIXSERVER not found in sqlhosts, cannot connect"
 	return 1
 fi
 
 
-SETINFX_CURRENT=${server_num}
+export INFORMIXSERVER
+export INFORMIXSQLHOSTS
+export ONCONFIG
+export INFORMIXDIR
 export SETINFX_CURRENT
-PATH="$INFORMIXDIR/bin:$clean_path"
 export PATH
+export LD_LIBRARY_PATH
 	
-onconf=$INFORMIXDIR/etc/$ONCONFIG
-export onconf
-if [ "$ENVTYPE" = "S" ] || [ "$ENVTYPE" = "s" ]
+if [ $SETINFX_USERTYPE = "adm" ]
 then
-	IFMXETC=${INFORMIX_HOME}/etc
-	export IFMXETC
-fi
-if [ $usertype = "adm" ]
-then
-	PS1="${INFORMIXSERVER}@`hostname`:${LOGNAME}-> "
+	PS1="${INFORMIXSERVER}@${SETINFX_HOSTNAME}:${LOGNAME}-> "
 	export PS1
 fi
 
-if [ "X${ENV_FILE}" != "X" ]
+if [ "X${SETINFX_ENV_FILE}" != "XNULL" ]
 then
-	. ${INFX_ETC}/${ENV_FILE}
+	. ${IFMXETC}/${SETINFX_ENV_FILE}
 fi
 }
 
+#-------------------------------------------------------------------------------
+# Script start...
+#-------------------------------------------------------------------------------
+
+SETINFX_SO=`uname -s | tr "[A-Z]" "[a-z]"`
+case $SETINFX_SO in
+sunos*)
+        AWK=nawk
+        SETINFX_AWK_FALLBACK=awk
+        SETINFX_ID_FLAGS=-a
+        ;;
+osf*|hp-ux)
+        AWK=gawk
+        SETINFX_AWK_FALLBACK=awk
+        SETINFX_ID_FLAGS=
+        ;;
+linux|*)
+        AWK=awk
+        SETINFX_AWK_FALLBACK=NO
+        SETINFX_ID_FLAGS=
+        ;;
+esac
+
+
+
+which ${AWK} | grep "^/.*${AWK}$" >/dev/null
+if [ $? != 0 ]
+then
+        if [ "X${SETINFX_AWK_FALLBACK}" = "XNO" -o "X${SETINFX_AWK_FALLBACK}" = "X" ]
+        then
+                echo "Cannot find ${AWK} and there is no SETINFX_AWK_FALLBACK defined" >&2
+                return 1
+        else
+                AWK=${SETINFX_AWK_FALLBACK}
+        fi
+fi
+
+export AWK
+
+SETINFX_ARGC=$#
+# test tty if run by background
+if [ "X$SETINFX_SILENT" = "X" ]
+then
+        tty 1>/dev/null 2>/dev/null
+        SETINFX_NOT_A_TTY=$?
+else
+	if [ "X$1" = "Xl" -o "X$1" = "XL" -o $SETINFX_ARGC = 0 ]
+	then
+		SETINFX_NOT_A_TTY=0
+	else
+	        SETINFX_NOT_A_TTY=1
+	fi
+fi
 
 case $0 in
--sh)
-	echo "setinfx does not work in sh environment. Please use ksh" >&2
+-sh|sh)
+	echo "setinfx does not work in sh environment. Please use ksh or bash" >&2
+	return 1
 	;;
 *)
 
-	VERSION=`echo "$Revision$" | cut -f2 -d' '`
-	if [ -z "${INFX_CONF}" ]
+	SETINFX_VERSION=`echo "$Revision$" | cut -f2 -d' '`
+	if [ -z "${SETINFX_CONF}" ]
 	then
 		INFX_CONF=infx_env.lst
+	else
+		INFX_CONF=$SETINFX_CONF
 	fi
-	INFX_PARAMS=setinfx.params
-	argc=$#
-	if [ "X$SETINFX_SILENT" = "X" ]
+
+	if [ -z "${SETINFX_PARAMS}" ]
 	then
-		clear
+		INFX_PARAMS=setinfx.params
+	else
+		INFX_PARAMS=${SETINFX_PARAMS}
+	fi
+
+	if [ "X$SETINFX_NOT_A_TTY" = "X0" ]
+	then
+		printf "\033[2J\033[;H"
 	fi
 
 	# checking params
-	case $argc in
+	case $SETINFX_ARGC in
 	1)
-		main $1
+		setinfx_main $1
+		SETINFX_RC=$?
+		#-------------------------------------------------------------------------------------------------------
+		# This shift is required because since the script is sourced, the argument list would prevail forever...
+		#-------------------------------------------------------------------------------------------------------
 		shift
 		;;
 	0)
-		main l
+		setinfx_main l
+		SETINFX_RC=$?
 		;;
 	*)
 		echo "Usage: . setinfx < l(ist) | 1-$maxsrv >"
 	esac
+	unset SETINFX_AUX SETINFX_AWK_FALLBACK SETINFX_ID_FLAGS INFX_CONF INXF_PARAMS SETINFX_LINHA_CONF SETINFX_SELECT_OPT SETINFX_SO INFX_PARAMS INFX_CONF
+	unset SETINFX_HOSTNAME SETINFX_IX_ADMIN_GROUPS SETINFX_ADMIN_GROUP SETINFX_ENV_DESC SETINFX_ENV_FILE SETINFX_NOT_A_TTY INFORMIX_HOME SETINFX_LNK_DIR
+	unset SETINFX_SYS_LD_LIB_PATH SETINFX_ARGC SETINFX_CLEAN_LD_LIB_PATH SETINFX_CLEAN_PATH SETINFX_USER SETINFX_USERTYPE SETINFX_ENVTYPE
+	return $SETINFX_RC
 	;;
 esac
