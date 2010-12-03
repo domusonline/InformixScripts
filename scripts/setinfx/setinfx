@@ -40,10 +40,13 @@ setinfx_set_clean_path()
 		#-----------------------------------------------------
 		# Add SYSTEM_LIB_PATH to the above list...
 		#-----------------------------------------------------
-		i=split(SYSTEM_LIB_PATH,system_ld,'/:/')
-		for (n=1;n<=i;n++)
+		if ( SYSTEM_LIB_PATH != "" && SYSTEM_LIB_PATH != " ")
 		{
-			ifmxpath[++idx]=system_ld[n];
+			i=split(SYSTEM_LIB_PATH,system_ld,'/:/')
+			for (n=1;n<=i;n++)
+			{
+				ifmxpath[++idx]=system_ld[n];
+			}
 		}
 		LIB_PATH_IDX=idx;
 		if ( a == 0 )
