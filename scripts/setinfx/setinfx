@@ -17,8 +17,13 @@ setinfx_set_clean_path()
 	SETINFX_OLD_PATH="$1"
 	SETINFX_OLD_LIB_PATH="$2"
 
-	$AWK -v SYSTEM_LIB_PATH="${SETINFX_SYS_LD_LIB_PATH=}" -F: ' \
+	$AWK -F: ' \
 	BEGIN { 
+		PATH="";
+		LD_LIB_PATH="";
+		ADMIN_GROUPS="NULL";
+		SYSTEM_LIB_PATH="NULL";
+		PATH_INFORMIXDIR_BIN="NULL";
 		#-----------------------------------------------------
 		# Creates a list of paths to clean
 		#-----------------------------------------------------
@@ -27,9 +32,19 @@ setinfx_set_clean_path()
 		params_file=sprintf("%s/'$INFX_PARAMS'","'$IFMXETC'");
 		while ( getline ifmxpath[++idx] < params_file )
 		{
-			if  ( ifmxpath[idx] ~ /^[a-z_A-Z][a-z_A-Z]*:.*/ )
+			if  ( ifmxpath[idx] ~ /^[ 	]*[a-z_A-Z][a-z_A-Z]*[ 	]*:.*/ )
 			{
+				n=split(ifmxpath[idx],config_var,'/:/');
+				if ( config_var[1] ~ /^admingroups/ )
+					ADMIN_GROUPS=config_var[2];
+				else
+					if ( config_var[1] ~ /^system_ld_library_path/ )
+						SYSTEM_LIB_PATH=config_var[2];
+					else
+						if ( config_var[1] ~ /^path_informixdir_bin/ )
+							PATH_INFORMIXDIR_BIN=config_var[2];
 				idx--;
+				
 			}
 			else
 			{
@@ -40,7 +55,7 @@ setinfx_set_clean_path()
 		#-----------------------------------------------------
 		# Add SYSTEM_LIB_PATH to the above list...
 		#-----------------------------------------------------
-		if ( SYSTEM_LIB_PATH != "" && SYSTEM_LIB_PATH != " ")
+		if ( SYSTEM_LIB_PATH != "NULL")
 		{
 			i=split(SYSTEM_LIB_PATH,system_ld,'/:/')
 			for (n=1;n<=i;n++)
@@ -57,10 +72,13 @@ setinfx_set_clean_path()
 	}
 	{
 		ADD_SEP=0;
+		LINE_OUT=""
 		for ( wrd=1; wrd<=NF; wrd++)
 		{
 			if ( $wrd == " " )
+			{
 				next;
+			}
 			dontprint=0;
 			for ( jdx=1;jdx<=LIB_PATH_IDX;jdx++ )
 			{
@@ -76,14 +94,23 @@ setinfx_set_clean_path()
 			{
 				if (ADD_SEP == 0)
 				{
-					printf("%s",$wrd);
+					LINE_OUT=$wrd;
 					ADD_SEP=1;
 				}
 				else
-					printf(":%s",$wrd);
+					LINE_OUT=LINE_OUT":"$wrd;
 			} 
 		}
-		printf " ";
+		if ( LINE_OUT == "" )
+			LINE_OUT="NULL";
+		if (NR == 1)
+			PATH=LINE_OUT;
+		else
+			if ( NR == 2 )
+				LD_LIB_PATH=LINE_OUT;
+	}
+	END {
+		printf "%s %s %s %s %s", PATH, LD_LIB_PATH, PATH_INFORMIXDIR_BIN, SYSTEM_LIB_PATH, ADMIN_GROUPS;
 	}' <<EOF
 $SETINFX_OLD_PATH
 $SETINFX_OLD_LIB_PATH
@@ -139,13 +166,10 @@ SETINFX_USER=`id | $AWK -F"[()]" ' { print $2 } '`
 #----------------------------------------------------------------------------------------------
 # Check the specified System Library Path. If defined should be put at the head of the variable
 #----------------------------------------------------------------------------------------------
-SETINFX_SYS_LD_LIB_PATH="`grep '^system_ld_library_path *:' ${IFMXETC}/${INFX_PARAMS}`"
-if [ $? = 0 ]
-then
-	SETINFX_SYS_LD_LIB_PATH=`echo $SETINFX_SYS_LD_LIB_PATH | $AWK -F':' '{print $2}'`
-else
-	SETINFX_SYS_LD_LIB_PATH=""
-fi
+SETINFX_AUX="`setinfx_set_clean_path $PATH $LD_LIBRARY_PATH`"
+read SETINFX_CLEAN_PATH SETINFX_CLEAN_LD_LIB_PATH SETINFX_PATH_INFORMIX_BIN SETINFX_SYS_LD_LIB_PATH SETINFX_IX_ADMIN_GROUPS<<EOF
+$SETINFX_AUX
+EOF
 
 case $1 in
 L)
@@ -168,10 +192,8 @@ L)
 		SETINFX_USERTYPE="adm"
 	else
 		SETINFX_USERTYPE="prg"
-		SETINFX_IX_ADMIN_GROUPS="`grep '^admingroups *:' ${IFMXETC}/${INFX_PARAMS}`"
-		if [ $? = 0 ]
+		if [ "X$SETINFX_IX_ADMIN_GROUPS" != "XNULL" ]
 		then
-			SETINFX_IX_ADMIN_GROUPS=`echo "$SETINFX_IX_ADMIN_GROUPS" | cut -f2 -d':'`
 			for SETINFX_ADMIN_GROUP in $SETINFX_IX_ADMIN_GROUPS
 			do
 				id ${SETINFX_ID_FLAGS} | grep "(${SETINFX_ADMIN_GROUP})" >/dev/null
@@ -190,10 +212,6 @@ L)
 	;;
 esac
 
-SETINFX_AUX="`setinfx_set_clean_path $PATH $LD_LIBRARY_PATH`"
-read SETINFX_CLEAN_PATH SETINFX_CLEAN_LD_LIB_PATH<<EOF
-$SETINFX_AUX
-EOF
 
 SETINFX_SELECT_OPT=$1
 
@@ -419,18 +437,27 @@ fi
 
 case $SETINFX_ENVTYPE in
 s|S)
-	if [ -z "$SETINFX_CLEAN_LD_LIB_PATH" ]
+	if [ "X$SETINFX_CLEAN_LD_LIB_PATH" = "XNULL" ]
 	then
 		unset LD_LIBRARY_PATH
 	else
 		LD_LIBRARY_PATH=$SETINFX_CLEAN_LD_LIB_PATH
 	fi
-	PATH="$SETINFX_CLEAN_PATH:$INFORMIXDIR/bin"
+	case "$SETINFX_PATH_INFORMIX_BIN" in
+	END)
+		PATH="$SETINFX_CLEAN_PATH:$INFORMIXDIR/bin"
+		break
+		;;
+	NULL|BEGIN|*)
+		PATH="$INFORMIXDIR/bin:$SETINFX_CLEAN_PATH"
+	esac
 	;;
 D|Y)
-	if [ ! -z "$SETINFX_CLEAN_LD_LIB_PATH" ]
+	if [ "X$SETINFX_CLEAN_LD_LIB_PATH" != "XNULL" ]
 	then
 		SETINFX_CLEAN_LD_LIB_PATH="$SETINFX_CLEAN_LD_LIB_PATH:"
+	else
+		SETINFX_CLEAN_LD_LIB_PATH=""
 	fi
 	LD_LIBRARY_PATH=`find $INFORMIXDIR/lib -type d | \
 	$AWK -v system_ld_lib_path="${SETINFX_SYS_LD_LIB_PATH}" ' {
@@ -445,7 +472,7 @@ D|Y)
 	}
 	END {
 		
-		if ( system_ld_lib_path != "" )
+		if ( system_ld_lib_path != "NULL" )
 			printf("%s:%s%s",system_ld_lib_path,"'$SETINFX_CLEAN_LD_LIB_PATH'", ld_l_p);
 		else
 			printf("%s%s","'$SETINFX_CLEAN_LD_LIB_PATH'", ld_l_p);
@@ -458,7 +485,14 @@ D|Y)
 		# building pseudo tools in $INFORMIXDIR
 		IFMXSRVRDIR=$SETINFX_LNK_DIR
 		export IFMXSRVRDIR
-		PATH=$SETINFX_CLEAN_PATH:$INFORMIXDIR/bin
+		case "$SETINFX_PATH_INFORMIX_BIN" in
+		END)
+			PATH="$SETINFX_CLEAN_PATH:$INFORMIXDIR/bin"
+			break
+			;;
+		NULL|BEGIN|*)
+			PATH="$INFORMIXDIR/bin:$SETINFX_CLEAN_PATH"
+		esac
 	fi
 	if [ $SETINFX_ENVTYPE = "Y" ] 
 	then
@@ -629,7 +663,7 @@ case $0 in
 	esac
 	unset SETINFX_AUX SETINFX_AWK_FALLBACK SETINFX_ID_FLAGS INFX_CONF INXF_PARAMS SETINFX_LINHA_CONF SETINFX_SELECT_OPT SETINFX_SO INFX_PARAMS INFX_CONF
 	unset SETINFX_HOSTNAME SETINFX_IX_ADMIN_GROUPS SETINFX_ADMIN_GROUP SETINFX_ENV_DESC SETINFX_ENV_FILE SETINFX_NOT_A_TTY INFORMIX_HOME SETINFX_LNK_DIR
-	unset SETINFX_SYS_LD_LIB_PATH SETINFX_ARGC SETINFX_CLEAN_LD_LIB_PATH SETINFX_CLEAN_PATH SETINFX_USER SETINFX_USERTYPE SETINFX_ENVTYPE
+	unset SETINFX_SYS_LD_LIB_PATH SETINFX_ARGC SETINFX_CLEAN_LD_LIB_PATH SETINFX_CLEAN_PATH SETINFX_USER SETINFX_USERTYPE SETINFX_ENVTYPE SETINFX_PATH_INFORMIX_BIN 
 	return $SETINFX_RC
 	;;
 esac
