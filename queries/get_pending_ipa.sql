@@ -1,8 +1,13 @@
-
 DROP FUNCTION get_pending_ipa;
 
 CREATE FUNCTION get_pending_ipa() RETURNING
-	VARCHAR(128) as database, VARCHAR(128) as table, INTEGER as partnum, SMALLINT as version, INTEGER as npages
+	VARCHAR(128) as database, VARCHAR(128) as table, VARCHAR(12) as obj_type,
+	INTEGER as partnum, SMALLINT as version, INTEGER as npages
+
+
+-- For version 7.x use this header instead:
+--CREATE PROCEDURE get_pending_ipa() RETURNING VARCHAR(128), VARCHAR(128), VARCHAR(12), INTEGER, SMALLINT, INTEGER
+
 
 -- Name: $RCSfile$
 -- CVS file: $Source$
@@ -13,10 +18,14 @@ CREATE FUNCTION get_pending_ipa() RETURNING
 -- Support: Fernando Nunes - domusonline@gmail.com
 -- Licence: This script is licensed as GPL ( http://www.gnu.org/licenses/old-licenses/lgpl-2.0.html )
 
+
 -- Variables holding the database,tabnames and partnum
 DEFINE v_dbsname, v_old_dbsname LIKE sysmaster:systabnames.dbsname;
 DEFINE v_tabname, v_old_tabname LIKE sysmaster:systabnames.tabname;
-DEFINE v_partnum LIKE sysmaster:syspaghdr.pg_partnum;
+DEFINE v_partnum, v_old_partnum LIKE sysmaster:syspaghdr.pg_partnum;
+DEFINE v_pg_next INTEGER;
+DEFINE v_pg_partnum INTEGER;
+DEFINE v_obj_type VARCHAR(12);
 
 -- Variables holding the various table versions and respective number of pages pending to migrate
 DEFINE v_version SMALLINT;
@@ -25,6 +34,7 @@ DEFINE v_pages INTEGER;
 -- Hexadecimal representation of version and pending number of pages
 DEFINE v_char_version CHAR(6);
 DEFINE v_char_pages CHAR(10);
+DEFINE v_aux_char CHAR(8);
 
 -- Hexadecimal representation of the slot 6 data. Each 16 bytes will appear as a record that needs to be concatenated
 DEFINE v_hexdata VARCHAR(128);
@@ -80,73 +90,154 @@ LET v_hexdata = "-";
 LET v_old_dbsname = "-";
 LET v_old_tabname = "-";
 
--- The information we want for each version description will occupy this number of characters in the sysmaster:syssltdat.hexdata notation
-LET v_offset = 52;
+-- The information we want for each version description will occupy this number of characters
+-- in the sysmaster:syssltdat.hexdata notation. The size depends on the engine version.
+-- Needs validation for versions < 11 (!)
+
+LET v_offset=DBINFO('version','major');
+IF v_offset >= 10
+THEN
+	LET v_offset = 52;
+ELSE
+	LET v_offset = 44;
+END IF
 
 
 FOREACH
-	-- This query will browse through all the instance partitions, excluding sysmaster database, and will look for slot 6 of
+	-- This query will browse through all the instance partitions, excluding sysmaster database, and will look for
 	-- any extended partition header (where partition header "next" field is not 0)
         SELECT
-                t.dbsname, t.tabname, t.partnum, s.hexdata, s.slotoff
+                t.dbsname, t.tabname, 
+		CASE
+			WHEN p1.partnum = p1.lockid THEN
+				"Table"
+			ELSE
+				"Partition"
+		END, t.partnum, p.pg_partnum, p.pg_next
 	INTO
-		v_dbsname, v_tabname, v_partnum, v_slot_hexdata, v_slotoff
+		v_dbsname, v_tabname, v_obj_type, v_partnum, v_pg_partnum, v_pg_next
         FROM
                 sysmaster:systabnames t,
                 sysmaster:syspaghdr p,
-                sysmaster:sysdbstab d,
-		sysmaster:syssltdat s
+		sysmaster:sysptnhdr p1
         WHERE
-		s.partnum = p.pg_partnum AND
-		s.pagenum = p.pg_next AND
-		s.slotnum = 6 AND
                 p.pg_partnum = sysmaster:partaddr(sysmaster:partdbsnum(t.partnum),1) AND
                 p.pg_pagenum = sysmaster:partpagenum(t.partnum) AND
                 t.dbsname NOT IN ('sysmaster') AND
-                d.dbsnum = sysmaster:partdbsnum(t.partnum) AND
-		p.pg_next != 0
+		p.pg_next != 0 AND
+		p1.partnum = t.partnum
 	ORDER BY
-		t.dbsname, t.tabname, s.slotoff
+		t.dbsname, t.tabname, t.partnum
 
-	IF ( v_dbsname != v_old_dbsname OR v_tabname != v_old_tabname )
-	THEN
-		-- First iteraction for each table
-		LET v_hexdata = v_slot_hexdata;
-	ELSE
-		-- Next iteractions for each table
-		LET v_hexdata = TRIM(v_hexdata) || v_slot_hexdata;
-		IF LENGTH(v_hexdata) >= v_offset
+	WHILE v_pg_next != 0
+		-- While this extended partition page points to another one...
+		-- Get all the slot 6 data (where the version metadata is stored - version, number of pages, descriptor page etc.
+		FOREACH
+		SELECT
+			s.hexdata, s.slotoff, p.pg_next
+		INTO
+			v_slot_hexdata, v_slotoff, v_pg_next
+		FROM
+			sysmaster:syspaghdr p,
+			sysmaster:syssltdat s
+		WHERE
+			s.partnum = p.pg_partnum AND
+			s.pagenum = p.pg_pagenum AND
+			s.slotnum = 6 AND
+			p.pg_partnum = v_pg_partnum AND
+			p.pg_pagenum = v_pg_next
+
+		IF ( v_dbsname != v_old_dbsname OR v_tabname != v_old_tabname OR v_partnum != v_old_partnum)
 		THEN
-			-- We already have enough data for a version within a table
-			-- Note that we probably have part of the next version description in v_hexdata
-			-- So we need to copy part of it, and keep the rest for next iteractions
+			LET v_old_dbsname = v_dbsname;
+			LET v_old_tabname = v_tabname;
+			LET v_old_partnum = v_partnum;
+			-- First iteraction for each table
+			LET v_hexdata = v_slot_hexdata;
+		ELSE
+			-- Next iteractions for each table
+			LET v_hexdata = TRIM(v_hexdata) || v_slot_hexdata;
+			IF LENGTH(v_hexdata) >= v_offset
+			THEN
+				-- We already have enough data for a version within a table
+				-- Note that we probably have part of the next version description in v_hexdata
+				-- So we need to copy part of it, and keep the rest for next iteractions
+				LET v_aux=v_hexdata;
+				LET v_hexdata=SUBSTR(v_aux,v_offset+1,LENGTH(v_aux)-v_offset);
+			
+				-- Split the version and number of pending pages part...
+				LET v_char_version = v_aux[1,4];
+				LET v_char_pages = v_aux[10,17];
+
+				-- Create a usable hex number. Prefix it with '0x' and convert due to little endian if that's the case
+				IF v_endian = "BIG"
+				THEN
+					LET v_char_version = '0x'||v_char_version;
+					LET v_char_pages = '0x'||v_char_pages;
+				ELSE
+					LET v_aux_char = v_char_version;
+					LET v_char_version[5]=v_aux_char[1];
+					LET v_char_version[6]=v_aux_char[2];
+					LET v_char_version[4]=v_aux_char[4];
+					LET v_char_version[3]=v_aux_char[3];
+					LET v_char_version[2]='x';
+					LET v_char_version[1]='0';
+
+
+					LET v_aux_char = v_char_pages;
+					LET v_char_pages[9]=v_aux_char[1];
+					LET v_char_pages[10]=v_aux_char[2];
+					LET v_char_pages[7]=v_aux_char[3];
+					LET v_char_pages[8]=v_aux_char[4];
+					LET v_char_pages[6]=v_aux_char[6];
+					LET v_char_pages[5]=v_aux_char[5];
+					LET v_char_pages[3]=v_aux_char[7];
+					LET v_char_pages[4]=v_aux_char[8];
+					LET v_char_pages[2]='x';
+					LET v_char_pages[1]='0';
+				END IF
+				-- HEX into DEC (integer)
+				LET v_version = TRUNC(v_char_version + 0);
+				LET v_pages = TRUNC(v_char_pages + 0);
+				IF v_pages > 0
+				THEN
+					-- This version has pending pages so show it...
+					RETURN v_dbsname, v_tabname, v_obj_type, v_partnum,  v_version, v_pages WITH RESUME;
+				END IF
+			END IF
+		END IF
+		END FOREACH
+		IF LENGTH(v_hexdata) = v_offset
+		THEN
+			-- If we still have data to process...
 			LET v_aux=v_hexdata;
-			LET v_hexdata=SUBSTR(v_aux,v_offset+1,LENGTH(v_aux)-v_offset);
-		
-			-- Split the version and number of pending pages part...
+	
 			LET v_char_version = v_aux[1,4];
 			LET v_char_pages = v_aux[10,17];
 
-			-- Create a usable hex number. Prefix it with '0x' and convert due to little endian if that's the case
 			IF v_endian = "BIG"
 			THEN
 				LET v_char_version = '0x'||v_char_version;
 				LET v_char_pages = '0x'||v_char_pages;
 			ELSE
-				LET v_char_version[5]=v_char_version[1];
-				LET v_char_version[6]=v_char_version[2];
-				-- Pos 3 and 4 stay the same...
+				LET v_aux_char = v_char_version;
+				LET v_char_version[5]=v_aux_char[1];
+				LET v_char_version[6]=v_aux_char[2];
+				LET v_char_version[4]=v_aux_char[4];
+				LET v_char_version[3]=v_aux_char[3];
 				LET v_char_version[2]='x';
 				LET v_char_version[1]='0';
 
 
-				LET v_char_pages[9]=v_char_pages[1];
-				LET v_char_pages[10]=v_char_pages[2];
-				LET v_char_pages[7]=v_char_pages[3];
-				LET v_char_pages[8]=v_char_pages[4];
-				-- Pos 5 and 6 stay the same...
-				LET v_char_pages[3]=v_char_pages[7];
-				LET v_char_pages[4]=v_char_pages[8];
+				LET v_aux_char = v_char_pages;
+				LET v_char_pages[9]=v_aux_char[1];
+				LET v_char_pages[10]=v_aux_char[2];
+				LET v_char_pages[7]=v_aux_char[3];
+				LET v_char_pages[8]=v_aux_char[4];
+				LET v_char_pages[6]=v_aux_char[6];
+				LET v_char_pages[5]=v_aux_char[5];
+				LET v_char_pages[3]=v_aux_char[7];
+				LET v_char_pages[4]=v_aux_char[8];
 				LET v_char_pages[2]='x';
 				LET v_char_pages[1]='0';
 			END IF
@@ -156,54 +247,12 @@ FOREACH
 			IF v_pages > 0
 			THEN
 				-- This version has pending pages so show it...
-				RETURN v_dbsname, v_tabname, v_partnum,  v_version, v_pages WITH RESUME;
+				RETURN v_dbsname, v_tabname, v_obj_type, v_partnum,  v_version, v_pages WITH RESUME;
 			END IF
 		END IF
-	END IF
-	LET v_old_dbsname = v_dbsname;
-	LET v_old_tabname = v_tabname;
+	END WHILE
 END FOREACH;
 
-IF LENGTH(v_hexdata) = v_offset
-THEN
-	-- If we still have data to process...
-	LET v_aux=v_hexdata;
-	
-	LET v_char_version = v_aux[1,4];
-	LET v_char_pages = v_aux[10,17];
-
-	IF v_endian = "BIG"
-	THEN
-		LET v_char_version = '0x'||v_char_version;
-		LET v_char_pages = '0x'||v_char_pages;
-	ELSE
-		LET v_char_version[5]=v_char_version[1];
-		LET v_char_version[6]=v_char_version[2];
-		-- Pos 3 and 4 stay the same...
-		LET v_char_version[2]='x';
-		LET v_char_version[1]='0';
-
-
-		LET v_char_pages[9]=v_char_pages[1];
-		LET v_char_pages[10]=v_char_pages[2];
-		LET v_char_pages[7]=v_char_pages[3];
-		LET v_char_pages[8]=v_char_pages[4];
-		-- Pos 5 and 6 stay the same...
-		LET v_char_pages[3]=v_char_pages[7];
-		LET v_char_pages[4]=v_char_pages[8];
-		LET v_char_pages[2]='x';
-		LET v_char_pages[1]='0';
-	END IF
-	-- HEX into DEC (integer)
-	LET v_version = TRUNC(v_char_version + 0);
-	LET v_pages = TRUNC(v_char_pages + 0);
-	IF v_pages > 0
-	THEN
-		-- This version has pending pages so show it...
-		RETURN v_dbsname, v_tabname, v_partnum,  v_version, v_pages WITH RESUME;
-	END IF
-END IF
 END FUNCTION;
-
-execute function get_pending_ipa();
-
+-- For version 7.x use this close statement instead:
+--END PROCEDURE;
