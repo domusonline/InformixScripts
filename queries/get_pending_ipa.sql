@@ -1,12 +1,12 @@
 DROP FUNCTION get_pending_ipa;
 
 CREATE FUNCTION get_pending_ipa() RETURNING
-	VARCHAR(128) as database, VARCHAR(128) as table, VARCHAR(12) as obj_type,
+	VARCHAR(128) as database, VARCHAR(128) as table, VARCHAR(9) as obj_type,
 	INTEGER as partnum, SMALLINT as version, INTEGER as npages
 
 
 -- For version 7.x use this header instead:
---CREATE PROCEDURE get_pending_ipa() RETURNING VARCHAR(128), VARCHAR(128), VARCHAR(12), INTEGER, SMALLINT, INTEGER
+--CREATE PROCEDURE get_pending_ipa() RETURNING VARCHAR(128), VARCHAR(128), VARCHAR(9), INTEGER, SMALLINT, INTEGER;
 
 
 -- Name: $RCSfile$
@@ -91,15 +91,14 @@ LET v_old_dbsname = "-";
 LET v_old_tabname = "-";
 
 -- The information we want for each version description will occupy this number of characters
--- in the sysmaster:syssltdat.hexdata notation. The size depends on the engine version.
--- Needs validation for versions < 11 (!)
+-- in the sysmaster:syssltdat.hexdata notation (after removing spaces). The size depends on the engine version.
 
 LET v_offset=DBINFO('version','major');
 IF v_offset >= 10
 THEN
-	LET v_offset = 52;
+	LET v_offset = 48;
 ELSE
-	LET v_offset = 44;
+	LET v_offset = 40;
 END IF
 
 
@@ -107,34 +106,42 @@ FOREACH
 	-- This query will browse through all the instance partitions, excluding sysmaster database, and will look for
 	-- any extended partition header (where partition header "next" field is not 0)
         SELECT
-                t.dbsname, t.tabname, 
-		CASE
-			WHEN p1.partnum = p1.lockid THEN
-				"Table"
-			ELSE
-				"Partition"
-		END, t.partnum, p.pg_partnum, p.pg_next
+                t.dbsname, t.tabname, t.partnum, p.pg_partnum, p.pg_next
 	INTO
-		v_dbsname, v_tabname, v_obj_type, v_partnum, v_pg_partnum, v_pg_next
+		v_dbsname, v_tabname, v_partnum, v_pg_partnum, v_pg_next
         FROM
                 sysmaster:systabnames t,
-                sysmaster:syspaghdr p,
-		sysmaster:sysptnhdr p1
+                sysmaster:syspaghdr p
         WHERE
                 p.pg_partnum = sysmaster:partaddr(sysmaster:partdbsnum(t.partnum),1) AND
                 p.pg_pagenum = sysmaster:partpagenum(t.partnum) AND
                 t.dbsname NOT IN ('sysmaster') AND
-		p.pg_next != 0 AND
-		p1.partnum = t.partnum
+		p.pg_next != 0
 	ORDER BY
 		t.dbsname, t.tabname, t.partnum
 
 	WHILE v_pg_next != 0
+		-- Find if we're dealing with a fragmented table or not...
+		SELECT
+			CASE
+				WHEN COUNT(p1.partnum) = 1 THEN
+					'Table'
+				ELSE
+					'Partition'
+			END
+		INTO
+			v_obj_type
+		FROM
+			sysmaster:sysptnhdr p1
+ 		WHERE
+			p1.lockid = v_partnum;
+
 		-- While this extended partition page points to another one...
 		-- Get all the slot 6 data (where the version metadata is stored - version, number of pages, descriptor page etc.
+
 		FOREACH
 		SELECT
-			s.hexdata, s.slotoff, p.pg_next
+			REPLACE(s.hexdata, ' '), s.slotoff, p.pg_next
 		INTO
 			v_slot_hexdata, v_slotoff, v_pg_next
 		FROM
@@ -167,7 +174,7 @@ FOREACH
 			
 				-- Split the version and number of pending pages part...
 				LET v_char_version = v_aux[1,4];
-				LET v_char_pages = v_aux[10,17];
+				LET v_char_pages = v_aux[9,16];
 
 				-- Create a usable hex number. Prefix it with '0x' and convert due to little endian if that's the case
 				IF v_endian = "BIG"
@@ -207,13 +214,13 @@ FOREACH
 			END IF
 		END IF
 		END FOREACH
-		IF LENGTH(v_hexdata) = v_offset
+		IF LENGTH(v_hexdata) >= v_offset
 		THEN
 			-- If we still have data to process...
 			LET v_aux=v_hexdata;
 	
 			LET v_char_version = v_aux[1,4];
-			LET v_char_pages = v_aux[10,17];
+			LET v_char_pages = v_aux[9,16];
 
 			IF v_endian = "BIG"
 			THEN
