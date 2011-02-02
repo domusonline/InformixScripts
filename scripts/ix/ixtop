@@ -3,7 +3,7 @@
 # Revision: $Revision$ 
 # Revised on: $Date$
 # Support: Fernando Nunes - domusonline@gmail.com
-# License: This script is licensed as GPL ( http://www.gnu.org/licenses/gpl.html )
+# License: This script is licensed as GPL ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 
 show_help()
 {
@@ -28,7 +28,7 @@ show_help()
 	echo "                       BuffWrite|SeqScans|PagRead|PagWrit|TotSrt|DSrt|MaxDSpc]">&2
 	echo " -l : Get TOP locks, lockwaits, logs, logspace usage etc. per session" >&2
 	echo "      <ses_order_by>  : field to order by: ">&2 
-	echo "                       [LockReqs|LkHeld|LkWait|DLk|LkTout|Log|Recs|Log%Use|MaxLgSpc]">&2
+	echo "                       [LockReqs|LkHeld|LkWait|DLk|LkTout|LogRecs|Log%Use|MaxLgSpc]">&2
 	echo "      <user_list>     : comma separated list of users">&2
 	echo " -m : Get TOP memory usage sessions " >&2
 
@@ -151,7 +151,7 @@ get_args()
 			ISAMREADS)
 				SESSION_ORDER_BY=isreads
 				;;
-			ISAMWRIT )
+			ISAMWRITE)
 				SESSION_ORDER_BY=iswrites
 				;;
 			ISAMRWRIT )
@@ -445,7 +445,7 @@ EOF
 	BEGIN {
 		if (type == "l")
 		{
-			printf("%-34s %-8s/%-8s %-19s %-8s %-6s %-6s %-3s %-6s %-8s %-7s %-8s\n","Username@hostname                 ","SID     ","PID     ", "Connected          ","LockReqs","LkHeld","LkWait","DLk", "LkTout", "Log Recs","Log%Use","MaxLgSpc");
+			printf("%-34s %-8s/%-8s %-19s %-8s %-6s %-6s %-3s %-6s %-8s %-7s %-8s\n","Username@hostname                 ","SID     ","PID     ", "Connected          ","LockReqs","LkHeld","LkWait","DLk", "LkTout", "LogRecs ","Log%Use","MaxLgSpc");
 			printf("%-34s %-8s/%-8s %-19s %-8s %-6s %-6s %-3s %-6s %-8s %-7s %-8s\n","----------------------------------","--------","------  ", "-------------------","--------","------","------","---", "------", "--------","-------","--------");
 		}
 
