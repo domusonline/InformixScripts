@@ -1,0 +1,439 @@
+#!/bin/ksh
+# CVS id: $Header$
+# Revision: $Revision$ 
+# Revised on: $Date$
+# Support: Fernando Nunes - domusonline@gmail.com
+# License: This script is licensed as GPL ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
+
+show_help()
+{
+	echo "${PROGNAME}:  ${PROGNAME} [ -h | -V ] | ">&2
+	echo " -s <n>              : Start at file n. Default is 1" >&2
+	echo " -S <n>              : Stop at file n. Default is current - 1">&2
+	echo " -i <server_name>    : Search for files for servername. Defaut is current \$INFORMXSERVER" >&2
+	echo " -I <informixserver> : Load data into informixserver instance" >&2
+	echo " -d <database>       : Load data into database">&2
+	echo " -t <table>          : Load data into table">&2
+	echo " -A <dir>            : Use dir for the audit file(s)">&2
+	echo " -D <dir>            : Use dir for the UNL file(s)">&2
+	echo " -f <filename>       : Keep/get last processed file from filename">&2
+	echo " -m <num_files>      : Process at most num_files">&2
+	echo " -c                  : Compress original audit files">&2
+	echo " -C                  : Compress unload files">&2
+	echo " -r                  : remove original audit files">&2
+	echo " -R                  : remove unload files">&2
+}
+
+show_version()
+{
+	echo "${PROGNAME}: Version ${VERSION}"
+}
+get_args()
+{
+	arg_ok="hVs:S:i:I:d:t:A:D:f:m:cCrR"
+
+	while getopts ${arg_ok} OPTION
+	do
+		case ${OPTION} in
+		h)   # show help
+			show_help
+			exit 0
+			;;
+		V)	#show version
+			show_version
+			exit 0
+			;;
+		s)     #define start file
+			if [ "X${START_FILE_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			START_FILE_FLAG=1
+			START_FILE=${OPTARG}
+			;;
+		S)     #define stop file
+			if [ "X${STOP_FILE_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			STOP_FILE_FLAG=1
+			STOP_FILE=${OPTARG}
+			;;
+		i)     #Informix server to process
+			if [ "X${SERVER_NAME_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			SERVER_NAME_FLAG=1
+			SERVER_NAME=${OPTARG}
+			;;
+		I)     #Destination instance
+			if [ "X${DESTINATION_INSTANCE_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			DESTINATION_INSTANCE_FLAG=1
+			DESTINATION_INSTANCE=${OPTARG}
+			;;
+		d)     #Destination database
+			if [ "X${DESTINATION_DATABASE_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			DESTINATION_DATABASE_FLAG=1
+			DESTINATION_DATABASE=${OPTARG}
+			;;
+		t)     #Destination table
+			if [ "X${DESTINATION_TABLE_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			DESTINATION_TABLE_FLAG=1
+			DESTINATION_TABLE=${OPTARG}
+			;;
+		A)     #Audit files dir
+			if [ "X${AUDIT_FILES_DIR_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			AUDIT_FILES_DIR_FLAG=1
+			AUDIT_FILES_DIR=${OPTARG}
+			;;
+		D)     #Destination dir for UNLOAD files
+			if [ "X${DESTINATION_DIR_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			DESTINATION_DIR_FLAG=1
+			DESTINATION_DIR=${OPTARG}
+			;;
+		f)     #file to keep track of processed files
+			if [ "X${HISTORY_FILE_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			HISTORY_FILE_FLAG=1
+			HISTORY_FILE=${OPTARG}
+			;;
+		m)     #max number of files to process
+			if [ "X${MAX_PROC_FILES_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			MAX_PROC_FILES_FLAG=1
+			MAX_PROC_FILES=${OPTARG}
+			;;
+		c)     #Compress audit files option
+			if [ "X${COMPRESS_AUDIT_FILES_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			COMPRESS_AUDIT_FILES_FLAG=1
+			;;
+		C)     #Compress UNLOAD files option
+			if [ "X${COMPRESS_UNLOAD_FILES_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			COMPRESS_UNLOAD_FILES_FLAG=1
+			;;
+		r)     #Remove audit files option
+			if [ "X${REMOVE_AUDIT_FILES_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			REMOVE_AUDIT_FILES_FLAG=1
+			;;
+		R)     #Remove UNLOAD files option
+			if [ "X${REMOVE_UNLOAD_FILES_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			REMOVE_UNLOAD_FILES_FLAG=1
+			;;
+		*)
+			echo "Error parsing arguments 1..." >&2
+			return 1
+			;;
+    		esac
+	done
+}
+
+clean_up()
+{
+	rm -f ${TMP_ERROR_FILE} ${DBL_FILE}
+}
+
+trap clean_up 0
+PROGNAME=`basename $0`
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
+
+DBL_FILE=/tmp/${PROGNAME}_$$_$INFORMIXSERVER.dbl
+TMP_ERROR_FILE=/tmp/${PROGNAME}_$$.err
+AWK=awk
+gzip -h 2>&1 >/dev/null
+if [ $? != 0 ]
+then
+	COMPRESS_COMMAND=compress
+else
+	COMPRESS_COMMAND=gzip
+fi
+
+get_args $*
+if [ $? != 0 ]
+then
+        show_help
+        exit -1
+fi
+
+#-------- Verifiy if we want to load files. Yes is assumed if we have given any of the destination parameters...
+if [ "X${DESTINATION_INSTANCE_FLAG}" = "X1" -o "X${DESTINATION_DATABASE_FLAG}" = "X1" -o "${DESTINATION_TABLE_FLAG}" = "X1" ]
+then
+	if [ "X${DESTINATION_INSTANCE_FLAG}" = "X" -o "X${DESTINATION_DATABASE_FLAG}" = "X" -o "${DESTINATION_TABLE_FLAG}" = "X" ]
+	then
+		#--------------- Error if we have given one, but not all of the destination parameters
+		printf "${PROGNAME}: In order to load files these flags must be given: -I <instance> -d <database> and -t <table>" >&2
+		exit 1
+	fi
+	LOAD_UNLOAD_FILES=1
+else
+	LOAD_UNLOAD_FILES=0
+fi
+
+#---------- If we have not specified a diretory where to find the audit files... we need to ask to the engine
+if [ "X${AUDIT_FILES_DIR_FLAG}" = "X" ]
+then
+	dbaccess sysmaster <<EOF 2>${TMP_ERR_FILE} | grep line | read dummy AUDIT_FILES_DIR CURRENT_AUDIT_FILE
+	select TRIM(adtpath) || " " || adtfile line from sysadtinfo
+EOF
+	if [ $? != 0 ]
+	then
+		#-------------- dbaccess returned an error... better to show it and stop
+		cat ${TMP_ERR_FILE} >&2
+		exit 2
+	fi
+fi	
+if [ ! -d ${AUDIT_FILES_DIR} ]
+then
+	printf "${PROGNAME}: Error. Audit files dir ( ${AUDIT_FILES_DIR} ) cannot be found or is not a directory or is not readable\n" >&2
+	exit 3
+fi
+
+if [ "X${DESTINATION_DIR_FLAG}" = "X" ]
+then
+	DESTINATION_DIR=${AUDIT_FILES_DIR}
+fi
+
+if [ ! -d ${DESTINATION_DIR} -o ! -w ${DESTINATION_DIR} ]
+then
+	printf "${PROGNAME}: Error. Unload files dir ( ${DESTINATION_DIR} ) cannot be found or is not a directory or is not writable\n" >&2
+	exit 4
+fi
+
+
+if [ "X${START_FILE_FLAG}" = "X1" ]
+then
+	printf $START_FILE | grep "^[1-9][0-9]*$" >/dev/null
+	if [ $? != 0 ]
+	then
+		printf "${PROGNAME}: Error. Start file (${START_FILE}) must be numeric and greater or equal to 1\n">&2
+		exit 5
+	fi
+else
+	START_FILE=0
+fi
+
+if [ "X${STOP_FILE_FLAG}" = "X1" ]
+then
+	printf $STOP_FILE | grep "^[1-9][0-9]*$" >/dev/null
+	if [ $? != 0 ]
+	then
+		printf "${PROGNAME}: Error. Stop file (${STOP_FILE}) must be numeric and greater or equal to 1\n">&2
+		exit 6
+	fi
+else
+	if [ "X${CURRENT_AUDIT_FILE}" = "X" ]
+	then
+		dbaccess sysmaster <<EOF 2>${TMP_ERR_FILE} | grep line | read dummy CURRENT_AUDIT_FILE
+		select adtfile line from sysadtinfo
+EOF
+		if [ $? != 0 ]
+		then
+			#-------------- dbaccess retunred an error... better to show it and stop
+			cat ${TMP_ERR_FILE} >&2
+			exit 7
+		fi
+	fi
+	STOP_FILE=`expr ${CURRENT_AUDIT_FILE} - 1`
+fi
+
+
+if [ ${STOP_FILE} -lt ${START_FILE} ]
+then
+	printf "${PROGNAME}: Error... No files to process. Stop file (${STOP_FILE}) is lower than start file (${START_FILE})\n" >&2
+	exit 8
+fi
+
+
+if [ "X${SERVER_NAME_FLAG}" = "X" ]
+then
+	SERVER_NAME=$INFORMIXSERVER
+#	SERVER_NUM=`get_setinfx_admin_num_by_server $INFORMIXSERVER`
+fi
+
+. setinfx_utils
+if [ "X${HISTORY_FILE_FLAG}" = "X" ]
+then
+	HISTORY_FILE=${SERVER_NAME}.lastprocauditfile
+	INFX_ETC=`get_setinfx_conf_dir`
+
+	if [ ! -d ${INFX_ETC} ]
+	then
+		printf "${PROGNAME}: Could not get Informix config dir\n" >&2
+		exit 9
+	else
+		HISTORY_FILE=${INFX_ETC}/${HISTORY_FILE}
+		if [ ! -f ${HISTORY_FILE} ]
+		then
+			if [ ! -w ${INFX_ETC}  ]
+			then
+				printf "${PROGNAME}: Cannot create the proc audit last file\n" >&2
+				exit 10
+			fi
+		else
+			if [ ! -w ${HISTORY_FILE} ]
+			then
+				printf "${PROGNAME}: Cannot write the proc audit last file\n" >&2
+				exit 11
+			fi
+		fi
+	fi
+else
+	if [ -f ${HISTORY_FILE} -a ! -w ${HISTORY_FILE} ]
+	then
+		printf "${PROGNAME}: Error. The processed history file (${HISTORY_FILE}) does not exist or is not writable\n" >&2
+		exit 12
+	fi
+fi
+
+if [ "X${START_FILE_FLAG}" = "X" ]
+then
+	if [ -r ${HISTORY_FILE} ]
+	then
+		read START_FILE < ${HISTORY_FILE}
+		START_FILE=`expr $START_FILE + 1`
+	fi
+fi
+
+NPROC_FILES=0
+cd ${DESTINATION_DIR}
+
+echo DEBUG: start file = $START_FILE
+echo DEBUG: stop file = $STOP_FILE
+
+for CURR_FILE in `ls -tr ${AUDIT_FILES_DIR}/${SERVER_NAME}.* | grep "${SERVER_NAME}.[0-9][0-9]*$"`
+do
+#--	CURR_FILE=`basename ${CURR_FILE}`
+	NUM_FILE=`echo ${CURR_FILE} | ${AWK} -F'.' '{print $NF }'`
+	if [ ${NUM_FILE} -ge ${START_FILE} -a ${NUM_FILE} -le ${STOP_FILE} ]
+	then
+		printf "Processing file ${CURR_FILE} ...\n"
+
+
+#ONLN|2010-12-27 15:41:55.640|melga.tmn.pt|480737|a5|ps043631|0|USTB|nserv|4294967295|  |  |  |  |  |  |  |
+#  1           2                 3           4     5  6       7  8    9      10       11 12 13 14 15 16 17
+
+		onshowaudit -f ${CURR_FILE} -l | ${AWK} -F'|' '/^ONLN/,/FIM/ {
+	if ( $10 == 4294967295)
+	{
+		tabid="";
+	}
+	else
+	{
+		tabid=$10;
+	}
+
+		printf "%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|\n", $2,$3,$4,$5,$6,$7,$8,$9,tabid,$11,$12,$13,$14,$15,$16,$17
+}' > ${CURR_FILE}.unl
+
+		if [ $? != 0 ]
+		then
+			printf "${PROGNAME}: Error in onshowaudit processing file ${CURR_FILE}\n" >&2
+			exit 13
+		fi
+		if [ "X${LOAD_UNLOAD_FILES}" = "X1" ]
+		then
+			printf "FILE ${CURR_FILE}.unl DELIMITER '|' 16;\n" > ${DBL_FILE}
+			printf "INSERT INTO ${DESTINATION_TABLE};" >> ${DBL_FILE}
+
+			export INFORMIXSERVER=${DESTINATION_INSTANCE}
+			dbload -d ${DESTINATION_DATABASE} -c ${DBL_FILE} -n 10000 -k -l /dev/null
+			if [ $? != 0 ]
+			then
+				printf "${PROGNAME}: Error in dbload processing file ${CURR_FILE}\n" >&2
+				exit 4
+			fi
+		fi
+			
+		if [ "X${REMOVE_UNLOAD_FILES_FLAG}" != "X" ]
+		then
+			rm -f ${CURR_FILE}.unl
+		else
+			if [ "X${COMPRESS_UNLOAD_FILES_FLAG}" != "X" ]
+			then
+				$COMPRESS_COMMAND ${CURR_FILE}.unl
+			fi
+		fi
+
+		if [ "X${REMOVE_AUDIT_FILES_FLAG}" != "X" ]
+		then
+			rm -f ${CURR_FILE}
+		else
+			if [ "X${COMPRESS_AUDIT_FILES_FLAG}" != "X" ]
+			then
+				$COMPRESS_COMMAND ${CURR_FILE}
+			fi
+		fi
+		
+		if [ "X${HISTORY_FILE_FLAG}" != "X0" ]
+		then
+			echo $NUM_FILE > ${HISTORY_FILE}
+		fi
+
+		
+		NPROC_FILES=`expr $NPROC_FILES + 1`
+		if [ ${NUM_FILE} -eq ${STOP_FILE} ]
+		then
+			printf "${PROGNAME}: Processed the last file...\n"
+			break
+		else
+			if [ "X${MAC_PROC_FILES_FLAG}" != "X" ]
+			then			
+				if [ ${NPROC_FILES} -ge ${MAX_PROC_FILES} ]
+				then
+					printf "${PROGNAME}: Max proc files (${MAX_PROC_FILES}) reached...\n"
+					break
+				fi
+			fi
+		fi
+	else
+		printf "${PROGNAME}: Skipping existing file ${CURR_FILE}\n"
+	fi
+done
+
+#FILE records_pat DELIMITER '|' 17;
+#INSERT INTO frag_logs;
