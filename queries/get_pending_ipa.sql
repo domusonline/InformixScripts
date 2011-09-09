@@ -275,5 +275,3 @@ END FOREACH;
 END FUNCTION;
 -- For version 7.x use this close statement instead:
 --END PROCEDURE;
-
-execute function get_pending_ipa();
