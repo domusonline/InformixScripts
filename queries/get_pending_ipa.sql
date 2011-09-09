@@ -1,12 +1,14 @@
+
+
 DROP FUNCTION get_pending_ipa;
 
 CREATE FUNCTION get_pending_ipa() RETURNING
-	VARCHAR(128) as database, VARCHAR(128) as table, VARCHAR(9) as obj_type,
-	INTEGER as partnum, SMALLINT as version, INTEGER as npages
+	VARCHAR(128) as database, VARCHAR(128) as table, VARCHAR(128) as partition, VARCHAR(9) as obj_type,
+	INTEGER as partnum, INTEGER as lockid, SMALLINT as version, INTEGER as npages
 
 
 -- For version 7.x use this header instead:
---CREATE PROCEDURE get_pending_ipa() RETURNING VARCHAR(128), VARCHAR(128), VARCHAR(9), INTEGER, SMALLINT, INTEGER;
+--CREATE PROCEDURE get_pending_ipa() RETURNING VARCHAR(128), VARCHAR(128), VARCHAR(128), VARCHAR(9), INTEGER, INTEGER, SMALLINT, INTEGER;
 
 
 -- Name: $RCSfile$
@@ -21,11 +23,12 @@ CREATE FUNCTION get_pending_ipa() RETURNING
 
 -- Variables holding the database,tabnames and partnum
 DEFINE v_dbsname, v_old_dbsname LIKE sysmaster:systabnames.dbsname;
-DEFINE v_tabname, v_old_tabname LIKE sysmaster:systabnames.tabname;
+DEFINE v_tabname, v_partname, v_old_tabname LIKE sysmaster:systabnames.tabname;
 DEFINE v_partnum, v_old_partnum LIKE sysmaster:syspaghdr.pg_partnum;
+DEFINE v_lockid, v_old_lockid LIKE sysmaster:sysptnhdr.lockid;
 DEFINE v_pg_next INTEGER;
 DEFINE v_pg_partnum INTEGER;
-DEFINE v_obj_type VARCHAR(12);
+DEFINE v_obj_type VARCHAR(9);
 
 -- Variables holding the various table versions and respective number of pages pending to migrate
 DEFINE v_version SMALLINT;
@@ -47,6 +50,7 @@ DEFINE v_aux VARCHAR(128);
 DEFINE v_endian CHAR(6);
 DEFINE v_offset SMALLINT;
 DEFINE v_slotoff SMALLINT;
+DEFINE v_dummy INTEGER;
 
 -- In case we need to trace the function... Uncomment the following two lines
 --SET DEBUG FILE TO "/tmp/get_pending_ipa.dbg";
@@ -102,39 +106,47 @@ ELSE
 END IF
 
 
+LET v_old_lockid = -1;
 FOREACH
 	-- This query will browse through all the instance partitions, excluding sysmaster database, and will look for
 	-- any extended partition header (where partition header "next" field is not 0)
+	-- the ABS(...) is just a trick to make partnums that are equal to lock id appear at the end
         SELECT
-                t.dbsname, t.tabname, t.partnum, p.pg_partnum, p.pg_next
+                t.dbsname, t.tabname, t1.tabname, t.partnum, p.pg_partnum, p.pg_next, h.lockid, ABS(h.lockid - h.partnum)
 	INTO
-		v_dbsname, v_tabname, v_partnum, v_pg_partnum, v_pg_next
+		v_dbsname, v_partname ,v_tabname, v_partnum, v_pg_partnum, v_pg_next, v_lockid, v_dummy
         FROM
                 sysmaster:systabnames t,
-                sysmaster:syspaghdr p
+                sysmaster:syspaghdr p,
+		sysmaster:sysptnhdr h,
+		sysmaster:systabnames t1
         WHERE
                 p.pg_partnum = sysmaster:partaddr(sysmaster:partdbsnum(t.partnum),1) AND
                 p.pg_pagenum = sysmaster:partpagenum(t.partnum) AND
                 t.dbsname NOT IN ('sysmaster') AND
+		h.partnum = t.partnum AND
+		t1.partnum = h.lockid AND
 		p.pg_next != 0
 	ORDER BY
-		t.dbsname, t.tabname, t.partnum
+		t.dbsname, t.tabname, 8 DESC, t.partnum
+
+	IF v_lockid = v_partnum
+	THEN
+		IF v_lockid = v_old_lockid
+		THEN
+			LET v_obj_type = "Part Main";
+		ELSE
+			LET v_obj_type = "Table";
+		END IF
+	ELSE
+		LET v_obj_type = "Part";
+	END IF
+	
+	LET v_old_lockid = v_lockid;
 
 	WHILE v_pg_next != 0
 		-- Find if we're dealing with a fragmented table or not...
-		SELECT
-			CASE
-				WHEN COUNT(p1.partnum) = 1 THEN
-					'Table'
-				ELSE
-					'Partition'
-			END
-		INTO
-			v_obj_type
-		FROM
-			sysmaster:sysptnhdr p1
- 		WHERE
-			p1.lockid = v_partnum;
+
 
 		-- While this extended partition page points to another one...
 		-- Get all the slot 6 data (where the version metadata is stored - version, number of pages, descriptor page etc.
@@ -209,7 +221,7 @@ FOREACH
 				IF v_pages > 0
 				THEN
 					-- This version has pending pages so show it...
-					RETURN v_dbsname, v_tabname, v_obj_type, v_partnum,  v_version, v_pages WITH RESUME;
+					RETURN TRIM(v_dbsname), TRIM(v_tabname), TRIM(v_partname), TRIM(v_obj_type), v_partnum, v_lockid, v_version, v_pages WITH RESUME;
 				END IF
 			END IF
 		END IF
@@ -254,7 +266,7 @@ FOREACH
 			IF v_pages > 0
 			THEN
 				-- This version has pending pages so show it...
-				RETURN v_dbsname, v_tabname, v_obj_type, v_partnum,  v_version, v_pages WITH RESUME;
+				RETURN TRIM(v_dbsname), TRIM(v_tabname), TRIM(v_partname), TRIM(v_obj_type), v_partnum, v_lockid, v_version, v_pages WITH RESUME;
 			END IF
 		END IF
 	END WHILE
@@ -263,3 +275,5 @@ END FOREACH;
 END FUNCTION;
 -- For version 7.x use this close statement instead:
 --END PROCEDURE;
+
+execute function get_pending_ipa();
