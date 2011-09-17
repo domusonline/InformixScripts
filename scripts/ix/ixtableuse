@@ -1,16 +1,27 @@
-#!/usr/bin/ksh
+#!/bin/ksh
+
 
 ix_help()
 {
 	echo "${PROGNAME}: -V | -h | { <partnum> | <database:table> }" >&1
 	echo "               -V shows script version" >&1
 	echo "               -h shows this help" >&1
+	echo "               -s shows only session IDs" >&1
 	echo "Ex: ${PROGNAME} stores7:customer" >&1
+}
+
+clean_up()
+{
+	rm -f ${TEMP_FILE}
+	if [ "X${TEMP_FILE_1}" != "X" ]
+	then
+		rm -f ${TEMP_FILE_1}*
+	fi
 }
 
 get_args()
 {
-	arg_ok='Vh'
+	arg_ok='Vhs'
 	list="$*"
 	getopt ${arg_ok} $list >/dev/null 2>&1
 	# check result of parsing
@@ -31,6 +42,9 @@ get_args()
 			echo "${PROGNAME} ${VERSION}" >&1
 			exit 0
 			;;
+		-s)   # Show session numbers only
+			SESSION_ONLY_FLAG=1
+			;;
 		esac
 		shift
 	done
@@ -38,9 +52,13 @@ get_args()
 	while [ $# -ge 1 ]
 	do
 		case $1 in
+		-s)
+			SESSION_ONLY_FLAG=1
+			shift
+			continue
+			;;
                 *)
 			TABLE_LIST="${TABLE_LIST} $1"
-			TABLE_COUNT=`expr ${TABLE_COUNT} + 1`
 			shift
 			continue
                         ;;
@@ -49,7 +67,11 @@ get_args()
 }
 
 #INIT
+TEMP_FILE=/tmp/ixtableuse.$$
+TEMP_FILE_1=/tmp/ixtableuse_1.$$
+trap clean_up 0
 
+SESSION_ONLY_FLAG=0
 TABLE_COUNT=0
 SEPARATOR_FLAG=1
 export SEPARATOR_FLAG
@@ -59,6 +81,17 @@ PROGNAME=`basename $0`
 VERSION=`echo "$Revision$" | cut -f2 -d' '`
 SESSION_LIST=""
 
+SO=`uname -s | tr [:upper:] [:lower:]`
+case $SO in
+sunos*)
+        AWK=nawk
+	FILE_GREP=fgrep
+        ;;
+linux|*)
+	FILE_GREP=grep
+        AWK=awk
+        ;;
+esac
 
 get_args $*
 if [ $? != 0 ]
@@ -67,26 +100,19 @@ then
         exit 1
 fi
 
-TEMP_FILE=/tmp/ixtableuse.$$
-TEMP_FILE_1=/tmp/ixtableuse_1.$$
+TABLE_COUNT=`echo ${TABLE_LIST} | wc -w | ${AWK} '{print $1}'`
+
 for TABLE in $TABLE_LIST
 do
 	
-	if [ ${TABLE_COUNT} -gt 1 -a "X${SEPARATOR_FLAG}" = "X1" ]
-	then
-		echo
-		echo '# TABLE: ' ${TABLE}
-		echo
-	fi
-
 	echo ${TABLE} | grep ":" >/dev/null
 	if [ $? = 0 ]
 	then
 		DBNAME=`echo ${TABLE} | cut -f1 -d':'`
 		TABNAME=`echo ${TABLE} | cut -f2 -d':'`
 	
-	TABLE=`dbaccess sysmaster <<EOF 2>/dev/null | grep "^0x.*" 
-	SELECT hex(partnum)
+	TABLE_HEX=`dbaccess sysmaster <<EOF 2>/dev/null | grep "^0x.*" 
+	SELECT lower(hex(partnum))
 	FROM systabnames
 	WHERE dbsname = "$DBNAME"
 	AND tabname = "$TABNAME";
@@ -102,34 +128,49 @@ EOF
 		fi
 	fi
 
-	TABLE=`echo ${TABLE} | tr "[:upper:]" "[:lower:]"`
-	echo "TABLE HEX:" ${TABLE}
-	echo
-	echo
-	onstat -g opn  | awk -v "partnum=$TABLE" '$6 ~ partnum {print $2}' | sort -u | sed 's/0x//g' > ${TEMP_FILE}
-#onstat -k |  awk -v "partnum=$TABLE" '{ if ( ( $6 ~ partnum ) && ( $2 != "^0$" ) ) {print $2}}' | sort -u | sed 's/0x//g' >> ${TEMP_FILE}
+	if [ "X${SESSION_ONLY_FLAG}" = "X0" ]
+	then
+		printf "TABLE: ${TABLE}(${TABLE_HEX})\n\n"
 
-	GREP_FILE_LINES=`wc -l ${TEMP_FILE} | awk '{print $1}'`
+	fi
+	onstat -g opn  | ${AWK} -v "partnum=${TABLE_HEX}" '$6 ~ partnum {print $2}' | sort -u | sed 's/0x0*//g' > ${TEMP_FILE}
+	TABLE_1=`echo $TABLE_HEX | sed 's/0x0*//g'`
+	onstat -k | grep "HDR+IX  *$TABLE_1  *0  *" | awk '{print $3}' | sort -u >> ${TEMP_FILE}
+
+
+	GREP_FILE_LINES=`wc -l ${TEMP_FILE} | ${AWK} '{print $1}'`
 
 	if [ ${GREP_FILE_LINES} -gt ${MAX_GREP_FILE_LINES} ]
 	then
+		
 		split -l ${MAX_GREP_FILE_LINES} ${TEMP_FILE} ${TEMP_FILE_1}
-
+		cat /dev/null > ${TEMP_FILE}
 		for fich in ${TEMP_FILE_1}*
 		do
-			onstat -u | grep -f ${fich}
+			if [ "X${SESSION_ONLY_FLAG}" = "X0" ]
+			then
+				onstat -u | ${FILE_GREP} -f ${fich}
+			else
+				onstat -u | ${FILE_GREP} -f ${fich} >> ${TEMP_FILE}
+			fi
 		done
-		rm -f ${TEMP_FILE_1}*
+		if [ "X${SESSION_ONLY_FLAG}" = "X1" ]
+		then
+			${AWK} -v "table=${TABLE}(${TABLE_HEX})" ' BEGIN {PREV="dummy";printf "%s # ",table } {if ( PREV != $3 ) {printf "%s ",$3};PREV=$3} END {printf "\n"}' ${TEMP_FILE}
+		fi
 	else
-		onstat -u | grep -f ${TEMP_FILE}
+		if [ "X${SESSION_ONLY_FLAG}" = "X0" ]
+		then
+			onstat -u | ${FILE_GREP} -f ${TEMP_FILE}
+		else
+			onstat -u | ${FILE_GREP} -f ${TEMP_FILE} > ${TEMP_FILE_1}
+			${AWK} -v "table=${TABLE}(${TABLE_HEX})" ' BEGIN {PREV="dummy";printf "%s # ",table } {if ( PREV != $3 ) {printf "%s ",$3};PREV=$3} END {printf "\n"}' ${TEMP_FILE_1}
+		fi
 	fi
 
-	if [ ${TABLE_COUNT} -gt 1 -a "X${SEPARATOR_FLAG}" = "X1" ]
+	if [ ${TABLE_COUNT} -gt 1 -a "X${SEPARATOR_FLAG}" = "X1" -a "X${SESSION_ONLY_FLAG}" = "X0" ]
 	then
-		echo
-		echo '#--------------------------------------------------------------------------------'
-		echo
+		printf '\n#--------------------------------------------------------------------------------\n'
 	fi
 done
 
-rm -f ${TEMP_FILE}
