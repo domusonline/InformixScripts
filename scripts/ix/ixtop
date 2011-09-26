@@ -319,7 +319,7 @@ top_partition()
 unload to ${TEMP_FILE}
 SELECT
 	$FIRST_CLAUSE
-	dbsname, tabname, partnum, hex(partnum),
+	dbsname, tabname, partnum, lower(hex(partnum)),
 	lockreqs, lockwts, deadlks, lktouts,
 	isreads, iswrites, isrewrites, isdeletes,
 	bufreads, bufwrites,
@@ -635,6 +635,9 @@ case $SO in
 		PS_CMD="export UNIX_STD=2003;ps -o \"time,comm\""
 		AWK=gawk
 		;;
+	aix)
+		PS_CMD="ps -o \"time,args\""
+		AWK=gawk
 	linux|*)
 		PS_CMD="ps -o \"time,cmd\""
 		AWK=awk
