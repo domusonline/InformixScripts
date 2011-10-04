@@ -1,148 +1,208 @@
-#!/bin/ksh
+#!/bin/sh
+# Name: $RCSfile$
+# CVS file: $Source$
+# CVS id: $Header$
+# Revision: $Revision$
+# Revised on: $Date$
+# Revised by: $Author$
+# Support: Fernando Nunes - domusonline@gmail.com
+# Licence: This script is licensed as GPL ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
+# History:
 
 
+#--------------------------------------------------------------------------
+# Help function. Called on argument errors or in response to -h
+#--------------------------------------------------------------------------
 ix_help()
 {
-	echo "${PROGNAME}: -V | -h | { <partnum> | <database:table> }" >&1
+	echo "${PROGNAME}: -V | -h | [-a|-o] [-s ] { <dec. partnum> | <hex. partnum> | <database:table> }" >&1
 	echo "               -V shows script version" >&1
 	echo "               -h shows this help" >&1
+	echo "               -a use Admin API" >&1
+	echo "               -o use onstat (default)" >&1
 	echo "               -s shows only session IDs" >&1
-	echo "Ex: ${PROGNAME} stores7:customer" >&1
+	echo "Ex: ${PROGNAME} stores:customer" >&1
 }
 
-clean_up()
+#--------------------------------------------------------------------------
+# Gets the desired info using SQL Admin API (v11+). This is called with -a
+# This is slower than onstat but can be used remotely (from a tools env)
+#--------------------------------------------------------------------------
+use_admin_api()
 {
-	rm -f ${TEMP_FILE}
-	if [ "X${TEMP_FILE_1}" != "X" ]
-	then
-		rm -f ${TEMP_FILE_1}*
-	fi
-}
 
-get_args()
-{
-	arg_ok='Vhs'
-	list="$*"
-	getopt ${arg_ok} $list >/dev/null 2>&1
-	# check result of parsing
-	if [ $? != 0 ]
-	then
-		return 1
-	fi
-	set -- `getopt "${arg_ok}" $list`
-
-	while [ $1 != -- ]
-	do
-		case $1 in
-		-h)   # show help
-			ix_help
-			exit 0
-			;;
-		-V)   # show version
-			echo "${PROGNAME} ${VERSION}" >&1
-			exit 0
-			;;
-		-s)   # Show session numbers only
-			SESSION_ONLY_FLAG=1
-			;;
-		esac
-		shift
-	done
-	shift   # skip double dash
-	while [ $# -ge 1 ]
-	do
-		case $1 in
-		-s)
-			SESSION_ONLY_FLAG=1
-			shift
-			continue
-			;;
-                *)
-			TABLE_LIST="${TABLE_LIST} $1"
-			shift
-			continue
-                        ;;
-                esac
-        done
-}
-
-#INIT
-TEMP_FILE=/tmp/ixtableuse.$$
-TEMP_FILE_1=/tmp/ixtableuse_1.$$
-trap clean_up 0
-
-SESSION_ONLY_FLAG=0
-TABLE_COUNT=0
-SEPARATOR_FLAG=1
-export SEPARATOR_FLAG
-MAX_GREP_FILE_LINES=250
-export MAX_GREP_FILE_LINES
-PROGNAME=`basename $0`
-VERSION=`echo "$Revision$" | cut -f2 -d' '`
-SESSION_LIST=""
-
-SO=`uname -s | tr [:upper:] [:lower:]`
-case $SO in
-sunos*)
-        AWK=nawk
-	FILE_GREP=fgrep
-        ;;
-linux|*)
-	FILE_GREP=grep
-        AWK=awk
-        ;;
-esac
-
-get_args $*
-if [ $? != 0 ]
-then
-        echo "Error parsing parameters" >&2
-        exit 1
-fi
-
-TABLE_COUNT=`echo ${TABLE_LIST} | wc -w | ${AWK} '{print $1}'`
-
-for TABLE in $TABLE_LIST
-do
-	
-	echo ${TABLE} | grep ":" >/dev/null
-	if [ $? = 0 ]
-	then
-		DBNAME=`echo ${TABLE} | cut -f1 -d':'`
-		TABNAME=`echo ${TABLE} | cut -f2 -d':'`
-	
-	TABLE_HEX=`dbaccess sysmaster <<EOF 2>/dev/null | grep "^0x.*" 
-	SELECT lower(hex(partnum))
-	FROM systabnames
-	WHERE dbsname = "$DBNAME"
-	AND tabname = "$TABNAME";
+	cat <<EOF > ${TEMP_SQL_FILE}
+CREATE TEMP TABLE mypartnums
+(mypartnum VARCHAR(18));
 EOF
-`
-	
-	else
-		echo ${TABLE} | grep "^[a-f0-9]*$" >/dev/null
-		if [ $? != 0 ]
-		then
-			echo "PARTNUM has invalid characters" >&2
-			exit 1
-		fi
-	fi
-
+	for TABLE_HEX_PARTNUM in ${TABLE_HEX}
+	do
+		echo "INSERT INTO mypartnums VALUES ('"$TABLE_HEX_PARTNUM"');" >>${TEMP_SQL_FILE}
+	done
 	if [ "X${SESSION_ONLY_FLAG}" = "X0" ]
 	then
-		printf "TABLE: ${TABLE}(${TABLE_HEX})\n\n"
-
+		cat <<EOF >>${TEMP_SQL_FILE}
+UNLOAD TO $TEMP_FILE
+SELECT UNIQUE
+        SUBSTR(HEX(r.address),3) address,
+        CASE
+                WHEN wtcondp != 0 THEN
+                        "Y"
+                WHEN bitval(r.flags, "0x2") = 1 THEN
+                        "S"
+                WHEN bitval(r.flags, "0x4") = 1 THEN
+                        "L"
+                WHEN bitval(r.flags, "0x8") = 1 THEN
+                        "B"
+                WHEN bitval(r.flags, "0x10") = 1 THEN
+                        "C"
+                WHEN bitval(r.flags, "0x1000") = 1 THEN
+                        "G"
+                WHEN bitval(r.flags, "0x40000") = 1 THEN
+                        "T"
+                ELSE
+                        "-"
+        END ||                                               -- Position 1
+        "-" ||                                               -- Position 2
+        CASE
+                WHEN bitval(r.flags, "0x400") = 1 THEN
+                        "A"
+                WHEN bitval(tx.flags, "0x00000400") = 1 THEN
+                        "B"
+                WHEN bitval(tx.flags, "0x00002000") = 1 THEN
+                        "R"
+                WHEN bitval(tx.flags, "0x00000100") = 1 THEN
+                        "C"
+                ELSE
+                        "-"
+        END ||                                              -- Position 3
+        CASE
+                WHEN bitval(r.flags, "0x80000") = 1 THEN
+                        "P"
+                ELSE
+                        "-"
+        END ||                                              -- Position 4
+        CASE
+                WHEN bitval(r.flags, "0x20") = 1 THEN
+                        "R"
+                WHEN bitval(r.flags, "0x100") = 1 THEN
+                        "X"
+                ELSE
+                        "-"
+        END ||                                              -- Postiion 5
+        "-" ||                                              -- Position 6
+        CASE
+                WHEN bitval(r.flags, "0x200000") = 1 THEN
+                        "B"
+                WHEN bitval(r.flags, "0x000800") = 1 THEN
+                        "C"
+                WHEN bitval(r.flags, "0x000200") = 1 THEN
+                        "D"
+                WHEN bitval(r.flags, "0x002000") = 1 THEN
+                        "F"
+                WHEN bitval(r.flags, "0x000080") = 1 THEN
+                        "M"
+                ELSE
+                        "-"
+        END flags,
+        r.sid sessid,
+        r.username user,
+        NVL(s.ttyerr,"-") tty,
+        CASE t.wtcondp
+                WHEN 0 THEN
+                        "0"
+                ELSE
+                        SUBSTR(HEX(t.wtcondp),3)
+        END wait,
+        r.timeout tout,
+        r.nlocks locks,
+        r.nreads nreads,
+        r.nwrites nwrites
+FROM
+        sysrstcb r,  sysscblst s, outer systcblst t, outer systxptab tx, mypartnums a1
+WHERE
+        s.address = r.scb AND
+        r.tid = t.tid AND
+        tx.address = r.txp AND
+        bitval(r.flags, "0x1") = 1 AND
+	(
+-- FOR future opn ucount=0 condition sysadmin:task("onstat","-g","opn",r.tid) MATCHES "* "||a1.partnum||" [1-9][ 0-9]     [1-9]*"
+		sysadmin:task("onstat","-g","opn",r.tid) LIKE '% '||a1.mypartnum||' %'
+		OR
+		EXISTS (SELECT 1 FROM syslocktab lk, systxptab tx, mypartnums a1 WHERE lk.lk_partnum = a1.mypartnum AND lk.lk_owner = tx.address and tx.owner = r.address )
+	);
+EOF
+		dbaccess sysmaster $TEMP_SQL_FILE 2>${TEMP_SQL_ERROR} 1>/dev/null
+		if [ $? != 0 ]
+		then
+			printf "Error calling dbaccess. Exiting..." >&2
+			cat ${TEMP_SQL_ERROR}
+			exit 2
+		fi
+		${AWK} -F"|" ' BEGIN {
+	                printf("%-16s %-7s %-8s %-8s %-8s %-16s %-4s %-5s %-8s %-8s \n","address", "flags", "sessid", "user","tty","wait","tout","locks","nreads","nwrites");}
+                        {
+                                n=split($5,a,"/");
+                                printf("%-16s %-7s %-8s %-8s %-8s %-16s %-4s %-5s %-8s %-8s \n",$1,$2,$3,$4,a[n],$6,$7,$8,$9,$10);
+                        }' $TEMP_FILE
+	else
+		cat <<EOF >>${TEMP_SQL_FILE}
+UNLOAD TO $TEMP_FILE DELIMITER ""
+SELECT a1.sid 
+FROM 
+        ( 
+                SELECT r.tid, r.sid FROM sysmaster:sysrstcb r,  sysmaster:sysscblst s WHERE s.address = r.scb 
+        ) a1,
+	mypartnums a2
+WHERE 
+        sysadmin:task("onstat","-g","opn",a1.tid) LIKE '% '||a2.mypartnum||' %'
+UNION
+SELECT r.sid
+FROM
+	sysrstcb r, syslocktab lk, systxptab tx, mypartnums a3
+WHERE
+	lk.lk_partnum = a3.mypartnum AND lk.lk_owner = tx.address and tx.owner = r.address;
+EOF
+		dbaccess sysmaster ${TEMP_SQL_FILE} 2>${TEMP_SQL_ERROR} 1>/dev/null
+		if [ $? != 0 ]
+		then
+			printf "Error calling dbaccess. Exiting..." >&2
+			cat ${TEMP_SQL_ERROR}
+			exit 2
+		fi
+		printf "${TABLE}(${TABLE_HEX}) # "
+		${AWK} -F'|' '{printf "%s ",$1;} END {printf "\n"}' $TEMP_FILE
 	fi
-	onstat -g opn  | ${AWK} -v "partnum=${TABLE_HEX}" '$6 ~ partnum {print $2}' | sort -u | sed 's/0x0*//g' > ${TEMP_FILE}
-	TABLE_1=`echo $TABLE_HEX | sed 's/0x0*//g'`
-	onstat -k | grep "HDR+IX  *$TABLE_1  *0  *" | awk '{print $3}' | sort -u >> ${TEMP_FILE}
 
+
+}
+
+#--------------------------------------------------------------------------
+# gets the desired info using onstat commands. This is the default and
+# requires local database execution. This is faster than SQL Admin API
+#--------------------------------------------------------------------------
+use_onstat()
+{
+
+	onstat -g opn | ${AWK} -v "partnum=${TABLE_HEX}" 'BEGIN {arr_size=split(partnum,arr_partnum," ")}
+{
+	for (f=1;f<=arr_size;f++)
+		if ($6 ~ arr_partnum[f])
+			{print $2}
+} ' | sort -u | sed 's/0x0*//g' > ${TEMP_FILE}
+
+	TABLE_1=`echo $TABLE_HEX | sed 's/0x0*//g'`
+	onstat -k | ${AWK} -v "partnum=${TABLE_1}" 'BEGIN {arr_size=split(partnum,arr_partnum," ")}
+{
+        for (f=1;f<=arr_size;f++)
+                if ($6 ~ arr_partnum[f])
+                        {print $3}
+} ' | sort -u >> ${TEMP_FILE}
 
 	GREP_FILE_LINES=`wc -l ${TEMP_FILE} | ${AWK} '{print $1}'`
 
 	if [ ${GREP_FILE_LINES} -gt ${MAX_GREP_FILE_LINES} ]
 	then
-		
 		split -l ${MAX_GREP_FILE_LINES} ${TEMP_FILE} ${TEMP_FILE_1}
 		cat /dev/null > ${TEMP_FILE}
 		for fich in ${TEMP_FILE_1}*
@@ -167,10 +227,238 @@ EOF
 			${AWK} -v "table=${TABLE}(${TABLE_HEX})" ' BEGIN {PREV="dummy";printf "%s # ",table } {if ( PREV != $3 ) {printf "%s ",$3};PREV=$3} END {printf "\n"}' ${TEMP_FILE_1}
 		fi
 	fi
+}
 
+
+#--------------------------------------------------------------------
+# Clean up function used with trap
+#--------------------------------------------------------------------
+clean_up()
+{
+	
+	rm -f ${TEMP_FILE} ${TEMP_SQL_ERROR} ${TEMP_SQL_FILE}	
+	#------------------------------------------------------------
+	# Very special care with the rm with an asterisk
+	# Previous versions had a bug that could lead to "rm -f *"...
+	#------------------------------------------------------------
+	echo "${TEMP_FILE_1}" | grep "^/tmp" >/dev/null
+	RC=$?
+	if [ "X${TEMP_FILE_1}" != "X" -a ${RC} = 0 -a "X${MODE}" = "Xonstat" ]
+	then
+		rm -f ${TEMP_FILE_1}.*
+	fi
+}
+
+#--------------------------------------------------------------------
+# Argument processing
+#--------------------------------------------------------------------
+get_args()
+{
+	arg_ok='Vhsao'
+
+        while getopts ${arg_ok} OPTION 2>/dev/null
+	do
+		case ${OPTION} in
+		h)   # show help
+			ix_help
+			exit 0
+			;;
+		V)   # show version
+			echo "${PROGNAME} ${VERSION}" >&1
+			exit 0
+			;;
+		s)   # Show session numbers only
+			SESSION_ONLY_FLAG=1
+			;;
+		a)   # use api mode
+			MODE="api"
+			;;
+		o)   # use onstat mode
+			MODE="onstat"
+			;;
+		?|*)
+			return 1
+			;;
+                esac
+        done
+	AUX=`expr $OPTIND - 1`
+	shift $AUX
+	if [ $# -ge 1 ]
+	then
+		TABLE_LIST="${TABLE_LIST} $*"
+	else
+		TABLE_LIST=""
+	fi
+}
+
+#--------------------------------------------------------------------
+# start of script
+#--------------------------------------------------------------------
+PROGNAME=`basename $0`
+TEMP_FILE=/tmp/${PROGNAME}_tmp.$$
+TEMP_FILE_1=/tmp/${PROGNAME}_tmp_1.$$
+TEMP_SQL_ERROR=/tmp/${PROGNAME}_sqlerr.$$
+TEMP_SQL_FILE=/tmp/${PROGNAME}_$$.sql
+trap clean_up 0
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
+
+
+SESSION_ONLY_FLAG=0
+TABLE_COUNT=0
+SEPARATOR_FLAG=1
+SESSION_LIST=""
+MAX_GREP_FILE_LINES=250
+export MAX_GREP_FILE_LINES
+
+
+#--------------------------------------------------------------------
+# adapt a few things to the specific OS
+#--------------------------------------------------------------------
+SO=`uname -s | tr [:upper:] [:lower:]`
+case $SO in
+sunos*)
+	GREP=egrep
+        AWK=nawk
+        FILE_GREP=fgrep
+        ;;
+linux|*)
+	GREP=egrep
+        AWK=awk
+        FILE_GREP=grep
+        ;;
+esac
+
+
+
+get_args $*
+if [ $? != 0 ]
+then
+        echo "Error parsing parameters" >&2
+	ix_help
+        exit 1
+fi
+
+if [ "X${MODE}" = "X" ]
+then
+	MODE="onstat"
+fi
+
+if [ "X${TABLE_LIST}" = "X" ]
+then
+	echo "${PROGNAME}: Invalid arguments - no table(s) supplied" >&2
+	exit 1
+fi
+TABLE_COUNT=`echo ${TABLE_LIST} | wc -w | ${AWK} '{print $1}'`
+
+for TABLE in $TABLE_LIST
+do
+	
+	echo ${TABLE} | grep ":" >/dev/null
+	if [ $? = 0 ]
+	then
+		DBNAME=`echo ${TABLE} | cut -f1 -d':'`
+		TABNAME=`echo ${TABLE} | cut -f2 -d':'`
+	
+		TABLE_HEX=`dbaccess sysmaster <<EOF 2>${TEMP_SQL_ERROR} | ${AWK} 'BEGIN {myflag=1} /^0x.*/ { if (myflag==1) { myflag=0;printf "%s",$0} else {printf " %s",$0 }} END {printf "\n"}'
+	SELECT lower(hex(partnum))
+	FROM systabnames
+	WHERE dbsname = "$DBNAME"
+	AND tabname = "$TABNAME";
+EOF
+`
+		if [ $? != 0 ]
+		then
+			printf "Error calling dbaccess. Exiting..." >&2
+			cat ${TEMP_SQL_ERROR}
+			exit 2
+		fi
+	
+	else
+		TABLE=`echo ${TABLE} | tr [:upper:] [:lower:]`
+		echo ${TABLE} | ${GREP} "^(0x)*[a-f0-9]*$" >/dev/null
+		
+		if [ $? != 0 ]
+		then
+			echo "PARTNUM has invalid characters" >&2
+			exit 1
+		else
+			echo ${TABLE} | grep "[a-f]" > /dev/null
+			if [ $? = 0 ]
+			then
+				echo ${TABLE} | grep "^0x" >/dev/null
+				if [ $? = 0 ]
+				then
+					TABLE_HEX=${TABLE}
+				else
+					TABLE_HEX="0x"${TABLE}
+				fi
+			else
+				echo ${TABLE} | grep "^[0-9][0-9]*$" >/dev/null
+				if [ $? = 0 ]
+				then
+					TABLE_HEX=`echo "ibase=10;obase=16;$TABLE"| bc | tr [:upper:] [:lower:]`
+					AUX=`printf ${TABLE_HEX} | wc -c`
+					if [ $AUX -lt 8 ]
+					then
+						AUX=`expr 8 - $AUX`
+						case $AUX in
+						1)
+							TABLE_HEX="0"${TABLE_HEX}
+							;;
+						2)
+							TABLE_HEX="00"${TABLE_HEX}
+							;;
+						3)
+							TABLE_HEX="000"${TABLE_HEX}
+							;;
+						4)
+							TABLE_HEX="0000"${TABLE_HEX}
+							;;
+						5)
+							TABLE_HEX="00000"${TABLE_HEX}
+							;;
+						6)
+							TABLE_HEX="000000"${TABLE_HEX}
+							;;
+						7)
+							TABLE_HEX="0000000"${TABLE_HEX}
+							;;
+						esac
+					fi
+					TABLE_HEX="0x"${TABLE_HEX}
+				else
+					echo "Not possible to verify PARTNUM ( $PARTNUM )" >&2
+					exit 1
+				fi
+			fi
+		fi
+		TABLE=`dbaccess sysmaster <<EOF 2>${TEMP_SQL_ERROR} | grep "OUT"  | ${AWK} '{print $3}'
+		SELECT "OUT "|| TRIM(dbsname) || ":" || TRIM(tabname)
+		FROM systabnames
+		WHERE partnum = "$TABLE_HEX";
+EOF
+`
+		if [ $? != 0 ]
+		then
+			printf "Error calling dbaccess. Exiting..." >&2
+			cat ${TEMP_SQL_ERROR}
+			exit 2
+		fi
+	fi
+	if [ "X${SESSION_ONLY_FLAG}" = "X0" ]
+	then
+		printf "TABLE: ${TABLE}(${TABLE_HEX})\n\n"
+	fi
+	case $MODE in
+	api)
+		use_admin_api
+		;;
+	onstat|*)
+		use_onstat
+		;;
+	esac
 	if [ ${TABLE_COUNT} -gt 1 -a "X${SEPARATOR_FLAG}" = "X1" -a "X${SESSION_ONLY_FLAG}" = "X0" ]
 	then
 		printf '\n#--------------------------------------------------------------------------------\n'
 	fi
 done
-
