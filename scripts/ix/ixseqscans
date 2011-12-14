@@ -11,9 +11,11 @@
 
 show_help()
 {
-	echo "${PROGNAME} [ -V ] | [ -h ] | [database[,...] ]">&2
+	echo "${PROGNAME} [ -V ] | [ -h ] | [-r | -d ] [database[,...] ]">&2
 	echo "     -V : shows version" >&2
 	echo "     -h : shows this help" >&2
+	echo "     -r : order by seqscans*rows" >&2
+	echo "     -d : order by seqscans*data_pages" >&2
 	echo "     database : restricts the info to the specified databases (comma separated list, default is all databases)">&2
 }
 
@@ -24,7 +26,8 @@ show_version()
 
 VERSION=`echo "$Revision$" | cut -f2 -d' '`
 PROGNAME=`basename $0`
-arg_ok="hV"
+ORDER_BY_OPTION=nrows
+arg_ok="hVrd"
 while getopts ${arg_ok} OPTION
 do
 	case ${OPTION} in
@@ -35,6 +38,26 @@ do
 	h)   # show help
 		show_help
 		exit 0
+		;;
+	r)
+		if [ "X$ORDER_BY_DATA_PAGES_FLAG" = "X1" ]
+		then
+			echo "$PROGNAME: Option ${OPTION} cannot be used with -d" >&2
+			exit 1
+		else	
+			ORDER_BY_NROWS_FLAG=1
+			ORDER_BY_OPTION=nrows
+		fi
+		;;
+	d)
+		if [ "X$ORDER_BY_NROWS_FLAG" = "X1" ]
+		then
+			echo "$PROGNAME: Option ${OPTION} cannot be used with -r" >&2
+			exit 1
+		else	
+			ORDER_BY_DATA_PAGES_FLAG=1
+			ORDER_BY_OPTION=npdata
+		fi
 		;;
 	esac
 done
@@ -61,6 +84,19 @@ linux|*)
         ;;
 esac
 
+case $ORDER_BY_OPTION in
+nrows)
+	WEIGHT_EXPRESSION="NVL(t2.seq_scans,0) * NVL(t3.nrows,0) weight_nrows"
+	;;
+npdata)
+	WEIGHT_EXPRESSION="NVL(t2.seq_scans,0) * t3.npdata weight_npdata"
+	;;
+*)
+	echo "$PROGNAME: Error in ORDER BY expression" >&2
+	exit 1
+esac
+
+
 if [ $# -gt 0 ]
 then
 	DATABASE_CLAUSE=`echo $1 | ${AWK} -F',' 'BEGIN { printf "AND t1.dbsname IN ( ";}
@@ -68,7 +104,7 @@ then
 	for (f=1;f<=NF;f++)
 	{
 		if (f<NF)
-			{printf "\"%s\"\,",$f}
+			{printf "\"%s\",",$f}
 		else
 			{printf "\"%s\"",$f}
 	}
@@ -93,7 +129,7 @@ SELECT
 	SUBSTR(TRIM(dbsname)||":"||TRIM(tabname),1,35)::CHAR(35) tablename,
 	t2.seq_scans seqscans,
 	t3.nrows rows,
-	NVL(t2.seq_scans,0) * NVL(t3.nrows,0) weight
+	$WEIGHT_EXPRESSION
 FROM
 	systabnames t1, ixseqscans t2, sysptnhdr t3
 WHERE
