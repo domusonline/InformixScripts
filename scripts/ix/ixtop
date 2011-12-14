@@ -10,7 +10,7 @@ show_help()
 	echo "${PROGNAME}:  ${PROGNAME} [ -h | -V ] | ">&2
 	echo "            [ -t <top_t_list> ] ">&2
 	echo "            [ [ -C ] [ -n <interactions> ] [ -c <min-runs> ] ]" >&2
-	echo "            [ -p <part_order_by> [ -d <database_list> ] ]" >&2
+	echo "            [-H <bold>|<none>][ -p <part_order_by> [ -d <database_list> ] ]" >&2
 	echo "            [ -s | -l  <ses_order_by> [ -u <user_list> ] ]" >&2
 	echo "            [ -m ]" >&2
 	echo " Where: " >&2
@@ -30,7 +30,8 @@ show_help()
 	echo "      <ses_order_by>  : field to order by: ">&2 
 	echo "                       [LockReqs|LkHeld|LkWait|DLk|LkTout|LogRecs|Log%Use|MaxLgSpc]">&2
 	echo "      <user_list>     : comma separated list of users">&2
-	echo " -m : Get TOP memory usage sessions " >&2
+	echo " -m : Get TOP memory usage sessions" >&2
+	echo " -H : Highlight mode: none or bold (default)" >&2
 
 
 
@@ -42,7 +43,7 @@ show_version()
 }
 get_args()
 {
-	arg_ok="hVt:Cn:c:s:l:p:u:d:m"
+	arg_ok="hVt:Cn:c:s:l:p:u:d:mH:"
 
 	while getopts ${arg_ok} OPTION
 	do
@@ -71,6 +72,23 @@ get_args()
 				exit 1
 			fi
 			CPU_FLAG=1
+			;;
+		H)     # highligth mode
+			if [ "X${HIGHLIGHT_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} alrady processed" >&2
+				exit 1
+			fi
+			HIGHLIGHT_FLAG=1
+			OPTARG=`echo $OPTARG | tr "[:lower:]" "[:upper:]"`
+			case $OPTARG in
+			NONE|BOLD)
+				HIGHLIGHT_MODE=$OPTARG
+				;;
+			*)
+				echo "Error: Invalid mode ($OPTARG) for highlight mode" >&2
+				exit 1
+			esac
 			;;
 		p)     #flag for partition TOP
 			if [ "X"${PARTITION_FLAG} = "X1" ]
@@ -319,21 +337,34 @@ top_partition()
 unload to ${TEMP_FILE}
 SELECT
 	$FIRST_CLAUSE
-	dbsname, tabname, partnum, lower(hex(partnum)),
-	lockreqs, lockwts, deadlks, lktouts,
-	isreads, iswrites, isrewrites, isdeletes,
-	bufreads, bufwrites,
-	pagreads, pagwrites,
-	seqscans
+	pf.dbsname, pf.tabname, pf.partnum, lower(hex(pf.partnum)),
+	pf.lockreqs, pf.lockwts, pf.deadlks, pf.lktouts,
+	pf.isreads, pf.iswrites, pf.isrewrites, pf.isdeletes,
+	pf.bufreads, pf.bufwrites,
+	pf.pagreads, pf.pagwrites,
+	pf.seqscans, t.tabname,
+	case
+		when pt.nrows = 0 and pt.nkeys != 0
+		then
+			"INDEX"
+		else
+			"PARTITION"
+	end
 FROM
-	sysptprof
+	sysptprof pf, sysptnhdr pt, systabnames t
 WHERE
-	1 = 1
+        (
+	pf.lockreqs != 0 OR pf.lockwts != 0 OR pf.deadlks != 0 OR pf.lktouts != 0 OR
+	pf.isreads != 0 OR pf.iswrites != 0 OR pf.isrewrites != 0 OR pf.isdeletes != 0 OR
+	pf.bufreads != 0 OR pf.bufwrites != 0 OR pf.pagreads != 0 OR pf.pagwrites != 0 OR pf.seqscans != 0
+        ) AND
+	pt.partnum = pf.partnum AND
+	t.partnum = pt.lockid
 	${DB_LIST_CLAUSE}
 ORDER BY ${PARTITION_ORDER_BY} DESC
 EOF
 
-	${AWK} -F'|' '
+	${AWK} -F'|' -v HIGHLIGHT="$HIGHLIGHT_MODE" '
 
         function max_length(value, size)
         {
@@ -352,6 +383,16 @@ EOF
                         return(resp);                 } 
         }
 	BEGIN {
+		if ( HIGHLIGHT == "NONE" )
+		{
+			HIGHLIGHT_INI="";
+			HIGHLIGHT_END="";
+		}
+		else #BOLD
+		{
+			HIGHLIGHT_INI="[1m";
+			HIGHLIGHT_END="[m";
+		}
 		printf("%s\n%-10s %-10s %-8s %-5s %-4s %-3s %-9s %-9s %-9s %-9s %-9s %-8s %-8s %-8s %-9s\n", "Database/Partname",
 		"PartNumHex","Partnum   ","LockReqs","LkWai","DLk ","LkT","IsamReads","IsamWrite","IsamRWrit","IsamDel  ","BuffReads","BuffWrit","PagReads","PagWrite", "SeqScans ");
 		printf("%-10s %-10s %-8s %-5s %-4s %-3s %-9s %-9s %-9s %-9s %-9s %-8s %-8s %-8s %-9s\n",
@@ -375,7 +416,20 @@ EOF
 		my_pagreads=max_length($15,8);
 		my_pagwrites=max_length($16,8);
 		my_seqscans=max_length($17,9);
-		printf("%s:%s\n%-10s %-10s %-8s %-5s %-4s %-3s %-9s %-9s %-9s %-9s %-9s %-8s %-8s %-8s %-9s\n", my_database, my_partition, my_partnum_hex, my_partnum,my_lockreqs,my_lockwts,my_deadlks,my_lktouts,my_isreads,my_iswrites,my_isrewrites,my_isdeletes,my_bufreads,my_bufwrites,my_pagreads,my_pagwrites, my_seqscans);
+		my_tablename=$18;
+		my_obj_type=$19;
+		if ( my_tablename == my_partition)
+		{
+			printf("%s%s:%s%s\n%-10s %-10s %-8s %-5s %-4s %-3s %-9s %-9s %-9s %-9s %-9s %-8s %-8s %-8s %-9s\n", HIGHLIGHT_INI,my_database, my_partition,HIGHLIGHT_END, my_partnum_hex, my_partnum,my_lockreqs,my_lockwts,my_deadlks,my_lktouts,my_isreads,my_iswrites,my_isrewrites,my_isdeletes,my_bufreads,my_bufwrites,my_pagreads,my_pagwrites, my_seqscans);
+		}
+		else
+		{
+			if ( my_obj_type == "INDEX" )
+				MY_SEP="#";
+			else
+				MY_SEP="@";
+			printf("%s%s:%s%s%s%s\n%-10s %-10s %-8s %-5s %-4s %-3s %-9s %-9s %-9s %-9s %-9s %-8s %-8s %-8s %-9s\n", HIGHLIGHT_INI, my_database, my_tablename, MY_SEP, my_partition, HIGHLIGHT_END, my_partnum_hex, my_partnum,my_lockreqs,my_lockwts,my_deadlks,my_lktouts,my_isreads,my_iswrites,my_isrewrites,my_isdeletes,my_bufreads,my_bufwrites,my_pagreads,my_pagwrites, my_seqscans);
+		}
 	} ' ${TEMP_FILE}
 
 }
@@ -638,11 +692,17 @@ case $SO in
 	aix)
 		PS_CMD="ps -o \"time,args\""
 		AWK=gawk
+		;;
 	linux|*)
 		PS_CMD="ps -o \"time,cmd\""
 		AWK=awk
 		;;
 esac
+
+if [ "X${HIGHLIGHT_FLAG}" = "X" ]
+then
+	HIGHLIGHT_MODE=BOLD
+fi
 
 if [ "X${TOP_SIZE_FLAG}" = "X1" ]
 then
