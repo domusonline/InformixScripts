@@ -1,0 +1,323 @@
+#!/bin/sh
+# Name: $RCSfile$
+# CVS file: $Source$
+# CVS id: $Header$
+# Revision: $Revision$
+# Revised on: $Date$
+# Revised by: $Author$
+# Support: Fernando Nunes - domusonline@gmail.com
+# Licence: This script is licensed as GPL ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
+# History:
+
+
+ix_help()
+{
+	echo "${PROGNAME} [ -h | -V ]" >&2
+	echo "            -s <session_id> database" >&2
+	echo "            database sql_script" >&2
+}
+get_args()
+{
+	arg_ok='Vhs:S'
+        
+	while getopts ${arg_ok} OPTION 2>/dev/null
+	do
+		case ${OPTION} in
+		h)   # show help
+			ix_help
+			exit 0
+			;;
+		V)   # show version
+			echo "${PROGNAME} ${VERSION}" >&1
+			exit 0
+			;;
+		s)   # show session stats
+			SESSION_FLAG=1
+			SESSION_ID=$OPTARG
+			echo $SESSION_ID | grep "^[1-9][0-9]*$" >/dev/null
+			if [ $? != 0 ]
+			then
+				echo "$PROGNAME: Error - Invalid ($SESSION_ID) session ID">&2
+				return 1
+			fi
+			;;
+		S)
+			SESSION_FLAG=2
+			SESSION_ID=`dbaccess sysmaster <<EOF 2>/dev/null | grep LINE | awk -F':' '{print $2}'
+			SELECT
+				"LINE:"||sid
+			FROM
+				sysscblst
+			WHERE
+				pid = "$PPID" AND
+				hostname = (SELECT hostname FROM sysscblst WHERE sid = DBINFO("sessionid"))
+EOF
+`
+			RC=$?
+			echo $SESSION_ID | grep "^[1-9][0-9]*$" > /dev/null
+			if [ $? != 0 -o $RC != 0 ]
+			then
+				echo "$PROGNAME: Error - Could not get session for PPID ($PPID)">&2
+				return 1
+			fi
+			;;
+		?|*)
+			return 1
+			;;
+		esac
+	done
+	AUX=`expr $OPTIND - 1`
+	shift $AUX
+	case $# in
+	1)
+		DATABASE=$1
+		;;
+	2)
+		DATABASE=$1
+		SQL_SCRIPT=$2
+		SQL_SCRIPT_FLAG=1
+		if [ ! -f $SQL_SCRIPT -o ! -r $SQL_SCRIPT ]
+		then
+			echo "Could not read script file ($SQL_SCRIPT)">&2
+			return 1
+		fi
+		;;
+	*)
+		echo "$PROGNAME: Invalid parameter" >&2
+		return 1
+	esac
+
+	echo $DATABASE | egrep "^[a-zA-Z][a-zA-Z0-9_]*$" >/dev/null
+	if [ $? != 0 ]
+	then
+		echo "$PROGNAME: Database name invalid" >&2
+		return 1
+	fi
+}
+
+get_stats()
+{
+
+	if [ "X$SESSION_FLAG" != "X" ]
+	then
+dbaccess sysmaster <<EOF 2>/dev/null
+UNLOAD TO "$MY_STATS_FILE"
+SELECT
+	s.upf_rqlock, s.upf_wtlock, s.upf_deadlk, s.upf_lktouts, s.upf_lgrecs, s.upf_isread,
+	s.upf_iswrite, s.upf_isrwrite, s.upf_isdelete, s.upf_iscommit, s.upf_isrollback,
+	s.upf_longtxs, s.upf_bufreads, s.upf_bufwrites, s.upf_logspuse, s.upf_logspmax,
+	s.upf_seqscans, s.upf_totsorts, s.upf_dsksorts, s.upf_srtspmax,
+	DBINFO('utc_to_datetime',t.last_run_time), t.num_sched, trunc(t.cpu_time, 10 - length(trunc(t.cpu_time,0)||'')), t.name
+FROM
+	sysrstcb s, systcblst t
+WHERE
+	s.sid = "$SESSION_ID" AND
+	s.tid = t.tid
+	
+EOF
+	if [ $? != 0 ]
+	then
+		echo "$PROGNAME: Error - Error selecting the stats (threads)" >&2
+		exit 1
+	fi
+
+	awk -F'|' -v SESSION_ID=${SESSION_ID} '
+	function max_length(value, size)
+	{
+		currentsize=length(value);
+		if ( currentsize <= size )
+			return(value);
+		targetsize=size-2;
+		resp="";
+		if ( targetsize <= 0)
+		{
+			for (f=1;f<=size;f++)
+				resp=sprintf("%s%c",resp,"*");
+			return(resp);
+		}
+		else
+		{
+			exponent=currentsize - targetsize;
+			targetvalue=value / (10**(exponent));
+			resp=substr(targetvalue,1,targetsize) "e" exponent;
+			return(resp);
+		}
+	}
+
+	BEGIN {
+		printf "Thread profiles (SID: %s)\n%-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-11s %-12s\n",
+		SESSION_ID, "LkReq","LkWai","DLks","TOuts","LgRec","IsRd","IsWrt","IsRWr","IsDel","BfRd","BfWrt","LgUse", "LgMax", "SeqSc", "Srts", "DskSr", "SrtMx","Sched","CPU Time","Name";
+		printf "----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----------- ------------ \n";
+	}
+
+	{
+		MY_upf_rqlock=$1;
+		MY_upf_wtlock=$2;
+		MY_upf_deadlk=$3;
+		MY_upf_lktouts=$4;
+		MY_upf_lgrecs=$5;
+		MY_upf_isread=$6;
+		MY_upf_iswrite=$7;
+		MY_upf_isrwrite=$8;
+		MY_upf_isdelete=$9;
+		MY_upf_iscommit=$10;
+		MY_upf_isrollback=$11;
+		MY_upf_longtxs=$12;
+		MY_upf_bufreads=$13;
+		MY_upf_bufwrites=$14;
+		MY_upf_logspuse=$15;
+		MY_upf_logspmax=$16;
+		MY_upf_seqscans=$17;
+		MY_upf_totsorts=$18;
+		MY_upf_dsksorts=$19;
+		MY_upf_srtspmax=$20;
+		MY_last_run_time=$21;
+		MY_num_sched=$22;
+		MY_cpu_time=$23;
+		MY_name=$24;
+		printf "%-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-11s %-12s\n",
+		max_length(MY_upf_rqlock,5), max_length(MY_upf_wtlock,5), max_length(MY_upf_deadlk,5), max_length(MY_upf_lktouts,5),
+		max_length(MY_upf_lgrecs,5), max_length(MY_upf_isread,5), max_length(MY_upf_iswrite,5), max_length(MY_upf_isrwrite,5),
+		max_length(MY_upf_isdelete,5),
+		#max_length(MY_upf_iscommit,5), max_length(MY_upf_isrollback,5), max_length(MY_upf_longtxs,5),
+		max_length(MY_upf_bufreads,5), max_length(MY_upf_bufwrites,5), max_length(MY_upf_logspuse,5), max_length(MY_upf_logspmax,5),
+		max_length(MY_upf_seqscans,5), max_length(MY_upf_totsorts,5), max_length(MY_upf_dsksorts,5), max_length(MY_upf_srtspmax,5),
+		#MY_last_run_time,
+		max_length(MY_num_sched,5), MY_cpu_time, MY_name;
+	}' $MY_STATS_FILE
+	fi
+
+	dbaccess sysmaster <<EOF 2>/dev/null
+UNLOAD TO "$MY_STATS_FILE"
+select
+        lower(hex(opn.partnum)),
+        opn.pf_rqlock, opn.pf_wtlock, opn.pf_deadlk, opn.pf_lktouts,
+        opn.pf_dskreads, opn.pf_dskwrites,
+        opn.pf_isread, opn.pf_iswrite, opn.pf_isrwrite, opn.pf_isdelete, opn.pf_bfcread, opn.pf_bfcwrite, opn.pf_seqscans,
+        case
+                when p3.lockid = p3.partnum then
+                        p1.tabname
+                when p3.lockid != p3.partnum and p3.nrows = 0 and p3.nkeys != 0 then
+                        TRIM(p2.tabname)||"#"||TRIM(p1.tabname)
+                else
+                        TRIM(p2.tabname)||"@"||TRIM(p1.tabname)
+        end
+FROM
+        sysptntab opn, systabnames p1, systabnames p2 , sysptnhdr p3
+WHERE
+        (
+        opn.pf_rqlock != 0 OR opn.pf_wtlock != 0 OR opn.pf_deadlk != 0 OR opn.pf_lktouts != 0 OR opn.pf_dskreads != 0 OR
+        opn.pf_dskwrites != 0 OR opn.pf_isread != 0 OR opn.pf_iswrite != 0 OR opn.pf_isrwrite != 0 OR opn.pf_isdelete != 0 OR
+        opn.pf_bfcread != 0 OR opn.pf_bfcwrite != 0 OR opn.pf_seqscans != 0
+        ) AND
+        p1.partnum = opn.partnum AND
+        p1.dbsname = "$DATABASE" AND
+        p3.partnum = p1.partnum AND
+        p3.lockid = p2.partnum
+EOF
+	if [ $? != 0 ]
+	then
+		echo "$PROGNAME: Error - Error selecting the stats (part)" >&2
+		exit 1
+	fi
+
+	awk -F'|' -v DATABASE=${DATABASE} '
+	function max_length(value, size)
+	{
+		currentsize=length(value);
+		if ( currentsize <= size )
+			return(value);
+		targetsize=size-2;
+		resp="";
+		if ( targetsize <= 0)
+		{
+			for (f=1;f<=size;f++)
+				resp=sprintf("%s%c",resp,"*");
+			return(resp);
+		}
+		else
+		{
+			exponent=currentsize - targetsize;
+			targetvalue=value / (10**(exponent));
+			resp=substr(targetvalue,1,targetsize) "e" exponent;
+			return(resp);
+		}
+	}
+
+	BEGIN {
+		printf "Partitions profiles (Database: %s)\n%-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-54s\n",
+		DATABASE, "LkReq","LkWai","DLks","TOuts","DskRd","DskWr","IsRd","IsWrt","IsRWr","IsDel","BfRd","BfWrt","SeqSc", "Object name";
+		printf "----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ------------------------------------------------------\n";
+	}
+	{
+	MY_HEX_PARTNUM=$1;
+        MY_pf_rqlock=$2;
+	MY_pf_wtlock=$3;
+	MY_pf_deadlk=$4;
+	MY_pf_lktouts=$5;
+        MY_pf_dskreads=$6;
+	MY_pf_dskwrites=$7;
+        MY_pf_isread=$8;
+	MY_pf_iswrite=$9;
+	MY_pf_isrwrite=$10;
+	MY_pf_isdelete=$11;
+	MY_pf_bfcread=$12;
+	MY_pf_bfcwrite=$13;
+	MY_pf_seqscans=$14;
+	MY_table=$15
+	printf "%-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %s\n",
+	max_length(MY_pf_rqlock,5), max_length(MY_pf_wtlock,5), max_length(MY_pf_deadlk,5), max_length(MY_pf_lktouts,5), max_length(MY_pf_dskreads,5),
+	max_length(MY_pf_dskwrites,5), max_length(MY_pf_isread,5), max_length(MY_pf_iswrite,5), max_length(MY_pf_isrwrite,5), max_length(MY_pf_isdelete,5),
+	max_length(MY_pf_bfcread,5), max_length(MY_pf_bfcwrite,5), max_length(MY_pf_seqscans,5), MY_table;
+	}' $MY_STATS_FILE
+
+}
+
+clean_up()
+{
+rm -f $MY_STATS_FILE $MY_SQL_SCRIPT
+}
+
+#START
+SCRIPT=$0
+PROGNAME=`basename $0`
+VERSION=`echo "$Revision$" | cut -f2 -d' '`
+MY_STATS_FILE=/tmp/$PROGNAME_partitions_$$.tmp
+MY_SQL_SCRIPT=/tmp/$PROGNAME_$$.sql
+trap clean_up 0
+
+get_args $*
+RC=$?
+if [ $RC != 0 ]
+then
+	exit $RC
+fi
+
+if [ "X$SQL_SCRIPT_FLAG" = "X1" ]
+then
+
+	awk -v SCRIPT=$SCRIPT -v DATABASE=$DATABASE -v PID=$$ '
+		BEGIN { printf "!onstat -z >/dev/null\n!echo Engine statistics RESETed. Query results:\n"}
+		{
+			if ( toupper($0) ~ /[ 	]*--[ 	]*QUERY/ )
+				{printf "!%s -S %s\n!onstat -z >/dev/null\n!echo Engine statistics RESETed. Query results:\n-- QUERY\n",SCRIPT, DATABASE;next}
+			else
+				print $0
+		}
+		END { printf "!%s -S %s\n",SCRIPT,DATABASE}' $SQL_SCRIPT > $MY_SQL_SCRIPT
+
+	dbaccess $DATABASE $MY_SQL_SCRIPT
+	exit 0
+fi
+
+if [ "X$SESSION_FLAG" = "X1" ]
+then
+	MY_STATS_FILE=/tmp/$PROGNAME_partitions_$$.tmp
+	trap clean_up 0
+	get_stats
+fi
+
+if [ "X$SESSION_FLAG" = "X2" ]
+then
+	get_stats
+fi
