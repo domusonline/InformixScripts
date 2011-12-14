@@ -14,11 +14,17 @@ ix_help()
 {
 	echo "${PROGNAME} [ -h | -V ]" >&2
 	echo "            -s <session_id> database" >&2
-	echo "            database sql_script" >&2
+	echo "            [-z|-Z|-n] database sql_script" >&2
+	echo "     -h     : Get this help">&2
+	echo "     -V     : Get script version">&2
+	echo "     -s SID : Get stats for session">&2
+	echo "     -n     : Do NOT reset engine stats">&2
+	echo "     -z     : Reset engine stats using onstat (default - needs local database)">&2
+	echo "     -Z     : Reset engine stats using SQL Admin API (can work remotely )">&2
 }
 get_args()
 {
-	arg_ok='Vhs:S'
+	arg_ok='Vhs:SzZn'
         
 	while getopts ${arg_ok} OPTION 2>/dev/null
 	do
@@ -61,7 +67,17 @@ EOF
 				return 1
 			fi
 			;;
+		n)	# Do NOT reset stats
+			RESETSTATS_FLAG=0
+			;;
+		z)	# Do NOT reset stats
+			RESETSTATS_FLAG=1
+			;;
+		Z)	# DO  reset stats
+			RESETSTATS_FLAG=2
+			;;
 		?|*)
+			echo "$PROGNAME: Invalid option: $OPTION" >&2
 			return 1
 			;;
 		esac
@@ -275,7 +291,7 @@ EOF
 
 clean_up()
 {
-rm -f $MY_STATS_FILE $MY_SQL_SCRIPT
+rm -f $MY_STATS_FILE $MY_SQL_SCRIPT $TMP_ERROR_FILE
 }
 
 #START
@@ -284,6 +300,8 @@ PROGNAME=`basename $0`
 VERSION=`echo "$Revision$" | cut -f2 -d' '`
 MY_STATS_FILE=/tmp/$PROGNAME_partitions_$$.tmp
 MY_SQL_SCRIPT=/tmp/$PROGNAME_$$.sql
+TMP_ERROR_FILE=/tmp/$PROGNAME_$$.err
+RESETSTATS_FLAG=1
 trap clean_up 0
 
 get_args $*
@@ -296,11 +314,20 @@ fi
 if [ "X$SQL_SCRIPT_FLAG" = "X1" ]
 then
 
-	awk -v SCRIPT=$SCRIPT -v DATABASE=$DATABASE -v PID=$$ '
-		BEGIN { printf "!onstat -z >/dev/null\n!echo Engine statistics RESETed. Query results:\n"}
+	awk -v SCRIPT=$SCRIPT -v DATABASE=$DATABASE -v PID=$$ -v RESETSTATS=$RESETSTATS_FLAG -v ERROR_FILE=$TMP_ERROR_FILE '
+		BEGIN {
+			if ( RESETSTATS == 1 )
+				RESETSTATS_CLAUSE="!onstat -z 2>" ERROR_FILE "  1>&2; if [ $? = 0 ]; then echo Engine statistics RESETed. Query results:;else echo Could not RESET engine stats!;cat " ERROR_FILE ";fi";
+			else
+				if (RESETSTATS == 2 )
+					RESETSTATS_CLAUSE="!echo \"execute function admin(\\\"onstat\\\",\\\"-z\\\");\" | dbaccess sysadmin 2>" ERROR_FILE " 1>&2; if [ $? = 0 ]; then echo Engine statistics RESETed. Query results:;else echo Could not RESET engine stats!;cat " ERROR_FILE ";fi";
+				else
+					RESETSTATS_CLAUSE="";
+			printf "%s\n", RESETSTATS_CLAUSE;
+		}
 		{
 			if ( toupper($0) ~ /[ 	]*--[ 	]*QUERY/ )
-				{printf "!%s -S %s\n!onstat -z >/dev/null\n!echo Engine statistics RESETed. Query results:\n-- QUERY\n",SCRIPT, DATABASE;next}
+				{printf "!%s -S %s\n%s\n-- QUERY\n",SCRIPT, DATABASE,RESETSTATS_CLAUSE;next}
 			else
 				print $0
 		}
