@@ -5,7 +5,11 @@
 # Revision: $Revision$ 
 # Revised on: $Date$
 # Revised by: $Author$ 
+# License: This script is licensed as GPL ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # Support: Fernando Nunes - domusonline@gmail.com
+# Credits: The original author of this script was Eric Vercelletto (http://levillageinformix.blogspot.com)
+#          The current script has suffered many changes since then, but the basic configuration and idea are still the same
+
 
 setinfx_trap_int()
 {
@@ -17,7 +21,7 @@ setinfx_set_clean_path()
 	SETINFX_OLD_PATH="$1"
 	SETINFX_OLD_LIB_PATH="$2"
 
-	$AWK -F: ' \
+	$SETINFX_AWK -F: ' \
 	BEGIN { 
 		PATH="";
 		LD_LIB_PATH="";
@@ -161,7 +165,7 @@ fi
 #----------------------------------------------------------------------------
 # Check the user
 #----------------------------------------------------------------------------
-SETINFX_USER=`id | $AWK -F"[()]" ' { print $2 } '`
+SETINFX_USER=`id | $SETINFX_AWK -F"[()]" ' { print $2 } '`
 
 #----------------------------------------------------------------------------------------------
 # Check the specified System Library Path. If defined should be put at the head of the variable
@@ -216,7 +220,7 @@ esac
 SETINFX_SELECT_OPT=$1
 
 SETINFX_LINHA_CONF=\
-`$AWK -F"|" -v NOPRINT=${SETINFX_NOT_A_TTY} ' BEGIN { 
+`$SETINFX_AWK -F"|" -v NOPRINT=${SETINFX_NOT_A_TTY} ' BEGIN { 
 		SELECT_OPT="'$SETINFX_SELECT_OPT'";
 		idx=0;
 		if ( SELECT_OPT == "l" )
@@ -460,7 +464,7 @@ D|Y)
 		SETINFX_CLEAN_LD_LIB_PATH=""
 	fi
 	LD_LIBRARY_PATH=`find $INFORMIXDIR/lib -type d | \
-	$AWK -v system_ld_lib_path="${SETINFX_SYS_LD_LIB_PATH}" ' {
+	$SETINFX_AWK -v system_ld_lib_path="${SETINFX_SYS_LD_LIB_PATH}" ' {
 		if ( ld_l_p != "" )
 		{
 			ld_l_p=sprintf("%s:%s",ld_l_p,$1);
@@ -570,17 +574,17 @@ fi
 SETINFX_SO=`uname -s | tr "[A-Z]" "[a-z]"`
 case $SETINFX_SO in
 sunos*)
-        AWK=nawk
+        SETINFX_AWK=nawk
         SETINFX_AWK_FALLBACK=awk
         SETINFX_ID_FLAGS=-a
         ;;
 osf*|hp-ux)
-        AWK=gawk
+        SETINFX_AWK=gawk
         SETINFX_AWK_FALLBACK=awk
         SETINFX_ID_FLAGS=
         ;;
 linux|*)
-        AWK=awk
+        SETINFX_AWK=awk
         SETINFX_AWK_FALLBACK=NO
         SETINFX_ID_FLAGS=
         ;;
@@ -588,19 +592,19 @@ esac
 
 
 
-which ${AWK} | grep "^/.*${AWK}$" >/dev/null
+which ${SETINFX_AWK} | grep "^/.*${SETINFX_AWK}$" >/dev/null
 if [ $? != 0 ]
 then
         if [ "X${SETINFX_AWK_FALLBACK}" = "XNO" -o "X${SETINFX_AWK_FALLBACK}" = "X" ]
         then
-                echo "Cannot find ${AWK} and there is no SETINFX_AWK_FALLBACK defined" >&2
+                echo "Cannot find ${SETINFX_AWK} and there is no SETINFX_AWK_FALLBACK defined" >&2
                 return 1
         else
-                AWK=${SETINFX_AWK_FALLBACK}
+                SETINFX_AWK=${SETINFX_AWK_FALLBACK}
         fi
 fi
 
-export AWK
+export SETINFX_AWK
 
 SETINFX_ARGC=$#
 # test tty if run by background
@@ -661,7 +665,7 @@ case $0 in
 	*)
 		echo "Usage: . setinfx < l(ist) | 1-$maxsrv >"
 	esac
-	unset SETINFX_AUX SETINFX_AWK_FALLBACK SETINFX_ID_FLAGS INFX_CONF INXF_PARAMS SETINFX_LINHA_CONF SETINFX_SELECT_OPT SETINFX_SO INFX_PARAMS INFX_CONF
+	unset SETINFX_AUX SETINFX_AWK SETINFX_AWK_FALLBACK SETINFX_ID_FLAGS INFX_CONF INXF_PARAMS SETINFX_LINHA_CONF SETINFX_SELECT_OPT SETINFX_SO INFX_PARAMS INFX_CONF
 	unset SETINFX_HOSTNAME SETINFX_IX_ADMIN_GROUPS SETINFX_ADMIN_GROUP SETINFX_ENV_DESC SETINFX_ENV_FILE SETINFX_NOT_A_TTY INFORMIX_HOME SETINFX_LNK_DIR
 	unset SETINFX_SYS_LD_LIB_PATH SETINFX_ARGC SETINFX_CLEAN_LD_LIB_PATH SETINFX_CLEAN_PATH SETINFX_USER SETINFX_USERTYPE SETINFX_ENVTYPE SETINFX_PATH_INFORMIX_BIN 
 	return $SETINFX_RC

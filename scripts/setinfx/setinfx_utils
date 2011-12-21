@@ -5,7 +5,8 @@
 # Revision: $Revision$
 # Revised on: $Date$
 # Revised by: $Author$
-# Support: Fernando Nunes - domusonline@domus.online.pt
+# License: This script is licensed as GPL ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
+# Support: Fernando Nunes - domusonline@gmail.com
 
 
 
@@ -63,7 +64,7 @@ get_setinfx_admin_list()
 		return 1
 	else
 		HOST=`hostname | cut -f1 -d'.' | tr [:lower:] [:upper:]`
-		cat ${ENV_FILE} | grep -v "^$" | grep -v "^#" |  ${AWK} -F'|' -v "host=${HOST}" 'BEGIN {linha=1;host="^"host"(\.|$)"} { if ($1 ~ "^inactivo" ) {linha++;next}; if ( ($7 == "S") && ((toupper($9) ~ host) || (toupper($9) == "LOCAL") )) {printf "%s ",linha};linha++} END {printf "\n"}'
+		cat ${ENV_FILE} | grep -v "^$" | grep -v "^#" |  ${SETINFX_UTILS_AWK} -F'|' -v "host=${HOST}" 'BEGIN {linha=1;host="^"host"(\\.|$)"} { if ($1 ~ "^inactiv" ) {linha++;next}; if ( ($7 == "S") && ((toupper($9) ~ host) || (toupper($9) == "LOCAL") )) {printf "%s ",linha};linha++} END {printf "\n"}'
 		if [ $? != 0 ]
 		then
 			return 1
@@ -94,7 +95,7 @@ get_setinfx_admin_num_by_server()
 		return 1
 	else
 		HOST=`hostname | cut -f1 -d'.' | tr [:lower:] [:upper:]`
-		cat ${ENV_FILE} | grep -v "^$" | grep -v "^#" |  ${AWK} -F'|' -v "host=${HOST}" -v"IX_SERVER=${IX_SERVER}" 'BEGIN {linha=1;host="^"host"(\.|$)"} { if ($1 ~ "^inactivo" ) {linha++;next}; if ( ($7 == "S") && ((toupper($9) ~ host) || (toupper($9) == "LOCAL") ) && (toupper($2) == IX_SERVER )) {printf "%s ",linha};linha++} END {printf "\n"}'
+		cat ${ENV_FILE} | grep -v "^$" | grep -v "^#" |  ${SETINFX_UTILS_AWK} -F'|' -v "host=${HOST}" -v"IX_SERVER=${IX_SERVER}" 'BEGIN {linha=1;host="^"host"(\\.|$)"} { if ($1 ~ "^inactiv" ) {linha++;next}; if ( ($7 == "S") && ((toupper($9) ~ host) || (toupper($9) == "LOCAL") ) && (toupper($2) == IX_SERVER )) {printf "%s ",linha};linha++} END {printf "\n"}'
 	fi
 
 	if [ $? != 0 ]
@@ -105,23 +106,81 @@ get_setinfx_admin_num_by_server()
 	fi
 }
 
-get_admin_server_by_num()
+get_setinfx_admin_server_by_num()
 {
-	echo
+	IX_NUM=$1
+	if [ "X${IX_NUM}" = "X" ]
+	then
+		return 1
+	else
+		echo $IX_NUM | grep "^[1-9][0-9]*" >/dev/null
+		if [ $? != 0 ]
+		then
+			return 1
+		fi
+	fi
+	ENV_FILE=`get_setinfx_conf_file`
+	if [ $? != 0 ]
+	then
+		echo
+		return 1
+	fi
+	if [ "X${ENV_FILE}" = "X" ]
+	then
+		echo
+		return 1
+	else
+		HOST=`hostname | cut -f1 -d'.' | tr [:lower:] [:upper:]`
+		cat ${ENV_FILE} | grep -v -e "^$" -e "^#" |  ${SETINFX_UTILS_AWK} -F'|' -v "host=${HOST}" -v"IX_NUM=${IX_NUM}" '
+BEGIN {
+	linha=1;
+	host="^"host"(\\.|$)"
+	FOUND=0;
+}
+{
+	if ($1 ~ "^inactiv" )
+	{
+		linha++;next
+	}
+	if ( linha == IX_NUM )
+	{
+		print $2;
+		FOUND=1;
+		exit 0		
+	}
+	else
+	{
+		if (linha > IX_NUM)
+		{
+			exit 1
+		}
+		else
+		{
+			linha++
+		}
+	}
+}
+END { if (FOUND == 1 ) exit 0; else exit 1}'
+
+	fi
+
+	if [ $? != 0 ]
+	then
+		return 1
+	else
+		return 0
+	fi
 }
 
 SO=`uname -s | tr "[:upper:]" "[:lower:]"`
 case $SO in
 sunos*)
-	PS_CMD="ps -eo user,pid,ppid,args"
-        AWK=nawk
+        SETINFX_UTILS_AWK=nawk
         ;;
 osf*)
-	PS_CMD="ps -eo user,pid,ppid,cmd"
-        AWK=nawk
+        SETINFX_UTILS_AWK=nawk
         ;;
 linux|*)
-	PS_CMD="ps -eo user,pid,ppid,cmd"
-        AWK=awk
+        SETINFX_UTILS_AWK=awk
         ;;
 esac
