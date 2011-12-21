@@ -13,14 +13,14 @@
 ix_help()
 {
 	echo "${PROGNAME} [ -h | -V ]" >&2
-	echo "            -s <session_id> database" >&2
+	echo "            -s SID database" >&2
 	echo "            [-z|-Z|-n] database sql_script" >&2
-	echo "     -h     : Get this help">&2
-	echo "     -V     : Get script version">&2
-	echo "     -s SID : Get stats for session">&2
-	echo "     -n     : Do NOT reset engine stats">&2
-	echo "     -z     : Reset engine stats using onstat (default - needs local database)">&2
-	echo "     -Z     : Reset engine stats using SQL Admin API (can work remotely )">&2
+	echo "     -h             : Get this help">&2
+	echo "     -V             : Get script version">&2
+	echo "     -s SID database: Get stats for session (SID) and database">&2
+	echo "     -n             : Do NOT reset engine stats">&2
+	echo "     -z             : Reset engine stats using onstat (default - needs local database)">&2
+	echo "     -Z             : Reset engine stats using SQL Admin API (can work remotely )">&2
 }
 get_args()
 {
