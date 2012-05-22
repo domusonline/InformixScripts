@@ -682,7 +682,11 @@ top_condition()
 			if ( $3 != 0) print $1 "|"
 		}
 		else
-			if ($2 != 0 ) print substr($1,1,8) "|"
+			if ($2 != 0 ) {
+				MYSEP=substr($2,1,5);
+				print substr($1,1,match($1,MYSEP)-1) "|";
+                        }
+
 		}' >> ${TEMP_FILE}
 #cat ${TEMP_FILE}
 
