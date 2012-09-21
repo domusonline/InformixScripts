@@ -360,7 +360,7 @@ SETINFX_LINHA_CONF=\
 				getline SELECT_OPT <"/dev/tty";
 				if ( SELECT_OPT ~ /^[0-9][0-9]*/ )
 				{
-					if (SELECT_OPT > lnnum )
+					if ((SELECT_OPT+0) > (lnnum+0) )
 					{
 						if ( NOPRINT == 0 ) printf "Invalid environment selected (environment does not exist)\n" >"/dev/tty";
 					}
@@ -574,8 +574,8 @@ fi
 SETINFX_SO=`uname -s | tr "[A-Z]" "[a-z]"`
 case $SETINFX_SO in
 sunos*)
-        SETINFX_AWK=nawk
-        SETINFX_AWK_FALLBACK=awk
+        SETINFX_AWK=gawk
+        SETINFX_AWK_FALLBACK=nawk
         SETINFX_ID_FLAGS=-a
         ;;
 osf*|hp-ux)
