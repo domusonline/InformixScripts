@@ -2,12 +2,18 @@
 # Field description:
 # 1-Online log msg|2-alarm_class_id|3-alarm_severity|4-alarm_class_msg|5-function|6-alarm_send|7-IDS versions
 #-----------------------------------------------------------------------------------------------------------------------------------
-#Checkpoint Completed|900|1|Checkpoint completed|ix_checkpoint|Y|:7:9:10:|
-Client host or user|901|3|Connect fail - User not trusted||Y|:7:9:10:|
-password is not correct for the database server|901|3|Connect fail - Bad password||Y|:7:9:10:|
-Archive started|902|2|Archive Started||Y|7:9:10:|
-Dynamic Server Started|903|3|Engine started||Y|:7:9:10:|
-Dynamic Server Stopped|903|3|Engine stopped||Y|:7:9:10:|
-Quiescent Mode|903|3|Engine entered Quiescent Mode||Y|:7:9:10:|
-On-Line Mode|903|3|Engine entered On-Line Mode||Y|:7:9:10:|
-KAIO: out of OS resources|904|4|Kaio out of OS resources||Y|:7:9:10:|
+#Checkpoint Completed|900|1|Checkpoint completed|ix_checkpoint|Y|:7:9:10:11:|
+Client host or user|901|3|Connect fail - User not trusted||Y|:7:9:10:11:|
+password is not correct for the database server|901|3|Connect fail - Bad password||Y|:7:9:10:11:|
+Archive started|902|2|Archive Started||Y|7:9:10:11:|
+Dynamic Server Started|903|3|Engine started||Y|:7:9:10:11:|
+Dynamic Server Stopped|903|3|Engine stopped||Y|:7:9:10:11:|
+Quiescent Mode|903|3|Engine entered Quiescent Mode||Y|:7:9:10:11:|
+On-Line Mode|903|3|Engine entered On-Line Mode||Y|:7:9:10:11:|
+KAIO: out of OS resources|904|4|Kaio out of OS resources||Y|:7:9:10:11:|
+Dynamically allocated new virtual|905|3|Dynamically allocated new memory segment||Y|:7:9:10:11:|
+shared memory already exists|905|4|shared memory already exists||Y|:7:9:10:11:|
+ARCHIVE ERROR|906|3|Archive Error||Y|:7:9:10:11:|
+server operational|907|4|DR server is operational||Y|:7:9:10:11:|
+RSS: Lost connection|907|4|RSS: Lost connection||Y|:7:9:10:11:|
+RSS: Reconnected|907|4|RSS: Reconnected||Y|:7:9:10:11:|
