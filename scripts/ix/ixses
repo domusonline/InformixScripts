@@ -5,80 +5,112 @@
 # Revision: $Revision$
 # Revised on: $Date$
 # Revised by: $Author$
-# Support: Fernando Nunes - domusonline@domus.online.pt
-# Licence: This script is licensed as GPL ( http://www.gnu.org/licenses/gpl.html )
+# Support: Fernando Nunes - domusonline@gmail.com
+# License: This script is licensed as GPL ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # History:
 
 
 ix_help()
 {
-	echo "${PROGNAME}: -V | -h | { [-a] | [session [ sessions...]] | -u | -U | -q <SID> } [ -r wait ]" >&1
-	echo "               -V shows script version" >&1
-	echo "               -h shows this help" >&1
-	echo "               -a executes for all session" >&1
-	echo "               -s no separator lines between sessions" >&1
-	echo "               -u lists user sessions, like onstat -u" >&1
-	echo "               -U lists user sessions, like onstat -g sql" >&1
-	echo "               -q lists SQL info for a session, like onstat -g sql <SID>" >&1
-	echo "               session [ sessions...] session(s) number(s)" >&1
-	echo "Ex: ${PROGNAME} -r 4 23345" >&1
+	echo "${PROGNAME}: -V | -h | { [-a] | [-u | -U ] [ -l <login[,login]> ] | [session [ sessions...]] | -q <SID> } [ -r wait_n_secs ]"
+	echo "               -V shows script version"
+	echo "               -h shows this help"
+	echo "               -a executes for all session"
+	echo "               -r wait_n_secs (repeat each wait_n_secs seconds)"
+	echo "               -l <login>[,login] filters sessions from the specified login"
+	echo "               -s no separator lines between sessions"
+	echo "               -u lists user sessions, like onstat -u"
+	echo "               -U lists user sessions, like onstat -g sql"
+	echo "               -q lists SQL info for a session, like onstat -g sql <SID>"
+	echo "               session [ sessions...] session(s) number(s)"
+	echo "Ex: ${PROGNAME} -r 4 23345"
 }
 
 clean_up_function()
 {
-	rm -f $TMP_FILE
+	rm -f ${TMP_FILE} ${DBACCESS_TMP_FILE}
 }
 get_args()
 {
-	arg_ok='r:VhasuUq:'
-	list="$*"
-	getopt ${arg_ok} $list >/dev/null 2>&1
-	# check result of parsing                                                
-	if [ $? != 0 ]
-	then
-		return 1
-	fi
-	set -- `getopt "${arg_ok}" $list`
-
-	while [ $1 != -- ]
+	arg_ok="r:VhasuUq:l:"
+	while getopts ${arg_ok} OPTION
 	do
-		case $1 in
-		-h)   # show help
+		case ${OPTION} in
+		h)   # show help
 			ix_help
 			exit 0
 			;;
-		-V)   # show version
+		V)      #show version
 			echo "${PROGNAME} ${VERSION}" >&1
 			exit 0
-			;;
-		-a)   # set up the -a (all sessions flag)
-			ALL_SESSIONS_FLAG=1
-			;;
-		-U)   # set up the -u (list user sessions flag)
-			LIST_USER_SESSIONS_FLAG=2
-			;;
-		-u)   # set up the -u (list user sessions flag)
-			LIST_USER_SESSIONS_FLAG=1
-			;;
-		-s)   # set up the -s (no separators flag)
-			NO_SEPARATOR_FLAG=1
-			NO_SEPARATOR=1
-			;;
-		-q)   # set up the -q
-			GET_SESSION_SQL_FLAG=1
-			GET_SESSION_SQL_SES=$2
-			echo ${GET_SESSION_SQL_SES} | grep "^[0-9][0-9]*$" 1>/dev/null 2>/dev/null
-			RES=$?
-			if [ "X${RES}" != "X0" ]
+                        ;;
+		a)   # set up the -a (all sessions flag)
+			if [ "X${LIST_USER_SESSIONS_FLAG}" != "X" -o "X${LOGIN_FLAG}" != "X" -o "X${GET_SESSION_SQL_FLAG}" != "X" ]
 			then
-				echo "${PROGNAME}: Syntax error - Session id must be numeric" >&2
+				printf "${PROGNAME}: Syntax error - Options -u, -U, -l and -q cannot be used with -a\n" >&2
 				return 1
+			else 
+				ALL_SESSIONS_FLAG=1
 			fi
-			shift
 			;;
-		-r)   # set up the -r (repeat flag)
+		U)   # set up the -u (list user sessions flag)
+			if [ "X${ALL_SESSIONS_FLAG}" != "X" "X" -o "X${GET_SESSION_SQL_FLAG}" != "X" -o "X${LIST_USER_SESSIONS_FLAG}" != "X" ]
+			then
+				printf "${PROGNAME}: Syntax error - Options -u, -a, and -q cannot be used with -U\n" >&2
+				return 1
+			else 
+				LIST_USER_SESSIONS_FLAG=2
+			fi
+			;;
+		u)   # set up the -u (list user sessions flag)
+			if [ "X${ALL_SESSIONS_FLAG}" != "X" "X" -o "X${GET_SESSION_SQL_FLAG}" != "X" -o "X${LIST_USER_SESSIONS_FLAG}" != "X" ]
+			then
+				printf "${PROGNAME}: Syntax error - Options -U, -a, -l and -q cannot be used with -u\n" >&2
+				return 1
+			else 
+				LIST_USER_SESSIONS_FLAG=1
+			fi
+			;;
+		s)   # set up the -s (no separators flag)
+			NO_SEPARATOR_FLAG=1
+			;;
+		l)   # set up the -l login
+			if [ "X${ALL_SESSIONS_FLAG}" != "X" -o "X${GET_SESSION_SQL_FLAG}" != "X" ]
+			then
+				printf "${PROGNAME}: Syntax error - Options -a and -q cannot be used with -l\n" >&2
+				return 1
+			else 
+				LOGIN_FLAG=1
+				LOGIN_LIST=$OPTARG
+				echo ${LOGIN_LIST} | egrep "^[a-zA-Z][a-zA-Z0-9\-_]*(,[a-zA-Z][a-zA-Z0-9\-_])*" 1>/dev/null 2>/dev/null
+				RES=$?
+				if [ "X${RES}" != "X0" ]
+				then
+					echo "${PROGNAME}: Syntax error - Login list must be valid logins separated by commas" >&2
+					return 1
+				fi
+			fi
+			;;
+		q)   # set up the -q
+			if [ "X${ALL_SESSIONS_FLAG}" != "X" -o "X${LIST_USER_SESSIONS_FLAG}" != "X" -o "X${LOGIN_FLAG}" != "X" ]
+			then
+				printf "${PROGNAME}: Syntax error - Options -U, -a, -u and -l cannot be used with -q\n" >&2
+				return 1
+			else 
+				GET_SESSION_SQL_FLAG=1
+				GET_SESSION_SQL_SES=$OPTARG
+				echo ${GET_SESSION_SQL_SES} | grep "^[0-9][0-9]*$" 1>/dev/null 2>/dev/null
+				RES=$?
+				if [ "X${RES}" != "X0" ]
+				then
+					echo "${PROGNAME}: Syntax error - Session id must be numeric" >&2
+					return 1
+				fi
+			fi
+			;;
+		r)   # set up the -r (repeat flag)
 			REPEAT_FLAG=1
-			REPEAT_WAIT=$2
+			REPEAT_WAIT=$OPTARG
 			echo ${REPEAT_WAIT} | grep "^[0-9][0-9]*$" 1>/dev/null 2>/dev/null
 			RES=$?
 			if [ "X${RES}" != "X0" ]
@@ -86,114 +118,36 @@ get_args()
 				echo "${PROGNAME}: Syntax error - Wait time must be numeric" >&2
 				return 1
 			fi
-			shift
 			;;
-		esac
-		shift
-	done
-	shift   # skip double dash
-	while [ $# -ge 1 ]
-	do
-		case $1 in
-		-a)
-			if [ "X${ALL_SESSIONS_FLAG}" = "X1" ]	
-			then
-				echo "${PROGNAME}: Syntax error - ALL SESSIONS flag was already interpreted" >&2
-				return 1
-			else
-				ALL_SESSIONS_FLAG=1
-				shift
-			fi
-			;;
-		-s)   # set up the -s (no separators flag)
-			if [ "X${NO_SEPARATOR_FLAG}" = "X1" ]
-			then
-				echo "${PROGNAME}: Syntax error - NO SEPARATOR flag was already interpreted" >&2
-				return 1
-			else
-				NO_SEPARATOR=1
-				NO_SEPARATOR_FLAG=1
-				shift
-			fi
-			;;
-		-u|-U)   # set up the -u (list user sessions flag)
-			if [ "X${LIST_USER_SESSIONS_FLAG}" != "X" ]
-			then
-				echo "${PROGNAME}: Syntax error - LIST_USER_SESSIONS_FLAG was already processed" >&2
-				return 1
-			else
-				if [ $1 = "-u" ]
-				then
-					LIST_USER_SESSIONS_FLAG=1
-				else
-					LIST_USER_SESSIONS_FLAG=2
-				fi
-				shift
-			fi
-			;;
-		-r)
-			if [ "X${REPEAT_FLAG}" = "X1" ]	
-			then
-				echo "${PROGNAME}: Syntax error - REPEAT flag was already interpreted" >&2
-				return 1
-			else
-				if [ $# = 2 ]
-				then
-					REPEAT_FLAG=1
-					shift
-					REPEAT_WAIT=$2
-					echo ${REPEAT_WAIT} | grep "^[0-9][0-9]*$" 1>/dev/null 2>/dev/null
-					RES=$?
-					if [ "X${RES}" != "X0" ]
-					then
-						echo "${PROGNAME}: Syntax error - Wait time must be numeric" >&2
-						return 1
-					fi
-				else
-					echo "${PROGNAME}: Syntax error - REPEAT flag requires a value" >&2
-					return 1
-				fi
-			fi
-			;;
-		-q)
-			if [ "X${GET_SESSION_SQL_FLAG}" = "X1" ]	
-			then
-				echo "${PROGNAME}: Syntax error - GET_SESSION_SQL_FLAG flag was already interpreted" >&2
-				return 1
-			else
-				if [ $# = 2 ]
-				then
-					GET_SESSION_SQL_FLAG=1
-					shift
-					GET_SESSION_SQL_SES=$2
-					echo ${GET_SESSION_SQL_SES} | grep "^[0-9][0-9]*$" 1>/dev/null 2>/dev/null
-					RES=$?
-					if [ "X${RES}" != "X0" ]
-					then
-						echo "${PROGNAME}: Syntax error - Session id must be numeric" >&2
-						return 1
-					fi
-				else
-					echo "${PROGNAME}: Syntax error - GET_SESSION_SQL_FLAG flag requires a value" >&2
-					return 1
-				fi
-			fi
-			;;
-		*)
-			echo $1 | grep "^[0-9][0-9]*$" 1>/dev/null 2>/dev/null
-			RES=$?
-			if [ ${RES} != 0 ]
-			then
-				echo "${PROGNAME}: Syntax error - Invalid parameter for session number" >&2
-				return 1
-			else
-				SESSION_LIST="${SESSION_LIST} $1"
-				shift
-				continue
-			fi
+		?)      # Error in the parsing of getopts
+			return 1
 			;;
 		esac
 	done
+	if [ ${NUM_ARGUMENTS} -ge ${OPTIND} ]
+	then
+		shift `expr $OPTIND - 1`
+		if [ "X${ALL_SESSIONS_FLAG}" != "X" -o "X${LOGIN_FLAG}" != "X" -o "X${GET_SESSION_SQL_FLAG}" != "X" -o "X${LIST_USER_SESSIONS_FLAG}" != "X" ]
+		then
+			printf "${PROGNAME}: Syntax error - Options -U, -u, -a, -l and -q cannot be used with list of session\n" >&2
+			return 1
+		else 
+			for OPTION in $*
+			do
+				echo $OPTION | grep "^[0-9][0-9]*$" 1>/dev/null 2>/dev/null
+				RES=$?
+				if [ ${RES} != 0 ]
+				then
+					echo "${PROGNAME}: Syntax error - Invalid parameter for session number" >&2
+					return 1
+				else
+					SESSION_LIST="${SESSION_LIST} $1"
+					shift
+					continue
+				fi
+			done
+		fi
+	fi
 }
 
 #INIT
@@ -203,10 +157,11 @@ VERSION=`echo "$Revision$" | cut -f2 -d' '`
 SESSION_LIST=""
 
 
+NUM_ARGUMENTS=$#
 get_args $*
 if [ $? != 0 ]
 then
-	echo "Error parsing parameters" >&2
+	ix_help >&2
 	exit 1
 fi
 
@@ -251,6 +206,7 @@ TZ_LOCAL_HOUR=`date +"%H"`
 TZ_GMT_HOUR=`date -u +"%H"`
 TZ_DIFF=`expr ${TZ_LOCAL_HOUR} - ${TZ_GMT_HOUR}`
 TMP_FILE=/tmp/$PROGNAME_$$
+DBACCESS_TMP_FILE=/tmp/${PROGNAME}_dbacces_$$
 
 trap clean_up_function 0
 
@@ -259,7 +215,7 @@ then
 
 	while true
 	do
-	dbaccess sysmaster <<EOF 2>/dev/null 1>&2
+	dbaccess sysmaster <<EOF 2>${DBACCESS_TMP_FILE} 1>&2
 UNLOAD TO $TMP_FILE
 SELECT
         "C", sdb_name, sdb_id, sdb_bufreads, sdb_pagereads,
@@ -328,6 +284,14 @@ WHERE
         and sql_id = (select max(sql_id) from syssqltrace sql2 where sql2.sql_sid = $GET_SESSION_SQL_SES )
 ORDER BY 1;
 EOF
+	
+	RC=$?
+	if [ $RC != 0 ]
+	then
+		printf "Error calling dbaccess (get session sql data): %s\nError message:\n" $RC >&2
+		cat ${DBACCESS_TMP_FILE} >&2
+		exit 1
+	fi
 	sed 's/\\\|/PIPE/g' $TMP_FILE | sed -e :a -e '/\\$/N; s/\\\n/ /; ta' | $AWK -F'|' -v "my_sessionid=$GET_SESSION_SQL_SES" 'BEGIN { header = 0;got_last=0}
 	{
 	my_sql_line_type=$1;
@@ -407,7 +371,7 @@ EOF
 	then
 		break
 	else
-		if [ "X${NO_SEPARATOR}" = "X" ]
+		if [ "X${NO_SEPARATOR_FLAG}" = "X" ]
 		then
 			echo
 			echo  "#------------------- LOOP -------------------"
@@ -422,9 +386,17 @@ fi
 
 if [ "X${LIST_USER_SESSIONS_FLAG}" != "X" ]
 then
+
+	if [ "X${LOGIN_FLAG}" != "X" ]
+	then
+		USER_CLAUSE=`echo $LOGIN_LIST | $AWK -F',' '{for(a=1;a<=NF;a++) {if (a==1) printf "\"%s\"",$a; else printf ",\"%s\"",$a; }}'`
+		USER_CLAUSE="AND r.username IN ( $USER_CLAUSE )"
+	else
+		USER_CLAUSE=""
+	fi
 	while true
 	do
-	dbaccess sysmaster <<EOF 2>/dev/null 1>&2
+	dbaccess sysmaster <<EOF 2>${DBACCESS_TMP_FILE} 1>&2
 UNLOAD TO $TMP_FILE
 SELECT
 	SUBSTR(HEX(r.address),3) address,
@@ -547,8 +519,16 @@ WHERE
 	r.tid = t.tid AND
 	tx.address = r.txp AND
 	bitval(r.flags, '0x1') = 1 AND
-	sqls.sqs_sessionid = r.sid;
+	sqls.sqs_sessionid = r.sid
+	$USER_CLAUSE;
 EOF
+	RC=$?
+	if [ $RC != 0 ]
+	then
+		printf "Error calling dbaccess (get user list data): %s\nError message:\n" $RC >&2
+		cat ${DBACCESS_TMP_FILE} >&2
+		exit 1
+	fi
 
 	case $LIST_USER_SESSIONS_FLAG in
 	1)
@@ -561,10 +541,10 @@ EOF
 		;;
 	2)
 		$AWK -F'|' ' BEGIN {
-		printf("%-7s %-18s %-8s %-16s %-7s %-6s %-3s %-6s %-6s %-6s %-8s %-30s\n", "Sessid", "Database","User", "Hostname","TTY","Pid","IL","LkMode","SqlErr","IsamEr","Locks","State");}
+		printf("%-8s %-18s %-8s %-16s %-7s %-6s %-3s %-6s %-6s %-6s %-8s %-28s\n", "Sessid", "Database","User", "Hostname","TTY","Pid","IL","LkMode","SqlErr","IsamEr","Locks","State");}
 			{	
 				n=split($5,a,"/");
-		printf("%-7s %-18s %-8s %-16s %-7s %-6s %-3s %-6s %-6s %-6s %-8s %-30s\n", $3, $16,$4, $15,a[n],$11,$17,$18,$19,$20,$8,$14);
+		printf("%-8s %-18s %-8s %-16s %-7s %-6s %-3s %-6s %-6s %-6s %-8s %-28s\n", $3, $16,$4, $15,a[n],$11,$17,$18,$19,$20,$8,$14);
 			}' $TMP_FILE
 		;;
 	esac
@@ -573,7 +553,7 @@ EOF
 	then
 		break
 	else
-		if [ "X${NO_SEPARATOR}" = "X" ]
+		if [ "X${NO_SEPARATOR_FLAG}" = "X" ]
 		then
 			echo
 			echo  "#------------------- LOOP -------------------"
@@ -587,15 +567,36 @@ done
 
 	exit 0
 fi
+
 if [ "X${ALL_SESSIONS_FLAG}" = "X1" ]
 then
 	SESSION_LIST="${SESSION_LIST} `onstat -u | ${AWK} '{if ( $2 ~ /.*([DF]$|active)/ ) {next} else {print $3}}' | grep '^[0-9]'`"
+fi
+
+if [ "X${LOGIN_FLAG}" = "X1" ]
+then
+	SESSION_LIST="${SESSION_LIST} `onstat -u | ${AWK} -v LOGIN_LIST="${LOGIN_LIST}" 'BEGIN {
+NUM_LOGINS=split(LOGIN_LIST,LOGIN_ARRAY,",");
+}
+{
+	if ( $2 ~ /.*([DF]$|active)/ )
+		next;
+	else
+		for (a=1;a<=NUM_LOGINS;a++)
+			if ( $4 == LOGIN_ARRAY[a] )
+			{
+				print $3;
+				next;
+			}
+}' | grep '^[0-9]'`"
+
 fi
 
 if [ "X${SESSION_LIST}" = "X" ]
 then
 	echo "${PROGNAME}: Error - No sessions to process" >&2
 	exit 1
+
 fi
 
 while true
@@ -1018,7 +1019,7 @@ do
 }'
 		RES=$?
 
-		if [ "X${RES}" != "X255" -a "X${NO_SEPARATOR}" = "X" ]
+		if [ "X${RES}" != "X255" -a "X${NO_SEPARATOR_FLAG}" = "X" ]
 		then
 			echo ""
 			echo "#----------------- session ------------------"
@@ -1030,7 +1031,7 @@ do
 	then
 		break
 	else
-		if [ "X${NO_SEPARATOR}" = "X" ]
+		if [ "X${NO_SEPARATOR_FLAG}" = "X" ]
 		then
 			echo
 			echo  "#------------------- LOOP -------------------"
