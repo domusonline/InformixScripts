@@ -86,10 +86,10 @@ esac
 
 case $ORDER_BY_OPTION in
 nrows)
-	WEIGHT_EXPRESSION="NVL(t2.seq_scans,0) * NVL(t3.nrows,0) weight_nrows"
+	WEIGHT_EXPRESSION="(NVL(t2.seq_scans,0) * NVL(t3.nrows,0))::INT8 weight_nrows"
 	;;
 npdata)
-	WEIGHT_EXPRESSION="NVL(t2.seq_scans,0) * t3.npdata weight_npdata"
+	WEIGHT_EXPRESSION="(NVL(t2.seq_scans,0) * t3.npdata)::INT8 weight_npdata"
 	;;
 *)
 	echo "$PROGNAME: Error in ORDER BY expression" >&2
@@ -115,9 +115,12 @@ else
 fi
 
 TMP_FILE=/tmp/`basename $0`_$$.tmp
-trap "rm -f ${TMP_FILE}" 0
+DBACCESS_TMP_FILE=/tmp/dbaccess_`basename $0`_$$.tmp
+trap "rm -f ${TMP_FILE} ${DBACCESS_TMP_FILE}" 0
 onstat -g ppf  | awk '{if ($12 != 0) {print $0}}' | grep "^0x" | sort -nk 12 | awk '{print $1"|"$12"|"}' >${TMP_FILE}
-dbaccess sysmaster 2>/dev/null <<EOF 
+
+dbaccess sysmaster <<EOF 2>${DBACCESS_TMP_FILE} 1>&2
+
 create temp table ixseqscans
 (
         partnum varchar(18),
@@ -125,16 +128,58 @@ create temp table ixseqscans
 );
 load from ${TMP_FILE} insert into ixseqscans;
 
+
+UNLOAD TO $TMP_FILE
 SELECT
-	SUBSTR(TRIM(dbsname)||":"||TRIM(tabname),1,35)::CHAR(35) tablename,
+	TRIM(dbsname)||":"||TRIM(tabname) tablename,
 	t2.seq_scans seqscans,
 	t3.nrows rows,
+	SUBSTR(FORMAT_UNITS(t3.npdata * t3.pagesize/1024, 'KB', 3),1,7) size,
 	$WEIGHT_EXPRESSION
 FROM
 	systabnames t1, ixseqscans t2, sysptnhdr t3
 WHERE
 	t1.partnum = t2.partnum AND
 	t3.partnum = t1.partnum $DATABASE_CLAUSE
-ORDER BY 4 DESC, 3 DESC
+ORDER BY 5 DESC, 3 DESC
 EOF
 
+RC=$?
+if [ $RC != 0 ]
+then
+	printf "Error calling dbaccess ($RC):\n"
+	cat ${DBACCESS_TEMP_FILE}
+	exit 1
+else
+	awk -F'|' '
+        function max_length(value, size)
+        {
+                currentsize=length(value);
+                if ( currentsize <= size )
+                        return(value);
+                targetsize=size-2;
+                resp="";
+                if ( targetsize <= 0)
+                {
+                        for (f=1;f<=size;f++)
+                                resp=sprintf("%s%c",resp,"*");
+                        return(resp);
+                }
+                else
+                {
+                        exponent=currentsize - targetsize;
+                        targetvalue=value / (10**(exponent));
+                        resp=substr(targetvalue,1,targetsize) "e" exponent;
+                        return(resp);
+                }
+	}
+BEGIN {
+
+	printf "%-60s %-9s %-9s %-7s %-10s\n","Database:Tablename", "Seq Scans", "Nr. Rows", "Size", "Weight";
+	printf "------------------------------------------------------------ --------- --------- ------- ----------\n"
+}
+
+{
+	printf "%-60s %9s %9s %7s %10s\n", $1, max_length($2,9), max_length($3,9), $4, max_length($5,10);
+}' $TMP_FILE
+fi
