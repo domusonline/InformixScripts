@@ -2,14 +2,17 @@
 
 show_help()
 {
-        echo "${PROGNAME}: -V | -h |  -l lock_limit [ -u <user_list> ] [ -k | -r ] [ -o <log_file> ]" >&1
+        echo "${PROGNAME}: -V | -h |  -l lock_limit [ -u <user_list> ] [ -k | -r ] [ -f <log_file> ] [ -c <class_id> ] [ -s <severity> ] [-m <class_msg> ]" >&1
         echo "               -V shows script version" >&1
         echo "               -h shows this help" >&1
         echo "               -l <lock_limit> Maximum number of locks accepted" >&1
         echo "               -u <user_list> list of users for exceptions (comma separated)" >&1
 	echo "               -k Force the kill of the sessions" >&1
 	echo "               -r Just report the offending sessions" >&1
-	echo "               -f <log_file > use log_file for recording the script activity" >&1
+	echo "               -f <log_file> use log_file for recording the script activity" >&1
+	echo "               -c <class_id> use class_id as the class number for alarmprogram" >&1
+	echo "               -s <severity> use severity as the severity for alarmprogram" >&1
+	echo "               -m <message> use message as the class message for alarmprogram" >&1
         echo "Ex: ${PROGNAME} -l 50000 -u informix,johndoe" >&1
 }
 
@@ -17,7 +20,7 @@ PROGNAME=`basename $0`
 VERSION=`echo "$Revision$" | cut -f2 -d' '`
 LOG_FILE=/usr/informix/etc/${PROGNAME}.${INFORMIXSERVER}.log
 
-arg_ok='Vhl:u:rko:'
+arg_ok='Vhl:u:rkf:c:s:m:'
 while getopts ${arg_ok} FLAG
 do
         case $FLAG in
@@ -67,9 +70,33 @@ do
 			exit 1
 		fi
 		;;
-	o)
+	f)
 		# Log file
 		LOG_FILE="${OPTARG}"
+		;;
+	c)
+		# Alarm Class ID
+		EXPR_ALARM_CLASS_ID_FLAG=1
+		EXPR_ALARM_CLASS_ID=${OPTARG}
+		;;
+	s)
+		# Alarm severity
+		EXPR_ALARM_SEVERITY_FLAG=1
+		EXPR_ALARM_SEVERITY=${OPTARG}
+		case ${EXPR_ALARM_SEVERITY} in
+		1|2|3|4|5)
+			#ok...
+			;;
+		*)
+			#not ok
+			printf "${PROGNAME}: Severity must be a number between 1 and 5\n" >&2
+			exit 1
+		esac
+		;;
+	m)
+		# Alarm Message
+		EXPR_ALARM_MESSAGE_FLAG=1
+		EXPR_ALARM_MESSAGE="${OPTARG}"
 		;;
         :|?)   # Invalid argument
                 printf "${PROGNAME}: Invalid argument given! $FLAG | $OPTIND | $OPTARG\n">&2
@@ -125,6 +152,19 @@ else
 	fi
 fi
 
+if [ "X${EXPR_ALARM_CLASS_ID_FLAG}" != "X1" ]
+then
+	EXPR_ALARM_CLASS_ID=910
+fi
+if [ "X${EXPR_ALARM_SEVERITY_FLAG}" != "X1" ]
+then
+	EXPR_ALARM_SEVERITY=3
+fi
+if [ "X${ALARM_MESSAGE_FLAG}" != "X1" ]
+then
+	EXPR_ALARM_MESSAGE="Too many locks"
+fi
+
 which ixses | grep "^no ixses" >/dev/null 2>/dev/null
 if [ $? = 0 ]
 then
@@ -172,9 +212,6 @@ do
 		fi
 	fi
 
-	EXPR_ALARM_CLASS_ID=910
-	EXPR_ALARM_SEVERITY=4
-	EXPR_ALARM_CLASS_MSG="Too many locks"
 	if [ "X${KILLED}" = "Xy" ]
 	then
 		EXPR_ALARM_SEND="Session $MYSESSION from user $MYUSER had more locks than the max defined: $MYNLOCKS/$LIMIT_LOCK_NUMBER :Killed!"
@@ -182,7 +219,7 @@ do
 		EXPR_ALARM_SEND="Session $MYSESSION from user $MYUSER has more locks than the max defined: $MYNLOCKS/$LIMIT_LOCK_NUMBER"
 	fi
 
-	${ALARM_SCRIPT} ${EXPR_ALARM_SEVERITY} ${EXPR_ALARM_CLASS_ID} "${EXPR_ALARM_CLASS_MSG}" "${EXPR_ALARM_SEND}"
+	${ALARM_SCRIPT} ${EXPR_ALARM_SEVERITY} ${EXPR_ALARM_CLASS_ID} "${EXPR_ALARM_MESSAGE}" "${EXPR_ALARM_SEND}"
 done
 
 
