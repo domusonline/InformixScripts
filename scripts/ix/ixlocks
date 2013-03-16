@@ -237,10 +237,7 @@ get_args()
 				echo "${PROGNAME}: Syntax error - REPEAT flag was already interpreted" >&2
 				return 1
 			else
-				echo $*
 				shift
-				echo $*
-				echo num: $#
 				if [ $# -ge 2 ]
 				then
 					REPEAT_FLAG=1
