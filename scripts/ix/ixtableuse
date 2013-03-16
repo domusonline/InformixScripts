@@ -15,12 +15,13 @@
 #--------------------------------------------------------------------------
 ix_help()
 {
-	echo "${PROGNAME}: -V | -h | [-a|-o] [-s ] { <dec. partnum> | <hex. partnum> | <database:table> }" >&1
+	echo "${PROGNAME}: -V | -h | [-a|-o [-c] ] [-s ] { <dec. partnum> | <hex. partnum> | <database:table> }" >&1
 	echo "               -V shows script version" >&1
 	echo "               -h shows this help" >&1
 	echo "               -a use Admin API" >&1
 	echo "               -o use onstat (default)" >&1
 	echo "               -s shows only session IDs" >&1
+	echo "               -c shows only ocount != 0 (only for onstat currently)" >&1
 	echo "Ex: ${PROGNAME} stores:customer" >&1
 }
 
@@ -184,11 +185,16 @@ EOF
 use_onstat()
 {
 
-	onstat -g opn | ${AWK} -v "partnum=${TABLE_HEX}" 'BEGIN {arr_size=split(partnum,arr_partnum," ")}
+	onstat -g opn | ${AWK} -v "partnum=${TABLE_HEX}" -v "ocount_flag=${OCOUNT_FLAG}" 'BEGIN {arr_size=split(partnum,arr_partnum," ")}
 {
 	for (f=1;f<=arr_size;f++)
-		if ($6 ~ arr_partnum[f])
-			{print $2}
+		if ( ocount_flag == 0 )
+			if ($6 ~ arr_partnum[f])
+				{print $2}
+		else
+			if ($6 ~ arr_partnum[f] && $8 > 0 )
+				{print $2}
+
 } ' | sort -u | sed 's/0x0*//g' > ${TEMP_FILE}
 
 	TABLE_1=`echo $TABLE_HEX | sed 's/0x0*//g'`
@@ -196,7 +202,8 @@ use_onstat()
 {
         for (f=1;f<=arr_size;f++)
                 if ($6 ~ arr_partnum[f])
-                        {print $3}
+			if ( $3 != 0 )
+	                        {print $3}
 } ' | sort -u >> ${TEMP_FILE}
 
 	GREP_FILE_LINES=`wc -l ${TEMP_FILE} | ${AWK} '{print $1}'`
@@ -254,7 +261,7 @@ clean_up()
 #--------------------------------------------------------------------
 get_args()
 {
-	arg_ok='Vhsao'
+	arg_ok='Vhsaoc'
 
         while getopts ${arg_ok} OPTION 2>/dev/null
 	do
@@ -275,6 +282,9 @@ get_args()
 			;;
 		o)   # use onstat mode
 			MODE="onstat"
+			;;
+		c)   # use ocount != 0 only
+			OCOUNT_FLAG=1
 			;;
 		?|*)
 			return 1
@@ -303,6 +313,7 @@ trap clean_up 0
 VERSION=`echo "$Revision$" | cut -f2 -d' '`
 
 
+OCOUNT_FLAG=0
 SESSION_ONLY_FLAG=0
 TABLE_COUNT=0
 SEPARATOR_FLAG=1
@@ -341,6 +352,13 @@ fi
 if [ "X${MODE}" = "X" ]
 then
 	MODE="onstat"
+fi
+
+if [ "X${OCOUNT_FLAG}" = "X1" -a "X$MODE" != "Xonstat" ]
+then
+	echo "OCOUNT flag can only be used in onstat mode" >&2
+	ix_help
+	exit 1
 fi
 
 if [ "X${TABLE_LIST}" = "X" ]
