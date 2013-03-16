@@ -9,7 +9,7 @@ show_help()
 {
 	echo "${PROGNAME}:  ${PROGNAME} [ -h | -V ] | ">&2
 	echo "  [-t <number>] [[ -C ] [-n <interactions>] [-c <min-runs>] [-r|-R|-I|-B|-L|-M|-E <regexp] [-e cmd [-f file]]]" >&2
-	echo "  [-t <number>] [-H <bold>|<none>][ -p <part_order_by> [ -d <database_list> ] ]" >&2
+	echo "  [-t <number>] [-H <bold>|<none>][ -p <part_order_by> [ -d <database_list> ] [ -T <table_list> ]]" >&2
 	echo "  [-t <number>] [ -s | -l  <ses_order_by> [ -u <user_list> ] ]" >&2
 	echo "  [-t <number>] [ -m ]" >&2
 	echo " Where: " >&2
@@ -23,6 +23,8 @@ show_help()
 	echo "      -B                   : bufwait sessions" >&2
 	echo "      -L                   : lockwait sessions" >&2
 	echo "      -M                   : mutex wait" >&2
+	echo "      -d <database_list>   : list of databases to show" >&2
+	echo "      -T <table_list>      : list of tables to show" >&2
 	echo "      -E <regexp>          : Whatever you want expressed as a regexp. Ex: (running|IO Wait)" >&2
 	echo "      -e <ses|sql|stm|stq|ixses> : executes the cmd command with SID as a parameter for each session found" >&2
 	echo "      -f <file>            : sends the output of cmd to the specified file">&2
@@ -52,7 +54,7 @@ show_version()
 }
 get_args()
 {
-	arg_ok="hVt:Cn:c:s:l:p:u:d:mH:rRIBLME:e:f:"
+	arg_ok="hVt:Cn:c:s:l:p:u:d:T:mH:rRIBLME:e:f:"
 
 	while getopts ${arg_ok} OPTION
 	do
@@ -198,10 +200,10 @@ get_args()
 			OPTARG=`echo $OPTARG | tr "[:lower:]" "[:upper:]"`
 			case $OPTARG in
 			DATABASE)
-				PARTITION_ORDER_BY=dbsname
+				PARTITION_ORDER_BY=pf.dbsname
 				;;
 			PARTNAME)
-				PARTITION_ORDER_BY=tabname
+				PARTITION_ORDER_BY=pf.tabname
 				;;
 			PARTNUMHEX)
 				PARTITION_ORDER_BY=partnum
@@ -371,6 +373,15 @@ get_args()
 			PARTITION_DB_LIST_FLAG=1
 			PARTITION_DB_LIST=${OPTARG}
 			;;
+		T)     #flag partition table list
+			if [ "X"${PARTITION_TABLE_LIST_FLAG} = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			PARTITION_TABLE_LIST_FLAG=1
+			PARTITION_TABLE_LIST=${OPTARG}
+			;;
 		u)     #session user list
 			if [ "X${USER_LIST_FLAG}" = "X1" ]
 			then
@@ -411,15 +422,32 @@ get_args()
 top_partition()
 {
 
-
-	if [ "X${PARTITION_DB_LIST_FLAG}" = "X1" ]
+	if [ "X${PARTITION_TABLE_LIST_FLAG}" = "X1" ]
 	then
-		DATABASE_CLAUSE=`echo ${PARTITION_DB_LIST} | ${AWK} -F',' 'BEGIN { printf "AND dbsname IN ( ";}
+		TABLE_CLAUSE=`echo ${PARTITION_TABLE_LIST} | ${AWK} -F',' 'BEGIN { printf "AND t.tabname IN ( ";}
 		{
 			for (f=1;f<=NF;f++)
 			{
 		                if (f<NF)
-					{printf "\"%s\"\,",$f}
+					{printf "\"%s\",",$f}
+				else
+					{printf "\"%s\"",$f}
+			}
+		}
+		END {printf " )"}'`
+		
+	else
+		TABLE_CLAUSE=""
+	fi
+
+	if [ "X${PARTITION_DB_LIST_FLAG}" = "X1" ]
+	then
+		DATABASE_CLAUSE=`echo ${PARTITION_DB_LIST} | ${AWK} -F',' 'BEGIN { printf "AND t.dbsname IN ( ";}
+		{
+			for (f=1;f<=NF;f++)
+			{
+		                if (f<NF)
+					{printf "\"%s\",",$f}
 				else
 					{printf "\"%s\"",$f}
 			}
@@ -431,7 +459,7 @@ top_partition()
 	fi
 
 	cat /dev/null > ${TEMP_FILE}
-	dbaccess sysmaster <<EOF 2>/dev/null
+	dbaccess sysmaster <<EOF 2>${TEMP_DBACCESS_FILE}
 unload to ${TEMP_FILE}
 SELECT
 	$FIRST_CLAUSE
@@ -458,9 +486,18 @@ WHERE
         ) AND
 	pt.partnum = pf.partnum AND
 	t.partnum = pt.lockid
-	${DB_LIST_CLAUSE}
+	${DATABASE_CLAUSE}
+	${TABLE_CLAUSE}
 ORDER BY ${PARTITION_ORDER_BY} DESC
 EOF
+	RC=$?
+	if [ $RC != 0 ]
+	then
+		printf "Error calling dbaccess (get partition data): %s\nError message:\n" $RC >&2
+		cat ${TEMP_DBACCESS_FILE} >&2
+		exit 1
+	fi
+		
 
 	${AWK} -F'|' -v HIGHLIGHT="$HIGHLIGHT_MODE" '
 
@@ -542,7 +579,7 @@ top_session()
 			for (f=1;f<=NF;f++)
 			{
 		                if (f<NF)
-					{printf "\"%s\"\,",$f}
+					{printf "\"%s\",",$f}
 				else
 					{printf "\"%s\"",$f}
 			}
@@ -553,7 +590,7 @@ top_session()
 		USER_CLAUSE=""
 	fi
 	cat /dev/null > ${TEMP_FILE}
-	dbaccess sysmaster <<EOF 2>/dev/null
+	dbaccess sysmaster <<EOF 2>${TEMP_DBACCESS_FILE}
 unload to ${TEMP_FILE}
 SELECT
 	$FIRST_CLAUSE
@@ -573,6 +610,13 @@ ORDER BY
 	${SESSION_ORDER_BY} DESC
 EOF
 
+	RC=$?
+	if [ $RC != 0 ]
+	then
+		printf "Error calling dbaccess (get session data): %s\nError message:\n" $RC >&2
+		cat ${TEMP_DBACCESS_FILE} >&2
+		exit 1
+	fi
 	${AWK} -F'|' -v "type=$TYPE" '
 
         function max_length(value, size)
@@ -691,7 +735,7 @@ top_condition()
 #cat ${TEMP_FILE}
 
 
-	dbaccess sysmaster <<EOF 2>/dev/null
+	dbaccess sysmaster <<EOF 2>${TEMP_DBACCESS_FILE}
 
 CREATE TEMP TABLE tmp_ixtop (col1 char(10)) WITH NO LOG;
 LOAD FROM ${TEMP_FILE} INSERT INTO tmp_ixtop;
@@ -711,6 +755,13 @@ WHERE
 	b.tid = x.col1
 	GROUP BY 2,3,4,5 HAVING COUNT(*)>=${CONDITION_MIN_OCURRENCES} ORDER BY 1 DESC
 EOF
+	RC=$?
+	if [ $RC != 0 ]
+	then
+		printf "Error calling dbaccess (get relevant session data): %s\nError message:\n" $RC >&2
+		cat ${TEMP_DBACCESS_FILE} >&2
+		exit 1
+	fi
 	if [ "X$THREAD_CMD_FLAG" = "X1" ]
 	then
 		if [ "X$THREAD_OUTPUT_FILE_FLAG" = "X" ]
@@ -720,14 +771,12 @@ EOF
 		fi
 		if [ "X$THREAD_CMD_EXE" = "Xixses" ]
 		then
-			set -x
 			SESSION_LIST=""
 			head -${TOP_SIZE} ${TEMP_FILE} | while read DUMMY SID DUMMY1
 			do
 				SESSION_LIST="$SESSION_LIST $SID"
 			done
 			ixses $SESSION_LIST >$THREAD_OUTPUT_FILE
-			set +x
 		else
 			head -${TOP_SIZE} ${TEMP_FILE} | while read DUMMY SID DUMMY1
 			do
@@ -773,12 +822,19 @@ EOF
 
 		if (HOSTNAME == my_host)
 		{
-			command=sprintf("%s -p %s", PS_CMD, my_pid);
-			command | getline;
-			command | getline;
-			my_time=$1;
-			my_command=$2 " " $3 " " $4;
-			close(command);
+			if ( my_pid == -1 )
+			{
+				my_command = "Local Java process - not possible to identify (PID=-1)";
+			}
+			else
+			{
+				command=sprintf("%s -p %s", PS_CMD, my_pid);
+				command | getline;
+				command | getline;
+				my_time=$1;
+				my_command=$2 " " $3 " " $4;
+				close(command);
+			}
 		}
 		else
 		{
@@ -795,7 +851,8 @@ VERSION=`echo "$Revision$" | cut -f2 -d' '`
 
 TEMP_DIR=/tmp
 TEMP_FILE=${TEMP_DIR}/ixtop$$.tmp
-trap "rm -f ${TEMP_FILE}" 0
+TEMP_DBACCESS_FILE=${TEMP_DIR}/ixtop_dbaccess$$.tmp
+trap "rm -f ${TEMP_FILE} ${TEMP_DBACCESS_FILE}" 0
 CONDITION_INTERACTIONS=20
 CONDITION_MIN_OCURRENCES=2
 TOP_SIZE=10
@@ -830,6 +887,12 @@ case $SO in
 		AWK=awk
 		;;
 esac
+
+if [ \( "X${PARTITION_TABLE_LIST_FLAG}" = "X1" -o "X${PARTITION_TABLE_LIST_FLAG}" = "X1" \) -a "X${PARTITION_FLAG}" = "X" ]
+then
+	printf "Error: Options -d and -t can only be used with -p\n" >&2
+	exit 1
+fi
 
 if [ "X${HIGHLIGHT_FLAG}" = "X" ]
 then
