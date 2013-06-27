@@ -121,12 +121,12 @@ onstat -g ppf  | awk '{if ($12 != 0) {print $0}}' | grep "^0x" | sort -nk 12 | a
 
 dbaccess sysmaster <<EOF 2>${DBACCESS_TMP_FILE} 1>&2
 
-create temp table ixseqscans
+CREATE TEMP TABLE ixseqscans
 (
-        partnum varchar(18),
-        seq_scans integer
-);
-load from ${TMP_FILE} insert into ixseqscans;
+        partnum VARCHAR(18),
+        seq_scans INTEGER
+) WITH NO LOG;
+LOAD FROM ${TMP_FILE} INSERT INTO ixseqscans;
 
 
 UNLOAD TO $TMP_FILE
