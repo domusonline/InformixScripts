@@ -888,6 +888,16 @@ case $SO in
 		;;
 esac
 
+#fallback to an existing awk
+
+type ${AWK} 2>/dev/null 1>/dev/null
+RES=$?
+if [ ${RES} != 0 ]
+then
+	AWK=awk
+fi
+
+
 if [ \( "X${PARTITION_TABLE_LIST_FLAG}" = "X1" -o "X${PARTITION_TABLE_LIST_FLAG}" = "X1" \) -a "X${PARTITION_FLAG}" = "X" ]
 then
 	printf "Error: Options -d and -t can only be used with -p\n" >&2
