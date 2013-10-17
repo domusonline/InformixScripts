@@ -325,7 +325,7 @@ export MAX_GREP_FILE_LINES
 #--------------------------------------------------------------------
 # adapt a few things to the specific OS
 #--------------------------------------------------------------------
-SO=`uname -s | tr [:upper:] [:lower:]`
+SO=`uname -s | tr "[:upper:]" "[:lower:]"`
 case $SO in
 sunos*)
 	GREP=egrep
@@ -392,7 +392,7 @@ EOF
 		fi
 	
 	else
-		TABLE=`echo ${TABLE} | tr [:upper:] [:lower:]`
+		TABLE=`echo ${TABLE} | tr "[:upper:]" "[:lower:]"`
 		echo ${TABLE} | ${GREP} "^(0x)*[a-f0-9]*$" >/dev/null
 		
 		if [ $? != 0 ]
@@ -414,7 +414,7 @@ EOF
 				echo ${TABLE} | grep "^[0-9][0-9]*$" >/dev/null
 				if [ $? = 0 ]
 				then
-					TABLE_HEX=`echo "ibase=10;obase=16;$TABLE"| bc | tr [:upper:] [:lower:]`
+					TABLE_HEX=`echo "ibase=10;obase=16;$TABLE"| bc | tr "[:upper:]" "[:lower:]"`
 					AUX=`printf ${TABLE_HEX} | wc -c`
 					if [ $AUX -lt 8 ]
 					then
