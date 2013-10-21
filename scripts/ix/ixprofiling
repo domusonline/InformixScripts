@@ -14,17 +14,19 @@ ix_help()
 {
 	echo "${PROGNAME} [ -h | -V ]" >&2
 	echo "            -s SID database" >&2
-	echo "            [-z|-Z|-n] database sql_script" >&2
+	echo "            [-i] [-w] [-z|-Z|-n] database sql_script" >&2
 	echo "     -h             : Get this help">&2
 	echo "     -V             : Get script version">&2
 	echo "     -s SID database: Get stats for session (SID) and database">&2
 	echo "     -n             : Do NOT reset engine stats">&2
 	echo "     -z             : Reset engine stats using onstat (default - needs local database)">&2
 	echo "     -Z             : Reset engine stats using SQL Admin API (can work remotely )">&2
+	echo "     -w             : Print WSTATS info" >&2
+	echo "     -i             : I/O stats" >&2
 }
 get_args()
 {
-	arg_ok='Vhs:SzZn'
+	arg_ok='Vhs:SzZnwi'
         
 	while getopts ${arg_ok} OPTION 2>/dev/null
 	do
@@ -76,6 +78,12 @@ EOF
 		Z)	# DO  reset stats
 			RESETSTATS_FLAG=2
 			;;
+		w)	# DO  wait stats
+			WAIT_FLAG=1
+			;;
+		i)	# DO  wait stats
+			IO_FLAG=1
+			;;
 		?|*)
 			echo "$PROGNAME: Invalid option: $OPTION" >&2
 			return 1
@@ -123,7 +131,8 @@ SELECT
 	s.upf_iswrite, s.upf_isrwrite, s.upf_isdelete, s.upf_iscommit, s.upf_isrollback,
 	s.upf_longtxs, s.upf_bufreads, s.upf_bufwrites, s.upf_logspuse, s.upf_logspmax,
 	s.upf_seqscans, s.upf_totsorts, s.upf_dsksorts, s.upf_srtspmax,
-	DBINFO('utc_to_datetime',t.last_run_time), t.num_sched, trunc(t.cpu_time, 10 - length(trunc(t.cpu_time,0)||'')), t.name
+	DBINFO('utc_to_datetime',t.last_run_time), t.num_sched, trunc(t.cpu_time, 10 - length(trunc(t.cpu_time,0)||'')), t.name,
+	s.lkwaittime, s.iowaittime, s.upf_niowaits, s.upf_idxbufreads
 FROM
 	sysrstcb s, systcblst t
 WHERE
@@ -137,7 +146,7 @@ EOF
 		exit 1
 	fi
 
-	awk -F'|' -v SESSION_ID=${SESSION_ID} '
+	awk -F'|' -v SESSION_ID=${SESSION_ID} -v IO_FLAG=${IO_FLAG} '
 	function max_length(value, size)
 	{
 		currentsize=length(value);
@@ -164,6 +173,7 @@ EOF
 		printf "Thread profiles (SID: %s)\n%-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-11s %-12s\n",
 		SESSION_ID, "LkReq","LkWai","DLks","TOuts","LgRec","IsRd","IsWrt","IsRWr","IsDel","BfRd","BfWrt","LgUse", "LgMax", "SeqSc", "Srts", "DskSr", "SrtMx","Sched","CPU Time","Name";
 		printf "----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----- ----------- ------------ \n";
+		add_on="";
 	}
 
 	{
@@ -191,6 +201,10 @@ EOF
 		MY_num_sched=$22;
 		MY_cpu_time=$23;
 		MY_name=$24;
+		MY_lkwaittime=$25;
+		MY_iowaittime=$26;
+		MY_upf_niowaits=$27;
+		MY_upf_idxbufreads=$28;
 		printf "%-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-11s %-12s\n",
 		max_length(MY_upf_rqlock,5), max_length(MY_upf_wtlock,5), max_length(MY_upf_deadlk,5), max_length(MY_upf_lktouts,5),
 		max_length(MY_upf_lgrecs,5), max_length(MY_upf_isread,5), max_length(MY_upf_iswrite,5), max_length(MY_upf_isrwrite,5),
@@ -200,7 +214,95 @@ EOF
 		max_length(MY_upf_seqscans,5), max_length(MY_upf_totsorts,5), max_length(MY_upf_dsksorts,5), max_length(MY_upf_srtspmax,5),
 		#MY_last_run_time,
 		max_length(MY_num_sched,5), MY_cpu_time, MY_name;
+		if ( add_on == "" )
+	                add_on=sprintf("%-12s %-12s %-12s %-12s %-35s\n", substr(MY_lkwaittime,1,12), substr(MY_iowaittime,1,12), substr(MY_upf_niowaits,1,12), substr(MY_upf_idxbufreads,1,12), substr(MY_name,1,35));
+		else
+	                add_on=sprintf("%s%-12s %-12s %-12s %-12s %-35s\n", add_on, substr(MY_lkwaittime,1,12), substr(MY_iowaittime,1,12), substr(MY_upf_niowaits,1,12), substr(MY_upf_idxbufreads,1,12), substr(MY_name,1,35));
+
+	}
+	END {
+		if ( IO_FLAG == 1 )
+		{
+                printf "%-12s %-12s %-12s %-12s %-35s\n","LkWs", "IOWs", "nIOW", "IdxBR", "Name";
+		printf "------------ ------------ ------------ ------------ -----------------------------------\n";
+		printf "%s\n", add_on;
+		}
 	}' $MY_STATS_FILE
+
+		if [ "X${WAIT_FLAG}" = "X1" ]
+		then
+			dbaccess sysmaster <<EOF 2>$TMP_ERROR_FILE
+SELECT
+	'Total time' cond_name, NULL::integer nwaits, SUM(b.wcumtime) cum_wait, NULL::float  max_wait ,t.name, a.sid
+FROM
+	sysrstcb a, systwaits b, systcblst t
+WHERE
+	a.sid = "$SESSION_ID" AND
+	a.tid = b.tid AND
+	a.tid = t.tid AND
+	b.wnum > 0
+GROUP BY 1,2,4,5,6
+INTO TEMP t_$SESSION_ID;
+
+UNLOAD TO "$MY_STATS_FILE"
+SELECT
+	c.txt, b.wnum, b.wcumtime, b.wmaxtime, t.name, a.sid
+FROM
+	sysrstcb a, systwaits b, flags_text c, systcblst t
+WHERE
+	a.sid = "$SESSION_ID" AND
+	a.tid = b.tid AND
+	a.tid = t.tid AND
+	b.wreason = c.flags AND
+	c.tabname = 'systwaits' AND
+	b.wnum > 0
+UNION
+SELECT * FROM t_$SESSION_ID
+ORDER BY 5,3,1 desc;
+EOF
+			if [ $? != 0 ]
+			then
+				echo "$PROGNAME: Error - Error selecting the session wait stats" >&2
+				cat $TMP_ERROR_FILE >&2
+				exit 1
+			fi
+
+			awk -F'|' '
+	function max_length(value, size)
+	{
+		currentsize=length(value);
+		if ( currentsize <= size )
+			return(value);
+		targetsize=size-2;
+		resp="";
+		if ( targetsize <= 0)
+		{
+			for (f=1;f<=size;f++)
+				resp=sprintf("%s%c",resp,"*");
+			return(resp);
+		}
+		else
+		{
+			exponent=currentsize - targetsize;
+			targetvalue=value / (10**(exponent));
+			resp=substr(targetvalue,1,targetsize) "e" exponent;
+			return(resp);
+		}
+	}
+
+	BEGIN {
+		printf "Session wait statistics:\n%-35s %-35s %-12s %-12s %-12s\n", "Thread name", "Condition","Num. waits","Cum. time","Max wait";
+		printf "----------------------------------- ----------------------------------- ------------ ------------ ------------\n";
+	}
+	{
+		MY_reason=$1;
+		MY_numwaits=$2;
+		MY_cumtime=$3;
+		MY_maxtime=$4;
+		MY_name=$5;
+		printf "%-35s %-35s %-12s %-12s %-12s\n", substr(MY_name,1,35), substr(MY_reason,1,35),substr(MY_numwaits,1,12),substr(MY_cumtime,1,12),substr(MY_maxtime,1,12);
+	}' $MY_STATS_FILE
+		fi
 	fi
 
 	dbaccess sysmaster <<EOF 2>/dev/null
@@ -295,12 +397,14 @@ rm -f $MY_STATS_FILE $MY_SQL_SCRIPT $TMP_ERROR_FILE
 }
 
 #START
+IO_FLAG=0
+WAIT_FLAG=0
 SCRIPT=$0
 PROGNAME=`basename $0`
 VERSION=`echo "$Revision$" | cut -f2 -d' '`
-MY_STATS_FILE=/tmp/$PROGNAME_partitions_$$.tmp
-MY_SQL_SCRIPT=/tmp/$PROGNAME_$$.sql
-TMP_ERROR_FILE=/tmp/$PROGNAME_$$.err
+MY_STATS_FILE=/tmp/${PROGNAME}_partitions_$$.tmp
+MY_SQL_SCRIPT=/tmp/${PROGNAME}_$$.sql
+TMP_ERROR_FILE=/tmp/${PROGNAME}_$$.err
 RESETSTATS_FLAG=1
 trap clean_up 0
 
@@ -314,7 +418,7 @@ fi
 if [ "X$SQL_SCRIPT_FLAG" = "X1" ]
 then
 
-	awk -v SCRIPT=$SCRIPT -v DATABASE=$DATABASE -v PID=$$ -v RESETSTATS=$RESETSTATS_FLAG -v ERROR_FILE=$TMP_ERROR_FILE '
+	awk -v SCRIPT=$SCRIPT -v DATABASE=$DATABASE -v PID=$$ -v RESETSTATS=$RESETSTATS_FLAG -v ERROR_FILE=$TMP_ERROR_FILE -v WAIT_FLAG=$WAIT_FLAG -v IO_FLAG=$IO_FLAG '
 		BEGIN {
 			if ( RESETSTATS == 1 )
 				RESETSTATS_CLAUSE="!onstat -z 2>" ERROR_FILE "  1>&2; if [ $? = 0 ]; then echo Engine statistics RESETed. Query results:;else echo Could not RESET engine stats!;cat " ERROR_FILE ";fi";
@@ -324,16 +428,22 @@ then
 				else
 					RESETSTATS_CLAUSE="";
 			printf "%s\n", RESETSTATS_CLAUSE;
+			if ( WAIT_FLAG == 1 )
+				EXTRA_FLAGS="-w";
+			if ( IO_FLAG == 1 )
+				EXTRA_FLAGS=EXTRA_FLAGS " -i";
 		}
 		{
 			if ( toupper($0) ~ /[ 	]*--[ 	]*QUERY/ )
-				{printf "!%s -S %s\n%s\n-- QUERY\n",SCRIPT, DATABASE,RESETSTATS_CLAUSE;next}
+					{printf "!%s %s -S %s\n%s\n-- QUERY\n",SCRIPT, EXTRA_FLAGS, DATABASE,RESETSTATS_CLAUSE;next}
 			else
 				print $0
 		}
-		END { printf "!%s -S %s\n",SCRIPT,DATABASE}' $SQL_SCRIPT > $MY_SQL_SCRIPT
+		END {
+					printf "!%s %s -S %s\n",SCRIPT,EXTRA_FLAGS, DATABASE;
+		}' $SQL_SCRIPT > $MY_SQL_SCRIPT;
 
-	dbaccess $DATABASE $MY_SQL_SCRIPT
+	time dbaccess $DATABASE $MY_SQL_SCRIPT
 	exit 0
 fi
 

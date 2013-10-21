@@ -88,7 +88,7 @@ case $IX_VERSION in
 12.1)
         IX_SUB_DIRS="SDK aaodir bin dbssodir demo doc etc extend gls gskit help incl isa lib license msg properties release snmp ssl tmp uninstall jdbc"
         IX_DIRS="SDK bin demo doc extend gls gskit help incl isa lib license msg properties release snmp jdbc"
-        OPTIONAL_DIRS="jdbc"
+        OPTIONAL_DIRS="snmp jdbc"
         #ism as optional?
         ;;
 *)
