@@ -5,7 +5,7 @@
 # Revision: $Revision$
 # Revised on: $Date$
 # Revised by: $Author$
-# Support: Fernando Nunes - domusonline@domus.online.pt
+# Support: Fernando Nunes - domusonline@gmail.com
 # Licence: This script is licensed as GPL ( http://www.gnu.org/licenses/gpl.html )
 # History:
 
@@ -262,124 +262,305 @@ get_args()
 
 Top10Locks()
 {
-	echo "# NumLocks Session User" | \
-	$IX_AWK '{ printf("\n%2s %8s %8s %-16s\n",$1,$2,$3,$4) }'
+	if [ $# = 0 ]
+	then
+		MY_DATABASE_FLAG=0
+		DATABASE_IN_PROJ=""
+		GROUP_CONDITION=" GROUP BY 1,2" 
+		ORDER_CONDITION=" ORDER BY 3 DESC, 1, 2"
+		DATABASE_CONDITION=""
+	else
+		MY_DATABASE_FLAG=1
+		DATABASE_IN_PROJ=", t2.dbsname my_database_n"
+		DATABASE_CONDITION=" AND t2.dbsname IN ( $* )"
+		GROUP_CONDITION=" GROUP BY 1,2,4" 
+		ORDER_CONDITION=" ORDER BY 4, 3 DESC, 1, 2"
+	fi
 
-	echo "== ======== ======== ================" | \
-	$IX_AWK '{ printf("%2s %8s %8s %-16s\n",$1,$2,$3,$4) }'
 
-	onstat -u | egrep "^[0-9a-f][0-9a-f]* " |  ${IX_AWK} '{ print $8,$3,$4 }' | \
-	sort -nr -k1,1 | head -10 | ${IX_AWK} '{ printf("%2d %8d %8d %-16s\n",FNR,$1,$2,$3) }'
+	dbaccess sysmaster <<EOF 2>${TEMP_FILE_1}
+UNLOAD TO ${TEMP_FILE}
+SELECT
+r.username myuser_1,
+r.sid mysiduser_2,
+TRUNC(COUNT(*),0) ||'' mycount_3
+$DATABASE_IN_PROJ
+FROM
+        sysmaster:syslocktab l, sysmaster:flags_text f, sysmaster:systabnames t1,
+        sysmaster:sysptnhdr p, sysmaster:systabnames t2, sysmaster:systxptab tx,
+        sysmaster:sysrstcb r, outer sysmaster:sysrstcb r1
+WHERE
+p.partnum = l.lk_partnum AND
+t2.partnum = p.lockid AND
+t1.partnum = l.lk_partnum AND
+l.lk_type =  f.flags AND
+f.tabname = 'syslcktab' AND
+tx.address = lk_owner AND
+r.address = tx.owner AND
+r1.address = lk_wtlist AND
+r.sid != DBINFO('sessionid')
+$DATABASE_CONDITION
+$GROUP_CONDITION
+$ORDER_CONDITION
+EOF
+	if [ $? != 0 ]
+	then
+		printf "Error while querying database\nError output:\n\n" >&2
+		cat ${TEMP_FILE_1}
+		exit 1
+	fi
+	if [ -s ${TEMP_FILE} ]
+	then
+		if [ "X$MY_DATABASE_FLAG" = "X0" ]
+		then
+			echo "User               SID        Nr Locks"
+			echo "================== ========== ============"
+	#		      123456789012345678 1234567890 123456789012
+			${IX_AWK} -F'|' '{printf("%-18s %-10s %+12s\n", $1, $2, $3)}' ${TEMP_FILE}
+		else
+			echo "Database                         User               SID        Nr Locks"
+			echo "================================ ================== ========== ============"
+	#		      12345678901234567890123456789012 123456789012345678 1234567890 123456789012
+			${IX_AWK} -F'|' '{printf("%-32s %-18s %-10s %-12s\n", $4, $1, $2, $3)}' ${TEMP_FILE}
+		fi
+	else
+		printf "There are no sessions with locks\n"
+	fi
 }
+
 
 TablesWithXLocks()
 {
-	echo "Getting Lock's info from DB engine..."
-	echo "select 'Locked:' || partnum || ' ' || dbsname || ' ' || tabname from systabnames where hex(partnum) in ('0'" >${TEMP_SQL}
-	onstat -k | egrep "\+X |\+IX " | ${IX_AWK} '{print $6}' | sort | uniq  | tr "[a-z]" "[A-Z]" >${TEMP_FILE}
-	for i in `cat ${TEMP_FILE} | ${IX_AWK} '{ print $1 }' | tr "[a-z]" "[A-Z]"`
-	do
-		echo ",'0x00$i'" >>${TEMP_SQL}
-	done
-	echo ") ;" >>${TEMP_SQL}
-	echo "Getting Data from sysmaster DB..."
-	echo "It takes a while..."
-	dbaccess sysmaster ${TEMP_SQL} >>${TEMP_FILE} 2>&1
+	LOCK_TYPE_CONDITION=" AND f.txt IN ('IX', 'X')"
+	ORDER_CONDITION=" ORDER BY 1,3,2,5,7,4"
 
-	grep "Locked" ${TEMP_FILE} | cut -d: -f2 | ${IX_AWK} '{printf("%-10s %s:%-20s\n",$1,$2,$3)}' >${TEMP_FILE_1}
-	echo
-	echo "`cat ${TEMP_FILE_1} | wc -l` tables with exclusive locks (table|index|row level)"
-	echo
-	sleep 2
-	echo "PartNum    Tabname" >${TEMP_FILE}
-	echo "========== =============" >>${TEMP_FILE}
-	cat ${TEMP_FILE_1} >>${TEMP_FILE}
-	cat ${TEMP_FILE}
-	rm ${TEMP_SQL} ${TEMP_FILE} ${TEMP_FILE_1}
+
+	dbaccess sysmaster <<EOF 2>${TEMP_FILE_1}
+UNLOAD TO ${TEMP_FILE}
+SELECT UNIQUE
+t2.dbsname table_database_1,
+t2.owner   table_owner_2,
+t2.tabname table_name_3,
+TRIM(t1.tabname) partition_name_4,
+CASE
+	WHEN p.nkeys = 0 THEN
+		'Data'
+	WHEN p.nkeys != 0 AND p.npdata > 0 THEN
+		'Both'
+	ELSE
+		'Indx'
+END partition_type_5,
+t1.partnum || ':' || HEX(t1.partnum) partnumber_6,
+CASE
+	WHEN f.txt = 'IX' AND l.lk_rowid = 0 AND p.partnum = p.lockid THEN
+		'IX (DDL)'
+	WHEN f.txt = 'X' AND l.lk_rowid = 0 THEN
+		'X  (Glb)'
+	WHEN f.txt = 'X' AND l.lk_rowid != 0 THEN
+		'X  (Row)'
+	ELSE
+		f.txt
+END lock_type_7
+FROM
+        sysmaster:syslocktab l, sysmaster:flags_text f, sysmaster:systabnames t1,
+        sysmaster:sysptnhdr p, sysmaster:systabnames t2, sysmaster:systxptab tx,
+        sysmaster:sysrstcb r, outer sysmaster:sysrstcb r1
+WHERE
+p.partnum = l.lk_partnum AND
+t2.partnum = p.lockid AND
+t1.partnum = l.lk_partnum AND
+l.lk_type =  f.flags AND
+f.tabname = 'syslcktab' AND
+tx.address = lk_owner AND
+r.address = tx.owner AND
+r1.address = lk_wtlist AND
+r.sid != DBINFO('sessionid')
+$LOCK_TYPE_CONDITION
+$ORDER_CONDITION
+EOF
+	if [ $? != 0 ]
+	then
+		printf "Error while querying database\nError output:\n\n" >&2
+		cat ${TEMP_FILE_1}
+		exit 1
+	fi
+	if [ -s ${TEMP_FILE} ]
+	then
+		echo "Database           Owner            Tablename                      Partition Name                Type Partnum               Lck Type"
+		echo "================== ================ ============================== ============================= ==== ===================== ========"
+#		      123456789012345678 1234567890123456 123456789012345678901234567890 12345678901234567890123456789 1234 123456789012345678901 12345678
+		${IX_AWK} -F'|' '{printf("%-18s %-16s %-30s %-29s %-4s %-21s %-8s\n", $1, $2, $3, $4, $5, $6, $7)}' ${TEMP_FILE}
+	else
+		printf "There are no tables with Exclusive (X) or Intent Exclusiv (IX) locks\n"
+	fi
+}
+
+SessionLocks()
+{
+	#1 = ALL for ALL locks, X for exclusive (X,IX)
+	#2 = S for SESSION, U for USER
+	#3 = Session ID or Username
+
+	if [ "X$1" = "XALL" ]
+	then
+		LOCK_CONDITION=""
+	else
+		LOCK_CONDITION=" AND f.txt IN ('IX','X')"
+	fi
+
+	if [ "X$2" = "XS" ]
+	then
+		SESSION_CONDITION=" r.sid != DBINFO('sessionid') AND r.sid = $3 "
+	else
+		SESSION_CONDITION=" r.sid != DBINFO('sessionid') AND r.username = '$3'"
+	fi
+
+
+	dbaccess sysmaster <<EOF 2>${TEMP_FILE_1}
+UNLOAD TO ${TEMP_FILE}
+SELECT
+r.sid my_owner_sid_1,
+TRIM(t2.owner)  table_owner_2,
+TRIM(t2.tabname) table_name_3,
+TRIM(t1.tabname) partition_name_4,
+t1.partnum partnumber_5,
+CASE
+	WHEN l.lk_keynum = 0 THEN
+		'DATA'
+	ELSE
+		'K-'||l.lk_keynum
+	
+END lock_key_6,
+lk_rowid myrowid_7,
+f.txt lock_type_8,
+EXTEND(DBINFO('utc_to_datetime', l.lk_grtime), day to second) lock_time_9,
+r1.sid ||':'||r1.username my_waiter_10,
+TRIM(t2.dbsname) database_name_11,
+TRIM(r.username) my_owner_user_12
+FROM
+        sysmaster:syslocktab l, sysmaster:flags_text f, sysmaster:systabnames t1,
+        sysmaster:sysptnhdr p, sysmaster:systabnames t2, sysmaster:systxptab tx,
+        sysmaster:sysrstcb r, outer sysmaster:sysrstcb r1
+WHERE
+p.partnum = l.lk_partnum AND
+t2.partnum = p.lockid AND
+t1.partnum = l.lk_partnum AND
+l.lk_type =  f.flags AND
+f.tabname = 'syslcktab' AND
+tx.address = lk_owner AND
+r.address = tx.owner AND
+r1.address = lk_wtlist AND
+$SESSION_CONDITION
+$LOCK_CONDITION
+ORDER BY 1,11,3,2,4,6
+EOF
+
+# NVL(r1.sid || ':' || TRIM(r1.username), 'N') mywaiter_9,
+
+	if [ $? != 0 ]
+	then
+		printf "Error while querying database\nError output:\n\n" >&2
+		cat ${TEMP_FILE_1}
+		exit 1
+	fi
+	if [ -s ${TEMP_FILE} ]
+	then
+		if [ "X$2" = "XU" ]
+		then
+			#user was given, need to print it on the header and each row needs the SID
+			if [ "X$1" = "XALL" ]
+			then
+				printf "All locks owned by user: $3\n\n"
+			else
+				printf "Exclusive (IX,X) locks owned by user: $3\n\n"
+			fi
+			${IX_AWK} -v DATABASE="1" -F'|' '
+function print_header()
+{
+			printf "SID        Tablename                    Partition Name             Partnum    Type RowID      Lck Type Time        Waiter          \n";
+			printf "========== ============================ ========================== ========== ==== ========== ======== =========== ================\n";
+#			        1234567890 1234567890123456789012345678 12345678901234567890123456 1234567890 1234 1234567890 12345678 12345678901 1234567890123456
+}
+BEGIN {
+		PREV_SID=-1;
+}
+{
+	if ( PREV_SID != $1 )
+	{
+		printf "\n";
+		print_header();
+	}
+
+	if ( DATABASE != $11 || PREV_SID != $1 )
+	{
+		printf "Database: %s\n",$11;
+		DATABASE=$11;
+	}
+#Owner	printf("%-10s %-14s %-28s %-26s %-10s %-4s %-10s %-8s %-11s %-2s\n", $1, $2, $3, $4, $5, $6, $7, $8, $9, $10 )
+	printf("%-10s %-28s %-26s %-10s %-4s %-10s %-8s %-11s %-16s\n", $1, $3, $4, $5, $6, $7, $8, $9, $10 )
+	PREV_SID=$1;
+}' ${TEMP_FILE}
+		else
+			#SID was given. Need to print it on the header and get the user from the file. Neither SID nor USER will be shown on every row
+			if [ "X$1" = "XALL" ]
+			then
+				${IX_AWK} -F'|' '{printf ("All locks owned by user: %s with SID: %s\n\n", $12, $1);exit}' ${TEMP_FILE}
+			else
+				${IX_AWK} -F'|' '{printf ("Exclusive locks (IX,X) owned by user: %s with SID: %s\n\n",  $12,$1);exit}' ${TEMP_FILE}
+			fi
+			${IX_AWK} -v DATABASE="1" -F'|' '
+function print_header()
+{
+			printf "Database      Tablename                    Partition Name             Partnum    Type RowID      Lck Type Time        Waiter        \n";
+			printf "============= ============================ ========================== ========== ==== ========== ======== =========== ==============\n";
+#			        1234567890123 1234567890123456789012345678 12345678901234567890123456 1234567890 1234 1234567890 12345678 12345678901 12345678901234
+}
+BEGIN {
+		print_header();
+		PREV_SID=-1;
+}
+{
+	printf("%-13s %-28s %-26s %-10s %-4s %-10s %-8s %-11s %-16s\n", $11, $3, $4, $5, $6, $7, $8, $9, $10 )
+	PREV_SID=$1;
+}' ${TEMP_FILE}
+		fi
+	else
+		TAB_COUNT=`dbaccess sysmaster <<EOF 2>/dev/null| grep "^Result:" | cut -f2 -d':'
+SELECT
+	'Result:'||COUNT(*)
+FROM
+	sysrstcb r
+WHERE
+	1=1
+	$SESSION_CONDITION
+EOF
+`
+		if [ $TAB_COUNT -eq 0 ]
+		then
+			printf "The specified session does not exist or the specified user has no sessions\n"
+		else
+			echo "No locks for this user/sid..."
+		fi
+	fi
 }
 
 SessionAllLocks()
 {
-#	OWNER=`onstat -u | ${IX_AWK} -v"SESSION=$SESSION" '{ if ( $3 ~ SESSION ) {print $1} }'`
-#--	echo "unload to ${TEMP_FILE} select dbsname,tabname from systabnames where partnum in (1" >${TEMP_SQL}
-	if [ $# = 0 ]
-	then
-		dbaccess sysmaster <<EOF 2>/dev/null
-		unload to ${TEMP_FILE}
-		select owner,dbsname,tabname,type,rowidlk,keynum,waiter
-		from syslocks
-		where owner in ( ${SESSION} )
-		order by 1,2,3
-EOF
-	else
-		dbaccess sysmaster <<EOF 2>/dev/null
-		unload to ${TEMP_FILE}
-		select owner, dbsname,tabname,type,rowidlk,keynum,waiter
-		from syslocks
-		where owner in ( ${SESSION} )
-		and type = 'X'
-		order by 1,2,3
-EOF
-	fi
-
-#	if [ $# = 0 ]
-#	then
-#		for j in  `onstat -K | ${IX_AWK} -v"OWNER=$OWNER" '{ if ( $3 ~ OWNER ) { print "0x"$7"" }}' |sort -u`
-#		do
-#			echo ",'$j'"
-#		done >>${TEMP_SQL}
-#	else
-#		for j in  `onstat -K | ${IX_AWK} -v"OWNER=$OWNER" '{ if ( $3 ~ OWNER && $6 ~ /+X/ ) { print "0x"$7"" }}' |sort -u`
-#		do
-#			echo ",'$j'"
-#		done >>${TEMP_SQL}
-#	fi
-#	echo ")" >>${TEMP_SQL}
-#	dbaccess sysmaster ${TEMP_SQL}  2>/dev/null 
-	if [ -s ${TEMP_FILE} ]
-	then
-		echo "Tables with locks for session(s) $SESSION"
-		echo "Session   Database           Table              Type   RowID    KeyNum Waiter"
-		echo "========= ================== ================== ====== ======== ====== ========="
-		${IX_AWK} -F '|' '{printf("%-9s %-18s %-18s %-6s %-8s %-6s %-9s\n", $1,$2,$3,$4,$5,$6,$7) }' ${TEMP_FILE}
-	else
-		echo "No locks for session $SESSION" && return
-	fi
-	rm ${TEMP_FILE}
+	SessionLocks ALL S $SESSION
 }
 
 SessionXLocks()
 {
-	SessionAllLocks X
+	SessionAllLocks X S $SESSION
 }
 
 UserLocks()
 {
-	SESSION=""
-	for SES in `onstat -u | grep ${USER_NAME} | ${IX_AWK} '{if ($3 != 0) {print $3}}'`
-	do
-		if [ "X${SESSION}" = "X" ]
-		then
-			SESSION="$SES"
-		else
-			SESSION="${SESSION},${SES}"
-		fi
-	done
-	SessionAllLocks
+	SessionLocks ALL U $USER_NAME
 }
 UserXLocks()
 {
-	SESSION=""
-	for SESSION in `onstat -u | grep ${USER_NAME} | ${IX_AWK} '{if ($3 != 0) {print $3}}'`
-	do
-		if [ "X${SESSION}" = "X" ]
-		then
-			SESSION="$SES"
-		else
-			SESSION="${SESSION},${SES}"
-		fi
-	done
-	SessionXLocks
+	SessionLocks X U $USER_NAME
 }
 
 TableLocks()
@@ -396,30 +577,10 @@ TableLocks()
 			OWNER=`echo ${TABNAME} | cut -f1 -d '.'`	
 			TABNAME=`echo ${TABNAME} | cut -f2 -d '.'`	
 		else
-			OWNER='%'
+			OWNER='?'
 		fi
-	        PARTNUM=`dbaccess sysmaster <<EOF 2>/dev/null | grep "^partnum:*"
-SELECT "partnum:"||partnum
-FROM systabnames
-WHERE dbsname = "$DBNAME"
-AND tabname = "$TABNAME"
-AND owner LIKE "$OWNER";
-EOF
-`
 
-		if [ "X${PARTNUM}" = "X" ]
-		then
-			echo "${PROGNAME}: Table ${TABLE} was not found!" >&2
-			exit 1
-		fi
-		PARTNUM=`echo $PARTNUM | cut -f2 -d':'`
-		PARTNUM=` echo $PARTNUM | ${IX_AWK} '{ printf("%x\n",$1) }'`
-		if [ "X${OWNER}" != "%" ]
-		then
-			echo "Database ($DBNAME); Table (${OWNER}.${TABNAME}); PartNum ($PARTNUM)"
-		else
-			echo "Database ($DBNAME); Table ($TABNAME); PartNum ($PARTNUM)"
-		fi
+		TABLE_CONDITION="AND t2.tabname = '$TABNAME' AND t2.dbsname = '$DBNAME'"
 	else
 		TABLE=`echo $TABLE | tr "[:upper:]" "[:lower:]"`
 		echo $TABLE | grep "[a-f]"  >/dev/null
@@ -444,60 +605,103 @@ EOF
 		else
 			PARTNUM=` echo $TABLE | ${IX_AWK} '{ printf("%x\n",$1) }'`
 		fi
+		TABLE_CONDITION="AND t2.partnum = '$PARTUNUM' "
 	fi
 
-	if [ -z "$PARTNUM" ]
+	if [ -z "$1" ]
 	then
-		return
+		LOCK_TYPE_CONDITION=""
 	else
-		if [ -z "$1" ]
-		then
-			onstat -K | grep $PARTNUM | sort -k3  > ${TEMP_FILE}
-		else
-			onstat -K | ${IX_AWK} -v"PARTNUM=$PARTNUM" '{ if ( $7 == PARTNUM && $8 ~ /^0$/ && $6 ~ "+X" ) {print $0 }}' >${TEMP_FILE}
-		fi
-		if [ -s ${TEMP_FILE} ]
-		then
-			rstcb_ant=-1
-			echo "session   user               lock type RowID  Waiter"
-			echo "========= ================== ========= ====== ======"
-		
+		LOCK_TYPE_CONDITION=" AND f.txt = 'X' "
+	fi
 
-			while read dummy dummy1 rstcb dummy2 dummy3 lock_type dummy4 rowid dummy5
-			do
-				if [ ${rstcb_ant} != ${rstcb} ]
-				then
-					linha=`onstat -u | grep ${rstcb}`
-					session_id=`echo $linha | cut -f3 -d' '`
-					username=`echo $linha | cut -f4 -d' '`
-					rstcb_ant=${rstcb}
-				fi
-				if [ $dummy1 != 0 ]
-				then
-					session_wait=`onstat -u | grep ${dummy1} | cut -f3 -d' '`
-				else
-					session_wait=""
-				fi
-				echo $session_id $username $lock_type $rowid $session_wait | ${IX_AWK} '{ printf("%-9d %-18s %-9s %6s %-9d\n",$1,$2,$3,$4,$5) }' 
-			done <${TEMP_FILE}
+	dbaccess ${DBNAME} <<EOF 2>${TEMP_FILE_1}
+UNLOAD TO ${TEMP_FILE}
+SELECT
+r.sid || ':' || TRIM(r.username) myowner_1,
+TRIM(t1.tabname) partition_name_2,
+CASE
+        WHEN (MOD(lk_flags,2*2) >= 2) THEN
+                "HDR+"||f.txt
+        ELSE
+                f.txt
+END lock_type_3,
+TRIM(db_f.partition) frag_name_4,
+lk_rowid myrowid_5,
+r1.sid || ':' || TRIM(r1.username) mywaiter_6,
+CASE
+	WHEN l.lk_keynum = 0 THEN
+		'DATA'
+	ELSE
+		'K-'||l.lk_keynum
+	
+END lock_key_7,
+EXTEND(DBINFO('utc_to_datetime', l.lk_grtime), day to second) lock_time_8,
+t1.partnum partnumber_9,
+t2.tabname table_name_10,
+HEX(t2.partnum) table_partnum_11,
+t2.dbsname table_database_12,
+t2.owner   table_owner_13,
+r.sid sid_14
+FROM
+        outer sysfragments db_f,
+        sysmaster:syslocktab l, sysmaster:flags_text f, sysmaster:systabnames t1,
+        sysmaster:sysptnhdr p, sysmaster:systabnames t2, sysmaster:systxptab tx,
+        sysmaster:sysrstcb r, outer sysmaster:sysrstcb r1
+WHERE
+db_f.partn = p.partnum AND
+p.partnum = l.lk_partnum AND
+t2.partnum = p.lockid AND
+t1.partnum = l.lk_partnum AND
+l.lk_type =  f.flags AND
+f.tabname = 'syslcktab' AND
+tx.address = lk_owner AND
+r.address = tx.owner AND
+r1.address = lk_wtlist AND
+r.sid != DBINFO('sessionid')
+$TABLE_CONDITION
+$LOCK_TYPE_CONDITION
+ORDER BY 14, 7, 9 
+EOF
+
+	if [ $? != 0 ]
+	then
+		printf "Error while querying database\nError output:\n\n" >&2
+		cat ${TEMP_FILE_1}
+		exit 1
+	fi
+	if [ -s ${TEMP_FILE} ]
+	then
+		${IX_AWK} -F'|' '{printf "Database: %s Table: %s.%s Partnum: %s\n\n", $12, $13, $10, $11;exit}' ${TEMP_FILE}
+		echo "SID:User           Partition/index name (sysmaster) LkType Name(sysfragments) RowID      Waiter SID:User  Key? Time set    Partnum "
+		echo "================== ================================ ====== ================== ========== ================ ==== =========== ========"
+#		      123456789012345678 12345678901234567890123456789012 123456 123456789012345678 1234567890 1234567890123456 1234 12345678901 12345678
+		${IX_AWK} -F'|' '{printf("%-18s %-32s %-6s %-18s %-10s %-16s %-4s %-11s %-8s\n", $1, $2, $3, $4, $5, $6, $7, $8, $9)}' ${TEMP_FILE}
+	else
+		TAB_COUNT=`dbaccess sysmaster <<EOF 2>/dev/null| grep "^Result:" | cut -f2 -d':'
+SELECT
+	'Result:'||COUNT(*)
+FROM
+	systabnames t2
+WHERE
+	1=1
+	$TABLE_CONDITION
+EOF
+`
+		if [ $TAB_COUNT -eq 0 ]
+		then
+			printf "The specified table does not exist\n"
 		else
 			echo "No locks for this table..."
 		fi
 	fi
 
-	
-	rm ${TEMP_FILE}
 }
 
 TableXLocks()
 {
 	TableLocks X
 }
-
-
-
-
-
 
 
 lock_waiters()
@@ -606,11 +810,18 @@ do
 done
 }
 
+
+cleanup()
+{
+	rm -f $TEMP_FILE $TEMP_SQL $TEMP_FILE_1
+}
+
 #INIT
 
 PROGNAME=`basename $0`
 VERSION=`echo "$Revision$" | cut -f2 -d' '`
 
+trap cleanup 0
 
 get_args $*
 if [ $? != 0 ]
@@ -638,7 +849,6 @@ esac
 TEMP_SQL=/tmp/${PROGNAME}_$$.sql
 TEMP_FILE=/tmp/${PROGNAME}_$$.tmp
 TEMP_FILE_1=/tmp/${PROGNAME}_1_$$.tmp
-TEMP_FILE_2=/tmp/${PROGNAME}_2_$$.tmp
 
 while true
 do
