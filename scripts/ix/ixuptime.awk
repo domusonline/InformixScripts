@@ -4,22 +4,25 @@
 # Revision: $Revision$
 # Revised on: $Date$
 # Revised by: $Author$
-# Support: Fernando Nunes - fernando.nunes@pt.ibm.com
+# Support: Fernando Nunes - domusonline@gmail.com
+# License: This script is licensed as GPL ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # Notes:
 # History:
 
 BEGIN {
-state=-1;
-last_date="";
-initial_date=-1
-last_offline_date=-1
-last_offline_hour=-1
-last_online_date=-1
-last_online_hour=-1
-#FILE_OFFLINE="tempos_off.unl"
-#FILE_ONLINE="tempos_on.unl"
-printf "" >OFFLINE_FILE
-printf "" >ONLINE_FILE
+	state=-1;
+	last_date="";
+	initial_date=-1
+	last_offline_date=-1
+	last_offline_hour=-1
+	last_online_date=-1
+	last_online_hour=-1
+	printf "" >OFFLINE_FILE
+	printf "" >ONLINE_FILE
+	if ( ONLINE_LOG_HAS_DATE == 1 )
+		HOUR_OFFSET=2;
+	else
+		HOUR_OFFSET=1;
 }
 
 function add_time(mode)
@@ -118,7 +121,7 @@ last_offline_hour=last_hour;
 
 #--- changed... be careful...
 seen_offline_date=last_date;
-seen_offline_hour=$1
+seen_offline_hour=$HOUR_OFFSET;
 #--- changed... be careful...
 
 add_time(1);
@@ -133,12 +136,12 @@ $0 ~ /On-Line Mode/ {
 		initial_date=last_date;		
 		initial_hour=last_hour;
 	}
-	last_hour=$1;
-	seen_offline_hour=$1;
+	last_hour=$HOUR_OFFSET;
+	seen_offline_hour=$HOUR_OFFSET;
 	seen_offline_date=last_date;
 	add_time(0)
 	last_online_date=last_date;
-	last_online_hour=$1;
+	last_online_hour=$HOUR_OFFSET;
 	state=1;
 }
 $0 ~ /DR: Secondary server operational/ {
@@ -148,14 +151,14 @@ $0 ~ /DR: Secondary server operational/ {
 		initial_date=last_date;		
 		initial_hour=last_hour;
 	}
-	last_hour=$1;
+	last_hour=$HOUR_OFFSET;
 	if ( state == 0 )
 	{
-		seen_offline_hour=$1;
+		seen_offline_hour=$HOUR_OFFSET;
 		seen_offline_date=last_date;
 		add_time(0)
 		last_online_date=last_date;
-		last_online_hour=$1;
+		last_online_hour=$HOUR_OFFSET;
 	}
 	state=1;
 }
@@ -163,35 +166,35 @@ $0 ~ /Informix.*Stopped/ {
 #	print "Server was Stopped on " last_date " at " $1;
 	if (state == 1)
 	{	
-		seen_online_hour=$1;
+		seen_online_hour=$HOUR_OFFSET;
 		add_time(1);
 	}
 	if ( state == 0 )
 	{
-		seen_offline_hour=$1
+		seen_offline_hour=$HOUR_OFFSET;
 		add_time(0);
 	}
 	last_offline_date=last_date;
-	last_offline_hour=$1
-	last_hour=$1
+	last_offline_hour=$HOUR_OFFSET;
+	last_hour=$HOUR_OFFSET;
 	state=0;
 }
 $0 ~ /PANIC: Attempting to bring system down/ {
 #	print "Server was stopped by error on " last_date " at " $1;
 	if ( state == 1 )
 	{
-		seen_online_hour=$1;
+		seen_online_hour=$HOUR_OFFSET;
 		add_time(1);
 	}
 	if ( state == 0 )
 	{
-		seen_offline_hour=$1;
+		seen_offline_hour=$HOUR_OFFSET;
 		seen_offline_date=last_date;
 		add_time(0)
 	}
 	last_offline_date=last_date;
-	last_offline_hour=$1
-	last_hour=$1;
+	last_offline_hour=$HOUR_OFFSET;
+	last_hour=$HOUR_OFFSET;
 	state=0;
 }
 
@@ -226,19 +229,30 @@ $0 ~ /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)/ {
 	}
 }
 $0 ~ /^[0-9][0-9]*:[0-9][0-9]*:[0-9][0-9]* .* Checkpoint Completed/ {
-#$0 ~ /^[0-9][0-9]*:[0-9][0-9]*:[0-9][0-9]* / {
 	if ( state == 1 )
 	{
 		seen_online_date=last_date;
-		seen_online_hour=$1;
+		seen_online_hour=$HOUR_OFFSET;
 	}
 	if ( state == 0 )
 	{
 		seen_offline_date=last_date;
-		seen_offline_hour=$1;
+		seen_offline_hour=$HOUR_OFFSET;
 	}
-	
-	last_hour=$1;
+	last_hour=$HOUR_OFFSET;
+}
+$0 ~ /^[0-9][0-9]\/[0-9][0-9]\/[0-9][0-9] [0-9][0-9]*:[0-9][0-9]*:[0-9][0-9]* .* Checkpoint Completed/ {
+	if ( state == 1 )
+	{
+		seen_online_date=last_date;
+		seen_online_hour=$HOUR_OFFSET;
+	}
+	if ( state == 0 )
+	{
+		seen_offline_date=last_date;
+		seen_offline_hour=$HOUR_OFFSET;
+	}
+	last_hour=$HOUR_OFFSET;
 }
 
 

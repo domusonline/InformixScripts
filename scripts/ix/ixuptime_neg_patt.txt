@@ -4,7 +4,8 @@
 # Revision: $Revision$
 # Revised on: $Date$
 # Revised by: $Author$
-# Support: Fernando Nunes - fernando.nunes@pt.ibm.com
+# Support: Fernando Nunes - domusonline@gmail.com
+# License: This script is licensed as GPL ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # Notes:
 # History:
 #
