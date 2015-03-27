@@ -15,12 +15,14 @@ VERSION=`echo "$Revision$" | cut -f2 -d' '`
 
 show_help()
 {
-	printf "${PROGNAME}: -V | -h | { -d database } [ -f filter ] [ -e |  -E file] [ -p priority ]\n[ -P | -N ] [ -m size ] [ -r resolution ] [ -c confidence ] [ -R resolution ] [ -T ] [ -s ] [-l ] [ -x | -X ] [ -y ] [ -z | -Z ]\n" >&2
+	printf "${PROGNAME}: -V | -h | { -d database } [ -f filter ] [ -e |  -E file] [ -p priority ]\n[ -P | -N ] [ -m size ] [ -r resolution ] [ -c confidence ] [ -R resolution ] [ -T ] [ -s ] [-l ] [ -x | -X ] [ -y ] [ -z | -Z ] [ -i | -I {table_list_file} ]\n" >&2
 	echo "               {-d database} (required)" >&2
 	echo "               {-f table} filter (optional)" >&2
 	echo "               [-h] Show help and exit">&2
 	echo "               [-V] Show version and exit">&2
 	echo "               [-e] Set explain on (versions >= 7.31.UD2 and 9.30.UC2)" >&2
+	echo "               [-i table_list_file] run for the tables contained in file" >&2
+	echo "               [-I table_list_file] run without the tables contained in file" >&2
 	echo "               [-E file] Set explain to a file (versions >= 11.10)" >&2
 	echo "               [-p priority] Set pdqpriority (versions >= 7.31.UD2 and 9.30.UC2)" >&2
 	echo "               [-P] Updates statistics for procedures also (default without filter)" >&2
@@ -44,116 +46,124 @@ show_help()
 
 get_args()
 {
-	arg_ok='p:d:f:m:r:R:c:E:lePNVhTsyxXzZow:'
-	list="$*"
-	getopt ${arg_ok} $list >/dev/null 2>&1
-	# check result of parsing                                                
-	if [ $? != 0 ]
-	then
-		return 1
-	fi
-	set -- `getopt "${arg_ok}" $list`
-
-	while [ $1 != -- ]
-	do
-		case $1 in
-		-h)   # show help
+	arg_ok='p:d:f:m:r:R:c:E:lePNVhTsyxXzZow:i:I:'
+        while getopts ${arg_ok} OPTION
+        do
+                case ${OPTION} in
+		h)   # show help
 			show_help
-			exit 0
+			return 0
 			;;
-		-V)   # show version
+		V)   # show version
 			echo "${PROGNAME} version ${VERSION}" >&1
-			exit 0
+			return 0
 			;;
-		-E)   # set up the -E (set explain flag with file..)
+		E)   # set up the -E (set explain flag with file..)
 			EXPLAIN_FLAG=2
-			explain_file=$2
-			shift
+			explain_file=${OPTARG}
 			;;
-		-z|-Z)   # set up the -zZ (set DISPLAY flag)
-			if [ "$1" = "-z" ]
+		z)   # set up the -zZ (set DISPLAY flag)
+			DISPLAY_FLAG=1
+			;;
+		Z)   # set up the -zZ (set DISPLAY flag)
+			DISPLAY_FLAG=2
+			;;
+		x|X)   # set up the -xX (set CMD_DISPLAY flag)
+			CMD_DISPLAY_FLAG=-${OPTION}
+			;;
+		i|I)   # include/exclude tables from file
+			TABLE_LIST_FILENAME=${OPTARG}
+			if [ ! -r ${TABLE_LIST_FILENAME} ]
 			then
-				DISPLAY_FLAG=1
+				echo "File to include/exclude tables ($TABLE_LIST_FILENAME) cannot be read!\n" >&2
+				return -1
+			fi
+			TABLE_LIST_FLAG=${OPTION}
+			TABLE_LIST_FILTER_NUM_COLUMNS=`awk -F',' '{print NF}' ${TABLE_LIST_FILENAME} | sort -u | wc -l | awk '{print $1}'`
+			if [ "X${TABLE_LIST_FILTER_NUM_COLUMNS}" != "X1" ]
+			then
+				echo "The table filter file ($TABLE_LIST_FILENAME) contains lines with different number of columns" >&2
+				return -1
 			else
-				DISPLAY_FLAG=2
+				TABLE_LIST_FILTER_NUM_COLUMNS=`head -10 ${TABLE_LIST_FILENAME} | awk -F',' '{print NF}' | sort -u | awk '{print $1}'`
+				case $TABLE_LIST_FILTER_NUM_COLUMNS in
+				1)
+					TABLE_LIST_SCHEMA=0
+					;;
+				2)
+					TABLE_LIST_SCHEMA=1
+					;;
+				*)
+					echo "The table filter file should contain one (table name) or two (table name and schema) columns" >&2
+					return 1
+				esac
 			fi
 			;;
-		-x|-X)   # set up the -xX (set CMD_DISPLAY flag)
-			CMD_DISPLAY_FLAG=$1
-			;;
-		-l)   # set up the -l (set quick low mode flag)
+		l)   # set up the -l (set quick low mode flag)
 			QUICK_LOW_MODE_FLAG=1
 			;;
-		-s)   # set up the -s (set SYSTABLES flag)
+		s)   # set up the -s (set SYSTABLES flag)
 			SYSTABLES_FLAG=1
 			;;
-		-y)   # set up the -y (set MULTIPLE flag)
+		y)   # set up the -y (set MULTIPLE flag)
 			MULTIPLE_FLAG=1
 			;;
-		-T)   # set up the -T (set TIMINGS flag)
+		T)   # set up the -T (set TIMINGS flag)
 			TIMINGS_FLAG=1
 			;;
-		-e)   # set up the -e (set explain flag)
+		e)   # set up the -e (set explain flag)
 			EXPLAIN_FLAG=1
 			;;
-		-d)   # set up the -d (database flag)
+		d)   # set up the -d (database flag)
 			DATABASE_FLAG=1
-			dbserver=$2
-			shift
+			dbserver=${OPTARG}
 			;;
-		-p)   # set up the -p (pdqpriority flag)
+		p)   # set up the -p (pdqpriority flag)
 			PRIORITY_FLAG=1
-			priority=$2
-			shift
+			priority=${OPTARG}
 			;;
-		-P)   # set up the -P (for procedures flag)
+		P)   # set up the -P (for procedures flag)
 			PROCEDURES_FLAG=1
 			;;
-		-N)   # set up the -N (NO procedures flag)
+		N)   # set up the -N (NO procedures flag)
 			PROCEDURES_FLAG=0
 			;;
-		-m)   # set up the -m (sampling flag)
+		m)   # set up the -m (sampling flag)
 			SAMPLING_FLAG=1
-			sampling=$2
-			shift
+			sampling=${OPTARG}
 			;;
-		-R)   # set up the -R (resolution high flag)
+		R)   # set up the -R (resolution high flag)
 			RESOLUTION_HIGH_FLAG=1
-			resolution_high=$2
-			shift
+			resolution_high=${OPTARG}
 			;;
-		-r)   # set up the -r (resolution medium flag)
+		r)   # set up the -r (resolution medium flag)
 			RESOLUTION_MEDIUM_FLAG=1
-			resolution_medium=$2
-			shift
+			resolution_medium=${OPTARG}
 			;;
-		-c)   # set up the -c (confidence flag)
+		c)   # set up the -c (confidence flag)
 			CONFIDENCE_FLAG=1
-			confidence=$2
-			shift
+			confidence=${OPTARG}
 			;;
-		-o)   # set up the -o (ANSI user flag)
+		o)   # set up the -o (ANSI user flag)
 			ANSI_USER_FLAG=1
 			;;
-		-S)   # set SET SESSION AUTH flag
+		S)   # set SET SESSION AUTH flag
 			SET_AUTH_FLAG=1
-			SET_AUTH_USER=$2
-			shift
+			SET_AUTH_USER=${OPTARG}
 			;;
-		-w)   # set up the -w (LOCK WAIT flag)
+		w)   # set up the -w (LOCK WAIT flag)
 			LOCK_MODE_FLAG=1
-			LOCK_MODE_TIME=$2
+			LOCK_MODE_TIME=${OPTARG}
 			echo ${LOCK_MODE_TIME} | grep "^[1-9][0-9]*" >/dev/null
 			if [ $? != 0  ]
 			then
 				echo "${PROGNAME} Syntax error: LOCK WAIT time must be between a number >= 1" >&2
 				return 1
 			fi
-			shift
 			;;
-		-f)   # set up the -f (filter flag)
+		f)   # set up the -f (filter flag)
 			FILTER_FLAG=1
-			case $2 in
+			case ${OPTARG} in
 			\"*)
 				sel_filter="`echo $@ | cut -f2 -d'\"' | sed 's/--//'`"
 				resto="`echo $* | cut -f3- -d'\"'`"
@@ -162,309 +172,6 @@ get_args()
 				echo "${PROGNAME} Syntax error: Argument for option '-f' must be enclosed in quotes" >&2
 				return 1
 			esac
-			if [ "X$resto" = "X" ]
-			then
-				return
-			fi
-			arg_ok='p:d:f:m:r:R:c:E:lePNVhTsyxXzZow:'
-			set -- `getopt "${arg_ok}" $resto`
-			continue
-			;;
-		esac
-		shift
-	done
-	shift   # skip double dash
-	while [ $# -ge 1 ]
-	do
-		case $1 in
-		-s)
-			if [ "X"$SYSTABLES_FLAG = "X1" ]	
-			then
-				echo "${PROGNAME} Syntax error: SYSTABLES already processed" >&2
-				return 1
-			else
-				SYSTABLES_FLAG=1
-				shift
-			fi;;
-		-z|-Z)
-			if [ "X"$DISPLAY_FLAG != "X" ]	
-			then
-				echo "${PROGNAME} Syntax error: DISPLAY already processed" >&2
-				return 1
-			else
-				if [ "$1" = "-z" ]
-				then
-					DISPLAY_FLAG=1
-				else
-					DISPLAY_FLAG=2
-				fi
-				shift
-			fi;;
-		-x|-X)
-			if [ "X"$CMD_DISPLAY_FLAG != "X" ]	
-			then
-				echo "${PROGNAME} Syntax error: DISPLAY already processed" >&2
-				return 1
-			else
-				CMD_DISPLAY_FLAG=$1
-				shift
-			fi;;
-		-y)
-			if [ "X"$MULTIPLE_FLAG = "X1" ]	
-			then
-				echo "${PROGNAME} Syntax error: MULTIPLE already processed" >&2
-				return 1
-			else
-				MULTIPLE_FLAGS=1
-				shift
-			fi;;
-		-T)
-			if [ "X"$TIMINGS_FLAG = "X1" ]	
-			then
-				echo "${PROGNAME} Syntax error: TIMINGS already processed" >&2
-				return 1
-			else
-				TIMINGS_FLAG=1
-				shift
-			fi;;
-		-E)
-			if [ "X"$EXPLAIN_FLAG != "X" ]	
-			then
-				echo "${PROGNAME} Syntax error:  SET EXPLAIN already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "${PROGNAME} Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
-					EXPLAIN_FLAG=2
-					explain_file=$2
-					shift 2
-			fi;;
-		-e)
-			if [ "X"$EXPLAIN_FLAG = "X1" ]	
-			then
-				echo "${PROGNAME} Syntax error:  SET EXPLAIN already processed" >&2
-				return 1
-			else
-				EXPLAIN_FLAG=1
-				shift
-			fi;;
-		-P)	if [ "X"$PROCEDURES_FLAG = "X1" -o "X"$PROCEDURES_FLAG = "X0" ]
-			then
-				echo "${PROGNAME} Syntax error: Options -P and -N are mutualy exclusive and one was already processed" >&2
-				return 1
-			else
-				PROCEDURES_FLAG=1
-				shift
-			fi;;
-		-N)	if [ "X"$PROCEDURES_FLAG = "X1" -o "X"$PROCEDURES_FLAG = "X0" ]
-			then
-				echo "${PROGNAME} Syntax error: Options -N and -P are mutualy exclusive and one was already processed" >&2
-				return 1
-			else
-				PROCEDURES_FLAG=0
-				shift
-			fi;;
-		-d)
-			if [ "X"$DATABASE_FLAG = "X1" ]	
-			then
-				echo "${PROGNAME} Syntax error: DATABASE already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "${PROGNAME} Syntax error: Option $1 requires and argument" >&2
-					return 1
-				else
-					DATABASE_FLAG=1
-					dbserver=$2
-					shift 2
-			fi;;
-		-p)
-			if [ "X"$PRIORITY_FLAG = "X1" ]	
-			then
-				echo "${PROGNAME} Syntax error: PRIORITY already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "${PROGNAME} Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
-					PRIORITY_FLAG=1
-					priority=$2
-					if [ ${priority} -lt 1 -o ${priority} -gt 100 ]
-					then
-						echo "${PROGNAME} Syntax error: PDQPRIORITY value must be between 1 and 1000" >&2
-						return 1
-					fi
-					shift 2
-			fi;;
-		-w)
-			if [ "X"$LOCK_MODE_FLAG = "X1" ]	
-			then
-				echo "${PROGNAME} Syntax error: LOCK WAIT already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "${PROGNAME} Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
-					LOCK_MODE_FLAG=1
-					LOCK_MODE_TIME=$2
-					echo ${LOCK_MODE_TIME} | grep "^[1-9][0-9]*" >/dev/null
-					if [ $? != 0  ]
-					then
-						echo "${PROGNAME} Syntax error: LOCK WAIT time must be between a number >= 1" >&2
-						return 1
-					fi
-					shift 2
-			fi;;
-		-m)
-			if [ "X"$SAMPLING_FLAG = "X1" ]
-			then
-				echo "${PROGNAME} Syntax error: SAMPLING already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "${PROGNAME} Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
-					SAMPLING_FLAG=1
-                                        sampling=$2
-					echo ${sampling} | grep '^[0-9][0-9]*$' 2>&1 >/dev/null
-					RESULT=$?
-                                        if [ ${RESULT} != 0 -o ${sampling} -lt 1 ]
-                                        then
-                                                echo "${PROGNAME} Syntax error: SAMPLING value must be numeric and greater than 0" >&2
-                                                return 1
-                                        fi
-                                        shift 2
-                        fi;;
-		-R)
-			if [ "X"$RESOLUTION_HIGH_FLAG = "X1" ]
-			then
-				echo "${PROGNAME} Syntax error: RESOLUTION HIGH already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "${PROGNAME} Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
-					RESOLUTION_HIGH_FLAG=1
-                                        resolution_high=$2
-					echo ${resolution_high} | grep '^[0-9]\{0,3\}\.\{0,1\}[0-9]\{1,\}$' 2>&1 >/dev/null
-					RESULT=$?
-                                        if [ ${RESULT} != 0 -o ${resolution_high} -gt 100 ]
-                                        then
-                                                echo "${PROGNAME} Syntax error: RESOLUTION HIGH value must be numeric and less than or equal to 100" >&2
-                                                return 1
-                                        fi
-                                        shift 2
-                        fi;;
-		-r)
-			if [ "X"$RESOLUTION_MEDIUM_FLAG = "X1" ]
-			then
-				echo "${PROGNAME} Syntax error: RESOLUTION MEDIUM already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "${PROGNAME} Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
-					RESOLUTION_MEDIUM_FLAG=1
-                                        resolution_medium=$2
-					echo ${resolution_medium} | grep '^[0-9]\{0,3\}\.\{0,1\}[0-9]\{1,\}$' 2>&1 >/dev/null
-					RESULT=$?
-                                        if [ ${RESULT} != 0 -o ${resolution_medium} -gt 100 ]
-                                        then
-                                                echo "${PROGNAME} Syntax error: RESOLUTION MEDIUM value must be numeric and less than or equal to 100" >&2
-                                                return 1
-                                        fi
-                                        shift 2
-                        fi;;
-		-c)
-			if [ "X"$CONFIDENCE_FLAG = "X1" ]
-			then
-				echo "${PROGNAME} Syntax error: CONFIDENCE already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "${PROGNAME} Syntax error: Option $1 requires and argument" >&2
-					return 1
-				else
-					CONFIDENCE_FLAG=1
-					confidence=$2
-					echo ${confidence} | grep "0\.[89][0-9]*" 2>&1 >/dev/null
-					RESULT=$?
-					if [ ${RESULT} != 0 ]
-					then
-						
-						echo "${PROGNAME} Syntax error: CONFIDENCE value must be between 0.80 and 0.99" >&2
-						return 1
-					fi
-					shift 2
-			fi;;
-		-S)
-			if [ "X"$SET_AUTH_FLAG = "X1" ]
-			then
-				echo "${PROGNAME} Syntax error: SET SESSION AUTH already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "${PROGNAME} Syntax error: Option $1 requires and argument" >&2
-					return 1
-				else
-					SET_AUTH_FLAG=1
-					SET_AUTH_USER=$2
-					shift 2
-			fi;;
-		o)
-			if [ "X"$ANSI_USER_FLAG = "X1" ]
-			then
-				echo "${PROGNAME} Syntax error: user flag already processed" >&2
-			else
-				ANSI_USER_FLAG=1
-			fi
-			shift
-			;;
-		-f)
-			if [ "X"$FILTER_FLAG = "X1" ]	
-			then
-				echo "${PROGNAME} Syntax error: FILTER already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "${PROGNAME} Syntax error: Option $1 requires and argument" >&2
-					return 1
-				else
-					FILTER_FLAG=1
-					case $2 in
-					\"*)
-						sel_filter="`echo $@ | cut -f2 -d'\"' | sed 's/--//'`"
-						resto="`echo $* | cut -f3- -d'\"'`"
-						;;
-					*)
-						echo "${PROGNAME} Syntax error: Argument for option $1 must be enclosed in quotes" >&2
-						return 1
-					esac
-					if [ "X$resto" = "X" ]
-					then
-						return
-					fi
-					arg_ok='p:d:f:m:r:R:c:E:lePNVhTsyxXzZow:'
-					set -- `getopt "${arg_ok}" $resto`
-					continue
-			fi;;
-		*)
-			if [ "X"$DATABASE_FLAG != "X1" ]	
-			then
-				DATABASE_FLAG=1
-				dbserver=$1
-				shift
-				continue	
-			fi
-			echo "${PROGNAME}: Erro de sintaxe - "$1 >&2
-			return 1;;
 		esac
 	done
 }
@@ -612,11 +319,45 @@ echo $$ > ${DBS_DATABASE_LOCK_FILE}
 #-----------------------------------------------------
 # Set up table filter
 #-----------------------------------------------------
+
+FROM_FILTER_CLAUSE=""
+TABLE_LIST_TABLE_CLAUSE=""
+if [ "X${TABLE_LIST_FLAG}" != "X" ]
+then
+	TEMP_TABLE="tmp_tab_list"
+	case $TABLE_LIST_FLAG in
+	i)
+		if [ $TABLE_LIST_SCHEMA = 0 ]
+		then
+			TABLE_LIST_SQL="t.tabname = t1.tabname AND "
+			TABLE_LIST_CREATE_SQL="CREATE TEMP TABLE $TEMP_TABLE ( tabname char(128) ); LOAD FROM $TABLE_LIST_FILENAME DELIMITER ',' INSERT INTO $TEMP_TABLE;"
+		else
+			TABLE_LIST_SQL="t.tabname = t1.tabname AND t.owner = t1.owner AND "
+			TABLE_LIST_CREATE_SQL="CREATE TEMP TABLE $TEMP_TABLE ( tabname char(128), owner CHAR(32) ); LOAD FROM $TABLE_LIST_FILENAME DELIMITER ',' INSERT INTO $TEMP_TABLE;"
+		fi
+		FROM_FILTER_CLAUSE=", $TEMP_TABLE t1"
+		;;
+	I)
+		if [ $TABLE_LIST_SCHEMA = 0 ]
+		then
+			TABLE_LIST_SQL="NOT EXISTS (SELECT 1 FROM $TEMP_TABLE t1 WHERE t.tabname = t1.tabname ) AND "
+			TABLE_LIST_CREATE_SQL="CREATE TEMP TABLE $TEMP_TABLE ( tabname char(128) ); LOAD FROM $TABLE_LIST_FILENAME DELIMITER ',' INSERT INTO $TEMP_TABLE;"
+		else
+			TABLE_LIST_SQL="NOT EXISTS (SELECT 1 FROM $TEMP_TABLE t1 WHERE t.tabname = t1.tabname AND t1.owner = t.owner) AND "
+			TABLE_LIST_CREATE_SQL="CREATE TEMP TABLE $TEMP_TABLE ( tabname char(128), owner CHAR(32) ); LOAD FROM $TABLE_LIST_FILENAME DELIMITER ',' INSERT INTO $TEMP_TABLE;"
+		fi
+		;;
+	esac
+else
+	echo "DEBUG: TABLE_LIST_FLAG: ${TABLE_LIST_FLAG} "
+	TABLE_LIST_SQL=""
+fi
+
 if [ "X${SYSTABLES_FLAG}" != "X1" ]
 then
-	sel_filter="t.tabid > 99 and t.tabtype = 'T' $sel_filter"
+	sel_filter="$TABLE_LIST_SQL t.tabid > 99 and t.tabtype = 'T' $sel_filter"
 else
-	sel_filter="t.tabname not like ' %' and t.tabtype = 'T' $sel_filter"
+	sel_filter="$TABLE_LIST_SQL t.tabname not like ' %' and t.tabtype = 'T' $sel_filter"
 fi
 
 
@@ -653,8 +394,9 @@ esac
 
 dbaccess ${dbserver} - <<EOSQL 1>&2 2>${SQL_ERROR_FILE} 
 ${SET_AUTH_CLAUSE}
+${TABLE_LIST_CREATE_SQL}
 output to pipe "cat  | grep -v '^$' >${TABLE_LIST_FILE}" without headings
-select trim(tabname) || ' ' ||trim(owner) from informix.systables t
+select trim(t.tabname) || ' ' ||trim(t.owner) from informix.systables t $FROM_FILTER_CLAUSE
 where $sel_filter
 order by 1;
 EOSQL
