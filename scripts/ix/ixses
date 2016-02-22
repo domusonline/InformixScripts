@@ -689,6 +689,8 @@ do
 		pos_pid_index=4+flag_effective_user;
 		pos_hostname_index=5+flag_effective_user;
 		pos_nthreads_index=6+flag_effective_user;
+		pos_total_memory_index=7+flag_effective_user;
+		pos_used_memory_index=7+flag_effective_user;
 		getline; my_user=$pos_user_index;my_tty=$pos_tty_index; my_pid=$pos_pid_index;
 		pos=match($pos_hostname_index,"\\.");
 		if (pos == 0)
@@ -706,6 +708,8 @@ do
 		else
 			my_effective_user="";
 
+		my_total_memory=$pos_total_memory_index;
+		my_used_memory=$pos_used_memory_index;
 		my_no_session=0;
 	} 
 
@@ -910,6 +914,9 @@ do
 			print "SESSION  USER     EFF USER TTY    HOSTNAME           CONNECTED           NTHR PID    PROCESS                 CWD";
 			printf("%-8s %-8s %-8s %-6s %-18s %-19s %-4s %-6s %-23s %s\n", SESSION, my_user, my_effective_user, my_tty, my_hostname, my_connected, my_nthreads, my_pid, substr(my_process,1,24), my_cwd);
 		}
+		print "";
+		print "TOTAL MEM    USED MEM";
+		printf "%-10s   %-10s\n",my_total_memory, my_used_memory;
 		print "";
 		print "DATABASE           FE VERSION  STMT TYPE          ISOLATION  LOCK MODE  SQL ERROR  ISAM ERROR EXPL OFC PDQ STATS OPTCMPIND DIR"
 		printf("%-18s %-11s %-18s %-10s %-10s %-10s %-10s %-4s %-3s %-3s %-5s %-9s %-3s\n", my_database, my_fe_version,
