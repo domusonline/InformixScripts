@@ -17,7 +17,7 @@ show_help()
 {
 	printf "${PROGNAME}: -V | -h | { -d database } [ -f filter ] [ -e |  -E file] [ -p priority ]\n[ -P | -N ] [ -m size ] [ -r resolution ] [ -c confidence ] [ -R resolution ] [ -T ] [ -s ] [-l ] [ -x | -X ] [ -y ] [ -z | -Z ] [ -i | -I {table_list_file} ]\n" >&2
 	echo "               {-d database} (required)" >&2
-	echo "               {-f table} filter (optional)" >&2
+	echo "               [-f filter ] Additional filters to restrict tables" >&2
 	echo "               [-h] Show help and exit">&2
 	echo "               [-V] Show version and exit">&2
 	echo "               [-e] Set explain on (versions >= 7.31.UD2 and 9.30.UC2)" >&2
@@ -52,11 +52,11 @@ get_args()
                 case ${OPTION} in
 		h)   # show help
 			show_help
-			return 0
+			exit 0
 			;;
 		V)   # show version
 			echo "${PROGNAME} version ${VERSION}" >&1
-			return 0
+			exit 0
 			;;
 		E)   # set up the -E (set explain flag with file..)
 			EXPLAIN_FLAG=2
