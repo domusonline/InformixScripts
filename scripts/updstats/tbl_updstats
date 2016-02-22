@@ -201,12 +201,12 @@ get_args()
 			fi
 			;;
 		-l)
-			if [ "X"$LOW_MODE != "X" ]	
+			if [ "X"$LOW_MODE_FLAG != "X" ]	
 			then
 				echo "${PROGNAME}: Syntax error: LOW MODE already processed" >&2
 				return 1
 			else
-				LOW_MODE=1
+				LOW_MODE_FLAG=1
 				shift
 			fi;;
 		-i)
