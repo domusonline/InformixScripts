@@ -1,11 +1,12 @@
 #!/bin/sh
-# Name: $RCSfile$
-# CVS file: $Source$
-# CVS id: $Header$
-# Revision: $Revision$
-# Revised on: $Date$
-# Revised by: $Author$
-# Support: Fernando Nunes - domusonline@domus.online.pt
+# Copyright (c) 2001-2016 Fernando Nunes - domusonline@gmail.com
+# License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
+# $Author: Fernando Nunes - domusonline@gmail.com $
+# $Revision 2.0.1 $
+# $Date 2016-02-22 02:38:48$
+# Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
+#             Although the author is/was an IBM employee, this software was created outside his job engagements.
+#             As such, all credits are due to the author.
 # Based on ideas from David Ranney and lots of stuff from 10.00.xC6 alarmprogram.sh
 # To use: chmod 555 alarm.sh and configure the alarm_conf.sh
 # caveats:
@@ -41,7 +42,7 @@ trap jump_out ERR
 IFMX_ALARM_DEBUG=0
 
 
-VERSION=`echo "$Revision$" | cut -f2 -d' '`
+VERSION=`echo "$Revision 2.0.1 $" | cut -f2 -d' '`
 
 #Max number of seconds to wait for the execution of a previous alarm for the same event
 IFMX_ALARM_MAX_LOOP=5

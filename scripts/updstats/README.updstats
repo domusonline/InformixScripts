@@ -1,7 +1,9 @@
 INTRODUCTION:
 ====================================================================================================
 
-This is the first public release of my updstats shell scripts
+# Copyright (c) 2001-2016 Fernando Nunes - domusonline@gmail.com
+
+This is the second public release of my updstats shell scripts
 The software is distributed accordingly to the GPL 2.0 license:
 
 http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
@@ -10,9 +12,8 @@ DISCLAIMER:
 ====================================================================================================
 
 This software is provided AS IS, without any kind of guarantee. Use at your own risk.
-Although the author is an IBM employee, this software was developed outside his job scope. As such
-any responsability and credits are due solely to the author.
-
+Although the author is/was an IBM employee, this software was created outside his job engagements.
+As such, all credits are due to the author.
 
 REQUIREMENTS:
 ====================================================================================================

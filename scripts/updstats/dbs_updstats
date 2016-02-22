@@ -1,17 +1,16 @@
 #!/bin/sh
-# Name: $RCSfile$
-# CVS file: $Source$
-# CVS id: $Header$
-# Revision: $Revision$
-# Revised on: $Date$
-# Revised by: $Author$
-# Support: Fernando Nunes - domusonline@domus.online.pt
-# License: This software is provided under GPLv2 - http://www.gnu.org/licenses/gpl.txt
+# Copyright (c) 2001-2016 Fernando Nunes - domusonline@gmail.com
+# License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
+# $Author: Fernando Nunes - domusonline@gmail.com $
+# $Revision 2.0.1 $
+# $Date 2016-02-22 02:38:48$
+# Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
+#             Although the author is/was an IBM employee, this software was created outside his job engagements.
+#             As such, all credits are due to the author.
 # This script runs the tbl_updstats script for each table in the database
 
-
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision$" | cut -f2 -d' '`
+VERSION=`echo "$Revision 2.0.1 $" | cut -f2 -d' '`
 
 show_help()
 {

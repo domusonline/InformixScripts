@@ -1,18 +1,19 @@
 INTRODUCTION:
 ====================================================================================================
 
-This is the first public release (0.9b) of ixlocks, an Open Admin Tool (OAT) plugin to monitor locks.
-The software is distributed accordingly to the Apache license:
+This is the second public release (2.0) of ixlocks, an Open Admin Tool (OAT) plugin to monitor locks.
+The software is distributed accordingly to the GPL V2 license:
 
- http://www.apache.org/licenses/LICENSE-2.0
+ http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+Copyright (c) 2010-2016 Fernando Nunes - domusonline@gmail.com
 
 DISCLAIMER:
 ====================================================================================================
 
 This software is provided AS IS, without any kind of guarantee. Use at your own risk.
-Although the author is an IBM employee, this software was developed outside his job scope. As such
-all responsability and credits is due to the author.
-
+Although the author is/was an IBM employee, this software was created outside his job engagements.
+As such, all credits are due to the author.
 
 REQUIREMENTS:
 ====================================================================================================

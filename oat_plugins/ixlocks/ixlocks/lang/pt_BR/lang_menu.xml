@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- $Id$ -->
 <lang module="lang_menu">
 <locks><![CDATA[Gestor de Locks]]></locks>
 <lockwaiters><![CDATA[Bloqueios com espera]]></lockwaiters>

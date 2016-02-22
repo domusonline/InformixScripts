@@ -1,12 +1,12 @@
 #!/bin/sh
-# Name: $RCSfile$
-# CVS file: $Source$ 
-# CVS id: $Header$ 
-# Revision: $Revision$ 
-# Revised on: $Date$
-# Revised by: $Author$ 
-# License: This script is licensed as GPL ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
-# Support: Fernando Nunes - domusonline@gmail.com
+# Copyright (c) 2016 Fernando Nunes - domusonline@gmail.com
+# License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
+# $Author: Fernando Nunes - domusonline@gmail.com $
+# $Revision 2.0.1 $
+# $Date 2016-02-22 02:38:48$
+# Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
+#             Although the author is/was an IBM employee, this software was created outside his job engagements.
+#             As such, all credits are due to the author.
 # Credits: The original author of this script was Eric Vercelletto (http://levillageinformix.blogspot.com)
 #          The current script has suffered many changes since then, but the basic configuration and idea are still the same
 
@@ -628,7 +628,7 @@ case $0 in
 	;;
 *)
 
-	SETINFX_VERSION=`echo "$Revision$" | cut -f2 -d' '`
+	SETINFX_VERSION=`echo "$Revision 2.0.1 $" | cut -f2 -d' '`
 	if [ -z "${SETINFX_CONF}" ]
 	then
 		INFX_CONF=infx_env.lst
