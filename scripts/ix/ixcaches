@@ -2,8 +2,8 @@
 # Copyright (c) 2011-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision 2.0.1 $
-# $Date 2016-02-22 02:38:48$
+# $Revision: 2.0.1 $
+# $Date 2016-04-12 01:16:10$
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -17,7 +17,58 @@ clean_up()
 	rm -f ${TMPFILE} ${ERRFILE}
 }
 
-trap clean_up 0
+ix_help()
+{
+        echo "${PROGNAME}: -V | -h | [ percentage_objects ]" >&1
+        echo "               -V shows script version" >&1
+        echo "               -h shows this help" >&1
+        echo "   percentage_objects is the percentage of objects we plan to keep in the cache" >&1
+        echo "Ex: ${PROGNAME} 50" >&1
+}
+
+get_args()
+{
+	arg_ok="Vh"
+	while getopts ${arg_ok} OPTION
+	do
+		case ${OPTION} in
+		h)   # show help
+			ix_help
+			exit 0
+			;;
+		V)      #show version
+			echo "${PROGNAME} ${VERSION}" >&1
+			exit 0
+			;;
+		?)      # Error in the parsing of getopts
+			return 1
+			;;
+                esac
+	done
+	if [ ${NUM_ARGUMENTS} -ge ${OPTIND} ]
+	then
+		shift `expr $OPTIND - 1`
+		PERCENTAGE=$1
+		echo ${PERCENTAGE} | egrep '^[1-9][0-9]{1,2}$' 1>/dev/null
+		if [ $? != 0 ]
+		then
+			printf "Percentage parameter must be a number\n" >&2
+			return 1
+		else
+			if [ ${PERCENTAGE} -gt 100 ]
+			then
+				printf "Percentage parameter cannot exceed 100\n" >&2
+				exit 1
+			fi
+		fi
+	else
+		PERCENTAGE=100
+	fi
+	return 0
+}
+
+
+
 
 get_prime_number_int()
 {
@@ -2342,9 +2393,9 @@ EOF
 calc_dic_cache()
 {
 	dbaccess sysmaster <<EOF 1>${ERRFILE} 2>&1 
-	UNLOAD TO $TMPFILE
+	UNLOAD TO $TMPFILE DELIMITER ' '
 	SELECT
-		COUNT(*)::INTEGER
+		COUNT(*)::INTEGER, (COUNT(*) * ( $PERCENTAGE / 100))::INTEGER
 	FROM
 		systabnames t, sysptnhdr p, sysdbspartn d
 	WHERE
@@ -2360,8 +2411,8 @@ EOF
 		cat ${ERRFILE}
 		return
 	else
-		NUM_TABLES=`cat $TMPFILE | cut -f1 -d'|'`
-		echo "Number of tables in the system is: $NUM_TABLES"
+		cat $TMPFILE | read NUM_TABLES_TOT NUM_TABLES
+		echo "Total number of tables in the system is: ${NUM_TABLES_TOT}. Planned for ${PERCENTAGE}% of total: $NUM_TABLES"
 	fi
 	
 	DD_HASHMAX=10
@@ -2380,21 +2431,22 @@ get_database_list()
 		return 0
 	else
 		dbaccess sysmaster <<EOF 1>${ERRFILE} 2>&1
-		UNLOAD TO $TMPFILE
+		UNLOAD TO $TMPFILE DELIMITER ' '
 		SELECT
-			name
+			TRIM(a.name)||':'||TRIM(a.owner)||':'||TRIM(b.collate)
 		FROM
-			sysdbspartn
+			sysdbspartn a, systabnames b
 		WHERE
-			name NOT IN ( 'sysmaster', 'sysha');
+		        a.partnum = b.partnum
+			AND a.name NOT IN ( 'sysmaster', 'sysha');
 EOF
 		if [ $? != 0 ]
 		then
 			return 1
 		else
-			cat ${TMPFILE} | awk -F'|' '{print $1}' | while read DATABASE
+			cat ${TMPFILE} | awk -F'|' '{print $1}' | while read DATABASE_INFO
 			do
-				DATABASE_LIST="${DATABASE_LIST} "${DATABASE}
+				DATABASE_LIST="${DATABASE_LIST} "${DATABASE_INFO}
 			done
 			return 0
 		fi
@@ -2412,15 +2464,18 @@ calc_proc_cache()
 	fi
 
 	NUM_PROCS=0
-	for DATABASE in ${DATABASE_LIST}
+	NUM_PROCS_TOTAL=0
+	for DATABASE_INFO in ${DATABASE_LIST}
 	do
+		echo $DATABASE_INFO | sed 's/:/ /g' | read DB_NAME DB_OWNER DB_COLLATE
+		export DB_LOCALE=$DB_COLLATE
 
-		dbaccess ${DATABASE} <<EOF 1>${ERRFILE} 2>&1
-		UNLOAD TO $TMPFILE
+		dbaccess ${DB_NAME} <<EOF 1>${ERRFILE} 2>&1
+		UNLOAD TO $TMPFILE DELIMITER ' '
 		SELECT
-			COUNT(*)::INTEGER
+			COUNT(*)::INTEGER, (COUNT(*) * ( $PERCENTAGE / 100 ))::INTEGER
 		FROM
-			sysprocedures;
+			informix.sysprocedures;
 EOF
 		if [ $? != 0 ]
 		then
@@ -2429,10 +2484,11 @@ EOF
 			exit 1
 		fi
 
-		TMP_NUM_PROCS=`cat ${TMPFILE} | cut -f1 -d'|'`
+		cat ${TMPFILE} | read TMP_NUM_PROCS_TOTAL TMP_NUM_PROCS
 		NUM_PROCS=`expr ${NUM_PROCS} + ${TMP_NUM_PROCS}`
+		NUM_PROCS_TOTAL=`expr ${NUM_PROCS_TOTAL} + ${TMP_NUM_PROCS_TOTAL}`
 	done
-	echo "Total number of procedures is: $NUM_PROCS"
+	echo "Total number of procedures is: ${NUM_PROCS_TOTAL}. Planning for ${PERCENTAGE}%: $NUM_PROCS"
 	AUX=4
 	bc <<EOF | read AUX1
 	$NUM_PROCS * 1.1 / $AUX
@@ -2456,18 +2512,21 @@ calc_dist_cache()
 	fi
 
 	NUM_COLS=0
-	for DATABASE in ${DATABASE_LIST}
+	NUM_COLS_TOTAL=0
+	for DB_INFO in ${DATABASE_LIST}
 	do
-
-		dbaccess ${DATABASE} <<EOF 1>${ERRFILE} 2>&1
-		UNLOAD TO $TMPFILE
+		echo $DB_INFO | sed 's/:/ /g' | read DB_NAME DB_OWNER DB_COLLATE
+		export DB_LOCALE=$DB_COLLATE
+		
+		dbaccess ${DB_NAME} <<EOF 1>${ERRFILE} 2>&1
+		UNLOAD TO $TMPFILE DELIMITER ' '
 		SELECT
-			COUNT(*)::INTEGER
+			COUNT(*)::INTEGER, (COUNT(*) * ($PERCENTAGE / 100))::INTEGER
 		FROM
 			( SELECT
 				UNIQUE t.tabid, d.colno
 			  FROM
-				systables t, sysdistrib d
+				informix.systables t, informix.sysdistrib d
 			  WHERE
 				t.tabid = d.tabid
 			)
@@ -2479,10 +2538,13 @@ EOF
 			exit 1
 		fi
 
-		TMP_NUM_COLS=`cat ${TMPFILE} | cut -f1 -d'|'`
+		cat ${TMPFILE} | read TMP_NUM_COLS_TOTAL TMP_NUM_COLS
+	
 		NUM_COLS=`expr ${NUM_COLS} + ${TMP_NUM_COLS}`
+		NUM_COLS_TOTAL=`expr ${NUM_COLS_TOTAL} + ${TMP_NUM_COLS_TOTAL}`
+
 	done
-	echo "Total number of columns with distributions is: $NUM_COLS"
+	echo "Total number of columns with distributions is: ${NUM_COLS_TOTAL}. Planning for ${PERCENTAGE}%: $NUM_COLS"
 	AUX=4
 	bc <<EOF | read AUX1
 	$NUM_COLS * 1.1 / $AUX
@@ -2494,6 +2556,20 @@ EOF
 	echo DS_POOLSIZE $DS_POOLSIZE
 }
 
+#INIT
+
+PROGNAME=`basename $0`
+VERSION=`echo "$Revision: 2.0.1 $" | cut -f2 -d' '`
+
+trap clean_up 0
+
+NUM_ARGUMENTS=$#
+get_args $*
+if [ $? != 0 ]
+then
+	ix_help >&2
+	exit 1
+fi
 calc_dic_cache
 calc_dist_cache
 calc_proc_cache

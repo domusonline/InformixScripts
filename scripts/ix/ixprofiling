@@ -2,18 +2,17 @@
 # Copyright (c) 2011-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision 2.0.1 $
-# $Date 2016-02-22 02:38:48$
+# $Revision: 2.0.1 $
+# $Date 2016-04-12 01:16:10$
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
-
 
 ix_help()
 {
 	echo "${PROGNAME} [ -h | -V ]" >&2
 	echo "            -s SID database" >&2
-	echo "            [-i] [-w] [-z|-Z|-n] database sql_script" >&2
+	echo "            [-i] [-w] [-z|-Z|-n] [-e | -E file] database sql_script" >&2
 	echo "     -h             : Get this help">&2
 	echo "     -V             : Get script version">&2
 	echo "     -s SID database: Get stats for session (SID) and database">&2
@@ -22,10 +21,15 @@ ix_help()
 	echo "     -Z             : Reset engine stats using SQL Admin API (can work remotely )">&2
 	echo "     -w             : Print WSTATS info" >&2
 	echo "     -i             : I/O stats" >&2
+	echo "     -t             : Print timestamps" >&2
+	echo "     -p             : Show onstat -p outputs" >&2
+	echo "     -e             : Generate and show each query plan" >&2
+	echo "     -E file        : Generate all the query plans to the specified file" >&2
 }
+
 get_args()
 {
-	arg_ok='Vhs:SzZnwi'
+	arg_ok='Vhs:SzZnwitpeE:'
         
 	while getopts ${arg_ok} OPTION 2>/dev/null
 	do
@@ -83,6 +87,45 @@ EOF
 		i)	# DO  wait stats
 			IO_FLAG=1
 			;;
+		t)	# Show timestamps
+			TSTAMP_FLAG=1
+			;;
+		p)	# Show profile counters
+			PROFILE_FLAG=1
+			;;
+		e)	#Generate and show query plan
+			if [ "X${EXPLAIN_FLAG}" != "X0" ]
+			then
+				echo "$PROGNAME: Error - '-e' or '-E' already processed" >&2
+				return 1
+			fi
+			EXPLAIN_FLAG=1
+			;;
+		E)	#Generate and show query plan
+			if [ "X${EXPLAIN_FLAG}" != "X0" ]
+			then
+				echo "$PROGNAME: Error - '-e' or '-E' already processed" >&2
+				return 1
+			else
+				EXPLAIN_FILE=$OPTARG
+				if [ -f $EXPLAIN_FILE ]
+				then
+					if [ ! -w $EXPLAIN_FILE ]
+					then
+						echo "$PROGNAME: Error - Explain file ( $EXPLAIN_FILE ) cannot be written/created" >&2
+						return 1
+					fi
+				else
+					EXPLAIN_DIR=`dirname $EXPLAIN_FILE`
+					if [ ! -w $EXPLAIN_DIR ]
+					then
+						echo "$PROGNAME: Error - Explain file/dir ( $EXPLAIN_FILE ) cannot be written/created" >&2
+						return 1
+					fi
+				fi
+			fi
+			EXPLAIN_FLAG=2
+			;;
 		?|*)
 			echo "$PROGNAME: Invalid option: $OPTION" >&2
 			return 1
@@ -113,7 +156,7 @@ EOF
 	echo $DATABASE | egrep "^[a-zA-Z][a-zA-Z0-9_]*$" >/dev/null
 	if [ $? != 0 ]
 	then
-		echo "$PROGNAME: Database name invalid" >&2
+		echo "$PROGNAME: Database name invalid ( $DATABASE )" >&2
 		return 1
 	fi
 }
@@ -327,6 +370,7 @@ WHERE
         opn.pf_dskwrites != 0 OR opn.pf_isread != 0 OR opn.pf_iswrite != 0 OR opn.pf_isrwrite != 0 OR opn.pf_isdelete != 0 OR
         opn.pf_bfcread != 0 OR opn.pf_bfcwrite != 0 OR opn.pf_seqscans != 0
         ) AND
+	p1.tabname != "$T_TAB_NAME" AND
         p1.partnum = opn.partnum AND
         p1.dbsname = "$DATABASE" AND
         p3.partnum = p1.partnum AND
@@ -388,19 +432,114 @@ EOF
 	max_length(MY_pf_bfcread,5), max_length(MY_pf_bfcwrite,5), max_length(MY_pf_seqscans,5), MY_table;
 	}' $MY_STATS_FILE
 
+
+	if [ "X${PROFILE_FLAG}" = "X1" ]
+	then
+		dbaccess sysmaster <<EOF 2>$TMP_ERROR_FILE
+
+UNLOAD TO "$MY_STATS_FILE"
+SELECT
+	CASE
+		WHEN ( (SELECT value FROM sysmaster:sysprofile WHERE name = 'bufreads') = 0 ) THEN
+			0
+		ELSE
+		        ( 100 - TRUNC( (SELECT value FROM sysmaster:sysprofile WHERE name = 'dskreads') / (SELECT value FROM sysmaster:sysprofile WHERE name = 'bufreads') * 100 ,2 )) 
+	END percent_read,
+
+	CASE
+		WHEN ( (SELECT value FROM sysmaster:sysprofile WHERE name = 'bufwrites') = 0 ) THEN
+			0
+		ELSE
+		        ( 100 - TRUNC( (SELECT value FROM sysmaster:sysprofile WHERE name = 'dskwrites') / (SELECT value FROM sysmaster:sysprofile WHERE name = 'bufwrites') * 100 ,2 ))
+	END percent_writes,
+        ( SELECT value FROM sysmaster:sysprofile WHERE name = 'btradata' ) ra_btree_data,
+        ( SELECT value FROM sysmaster:sysprofile WHERE name = 'btraidx' )  ra_btree,
+        ( SELECT value FROM sysmaster:sysprofile WHERE name = 'dpra' ) ra_data,
+        ( SELECT value FROM sysmaster:sysprofile WHERE name = 'rapgs_used' ) ra_pages_used,
+        ( SELECT value FROM sysmaster:sysprofile WHERE name = 'bufreads' ) bufreads,
+        ( SELECT value FROM sysmaster:sysprofile WHERE name = 'dskreads' ) dskreads,
+        ( SELECT value FROM sysmaster:sysprofile WHERE name = 'bufwrites' ) bufwrites,
+        ( SELECT value FROM sysmaster:sysprofile WHERE name = 'dskwrites' ) dskwrites
+FROM sysmaster:systables WHERE tabid = 1;
+EOF
+	if [ $? != 0 ]
+	then
+		echo "$PROGNAME: Error - Error selecting profile stats" >&2
+		cat $TMP_ERROR_FILE >&2
+		exit 1
+	fi
+
+	awk -F'|' '
+	function max_length(value, size)
+	{
+		currentsize=length(value);
+		if ( currentsize <= size )
+			return(value);
+		targetsize=size-2;
+		resp="";
+		if ( targetsize <= 0)
+		{
+			for (f=1;f<=size;f++)
+				resp=sprintf("%s%c",resp,"*");
+			return(resp);
+		}
+		else
+		{
+			exponent=currentsize - targetsize;
+			targetvalue=value / (10**(exponent));
+			resp=substr(targetvalue,1,targetsize) "e" exponent;
+			return(resp);
+		}
+	}
+
+	BEGIN {
+		printf "\n\nProfile statistics:\n%-10s %-10s %-11s %-11s %-12s %-13s %-15s %-14s %-13s %-13s\n", "Buff Reads", "Disk Reads", "Buff Writes", "Disk Writes", "%cache reads", "%cache writes","RA Idx/Da Pages","RA Index Pages", "RA Data pages", "RA Pages Used";
+		printf "---------- ---------- ----------- ----------- ------------ ------------- --------------- -------------- ------------- -------------\n";
+	}
+	{
+		MY_percent_read=$1;
+		MY_percent_writes=$2;
+		MY_ra_btree_data=$3;
+		MY_ra_btree=$4;
+		MY_ra_data=$5;
+		MY_ra_used=$6;
+		MY_bufreads=$7;
+		MY_dskreads=$8;
+		MY_bufwrites=$9;
+		MY_dskwrites=$10;
+		printf "%-10s %-10s %-11s %-11s %-12s %-13s %-15s %-14s %-13s %-13s\n",
+		max_length(MY_bufreads,10),
+		max_length(MY_dskreads,10),
+		max_length(MY_bufwrites,11),
+		max_length(MY_dskwrites,11),
+		max_length(MY_percent_read,12),
+		max_length(MY_percent_writes,13),
+		max_length(MY_ra_btree_data,15),
+		max_length(MY_ra_btree,14),
+		max_length(MY_ra_data,13),
+		max_length(MY_ra_used,13);
+	}' $MY_STATS_FILE
+	fi
+
 }
 
 clean_up()
 {
-rm -f $MY_STATS_FILE $MY_SQL_SCRIPT $TMP_ERROR_FILE
+	rm -f $MY_STATS_FILE $MY_SQL_SCRIPT $TMP_ERROR_FILE
+	if [ "X${EXPLAIN_FLAG}" = "X1" ]
+	then
+		rm -f $EXPLAIN_FILE
+	fi
 }
 
 #START
+T_TAB_NAME=ixprof_tmp
 IO_FLAG=0
 WAIT_FLAG=0
+EXPLAIN_FLAG=0
 SCRIPT=$0
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision 2.0.1 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.1 $" | cut -f2 -d' '`
 MY_STATS_FILE=/tmp/${PROGNAME}_partitions_$$.tmp
 MY_SQL_SCRIPT=/tmp/${PROGNAME}_$$.sql
 TMP_ERROR_FILE=/tmp/${PROGNAME}_$$.err
@@ -414,10 +553,15 @@ then
 	exit $RC
 fi
 
+if [ "X${EXPLAIN_FLAG}" = "X1" ]
+then
+	EXPLAIN_FILE=/tmp/${PROGNAME}_$$.expl
+fi
+
 if [ "X$SQL_SCRIPT_FLAG" = "X1" ]
 then
 
-	awk -v SCRIPT=$SCRIPT -v DATABASE=$DATABASE -v PID=$$ -v RESETSTATS=$RESETSTATS_FLAG -v ERROR_FILE=$TMP_ERROR_FILE -v WAIT_FLAG=$WAIT_FLAG -v IO_FLAG=$IO_FLAG '
+	awk -v SCRIPT=$SCRIPT -v DATABASE=$DATABASE -v PID=$$ -v RESETSTATS=$RESETSTATS_FLAG -v ERROR_FILE=$TMP_ERROR_FILE -v WAIT_FLAG=$WAIT_FLAG -v IO_FLAG=$IO_FLAG -v PROFILE_FLAG=$PROFILE_FLAG -v TSTAMP_FLAG=$TSTAMP_FLAG -v T_TAB_NAME=$T_TAB_NAME -v EXPLAIN_FLAG=$EXPLAIN_FLAG -v EXPLAIN_FILE=$EXPLAIN_FILE '
 		BEGIN {
 			if ( RESETSTATS == 1 )
 				RESETSTATS_CLAUSE="!onstat -z 2>" ERROR_FILE "  1>&2; if [ $? = 0 ]; then echo Engine statistics RESETed. Query results:;else echo Could not RESET engine stats!;cat " ERROR_FILE ";fi";
@@ -427,22 +571,90 @@ then
 				else
 					RESETSTATS_CLAUSE="";
 			printf "%s\n", RESETSTATS_CLAUSE;
+
 			if ( WAIT_FLAG == 1 )
 				EXTRA_FLAGS="-w";
 			if ( IO_FLAG == 1 )
 				EXTRA_FLAGS=EXTRA_FLAGS " -i";
+			if ( PROFILE_FLAG == 1 )
+				EXTRA_FLAGS=EXTRA_FLAGS " -p";
+			
+			
+			if (TSTAMP_FLAG == 1)
+			{
+				printf "-- To obtain time\nCREATE TEMP TABLE %s (start DATETIME YEAR TO FRACTION(3)); INSERT INTO %s VALUES(CURRENT YEAR TO FRACTION(3));\n\n", T_TAB_NAME, T_TAB_NAME;
+				TIMING_SQL="SELECT \"Query execution time: \" || CURRENT YEAR TO FRACTION(3) - start FROM " T_TAB_NAME ";"
+			}
+			else
+				TIMING_SQL="";
+
+			if ( EXPLAIN_FLAG == 1 || EXPLAIN_FLAG == 2)
+			{
+				printf "SET EXPLAIN FILE TO \"%s\";\nSET EXPLAIN ON;\n", EXPLAIN_FILE
+			}
 		}
 		{
 			if ( toupper($0) ~ /[ 	]*--[ 	]*QUERY/ )
-					{printf "!%s %s -S %s\n%s\n-- QUERY\n",SCRIPT, EXTRA_FLAGS, DATABASE,RESETSTATS_CLAUSE;next}
+			{
+				if (EXPLAIN_FLAG == 1)
+				{
+					printf "SET EXPLAIN OFF;\n"
+					printf "!cat %s;rm -f %s\n", EXPLAIN_FILE, EXPLAIN_FILE;
+				}
+				if (EXPLAIN_FLAG == 2)
+				{
+					printf "SET EXPLAIN OFF;\n"
+				}
+				if (TSTAMP_FLAG == 1)
+				{
+					printf "%s\n!%s %s -S %s\n!echo;echo ====================================================================================================================================;echo QUERY BREAK;echo ====================================================================================================================================;echo\n%s\nUPDATE %s SET start = CURRENT YEAR TO FRACTION(3);\n-- QUERY\n",TIMING_SQL,SCRIPT, EXTRA_FLAGS, DATABASE,RESETSTATS_CLAUSE,T_TAB_NAME;
+				}
+				else
+				{
+					printf "%s\n!%s %s -S %s\n!echo;echo ====================================================================================================================================;echo QUERY BREAK;echo ====================================================================================================================================;echo\n%s\n-- QUERY\n",TIMING_SQL,SCRIPT, EXTRA_FLAGS, DATABASE,RESETSTATS_CLAUSE;
+				}
+
+				if ( (EXPLAIN_FLAG == 1) || (EXPLAIN_FLAG == 2) )
+				{
+					printf "SET EXPLAIN FILE TO \"%s\";\nSET EXPLAIN ON;\n",EXPLAIN_FILE;
+				}
+			}
 			else
 				print $0
 		}
 		END {
-					printf "!%s %s -S %s\n",SCRIPT,EXTRA_FLAGS, DATABASE;
+			if ( (EXPLAIN_FLAG == 1) || (EXPLAIN_FLAG == 2) )
+			{
+				printf "SET EXPLAIN OFF;\n"
+			}
+
+			printf "%s\n!%s %s -S %s\n",TIMING_SQL,SCRIPT,EXTRA_FLAGS, DATABASE;
+			if (EXPLAIN_FLAG == 2)
+			{
+				printf "!echo Explain plans were written to file %s\n", EXPLAIN_FILE;
+			}
+			if (EXPLAIN_FLAG == 1)
+			{
+				printf "!cat %s\n", EXPLAIN_FILE;
+			}
 		}' $SQL_SCRIPT > $MY_SQL_SCRIPT;
 
-	time dbaccess $DATABASE $MY_SQL_SCRIPT
+	if [ "X$TSTAMP_FLAG" = "X1" ]
+	then
+		dbaccess $DATABASE $MY_SQL_SCRIPT 2>$TMP_ERROR_FILE
+		if [ $? != 0 ]
+		then
+			printf "%s error calling dbaccess:\n" $PROGNAME
+			cat $TMP_ERROR_FILE
+		fi
+	else
+		time dbaccess $DATABASE $MY_SQL_SCRIPT 2>$TMP_ERROR_FILE
+		if [ $? != 0 ]
+		then
+			printf "%s error calling dbaccess:\n" $PROGNAME
+			cat $TMP_ERROR_FILE
+		fi
+	fi
 	exit 0
 fi
 
