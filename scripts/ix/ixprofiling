@@ -2,29 +2,29 @@
 # Copyright (c) 2011-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision: 2.0.1 $
-# $Date 2016-04-12 01:16:10$
+# $Revision: 2.0.3 $
+# $Date 2016-04-12 16:11:06$
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
 
 ix_help()
 {
-	echo "${PROGNAME} [ -h | -V ]" >&2
-	echo "            -s SID database" >&2
-	echo "            [-i] [-w] [-z|-Z|-n] [-e | -E file] database sql_script" >&2
-	echo "     -h             : Get this help">&2
-	echo "     -V             : Get script version">&2
-	echo "     -s SID database: Get stats for session (SID) and database">&2
-	echo "     -n             : Do NOT reset engine stats">&2
-	echo "     -z             : Reset engine stats using onstat (default - needs local database)">&2
-	echo "     -Z             : Reset engine stats using SQL Admin API (can work remotely )">&2
-	echo "     -w             : Print WSTATS info" >&2
-	echo "     -i             : I/O stats" >&2
-	echo "     -t             : Print timestamps" >&2
-	echo "     -p             : Show onstat -p outputs" >&2
-	echo "     -e             : Generate and show each query plan" >&2
-	echo "     -E file        : Generate all the query plans to the specified file" >&2
+	echo "${PROGNAME} [ -h | -V ]" 
+	echo "            -s SID database" 
+	echo "            [-i] [-w] [-z|-Z|-n] [-e | -E file] database sql_script"
+	echo "     -h             : Get this help"
+	echo "     -V             : Get script version"
+	echo "     -s SID database: Get stats for session (SID) and database"
+	echo "     -n             : Do NOT reset engine stats"
+	echo "     -z             : Reset engine stats using onstat (default - needs local database)"
+	echo "     -Z             : Reset engine stats using SQL Admin API (can work remotely )"
+	echo "     -w             : Print WSTATS info"
+	echo "     -i             : I/O stats"
+	echo "     -t             : Print timestamps"
+	echo "     -p             : Show onstat -p outputs"
+	echo "     -e             : Generate and show each query plan"
+	echo "     -E file        : Generate all the query plans to the specified file"
 }
 
 get_args()
@@ -539,7 +539,7 @@ WAIT_FLAG=0
 EXPLAIN_FLAG=0
 SCRIPT=$0
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision: 2.0.1 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.3 $" | cut -f2 -d' '`
 MY_STATS_FILE=/tmp/${PROGNAME}_partitions_$$.tmp
 MY_SQL_SCRIPT=/tmp/${PROGNAME}_$$.sql
 TMP_ERROR_FILE=/tmp/${PROGNAME}_$$.err
@@ -550,6 +550,7 @@ get_args $*
 RC=$?
 if [ $RC != 0 ]
 then
+	ix_help >&2
 	exit $RC
 fi
 
