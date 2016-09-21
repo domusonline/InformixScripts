@@ -1,0 +1,1397 @@
+#!/bin/ksh
+# Copyright (c) 2016 Fernando Nunes - domusonline@gmail.com
+# License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
+# $Author: Fernando Nunes - domusonline@gmail.com $
+# $Revision: 2.0.7 $
+# $Date 2016-09-21 23:50:06$
+# Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
+#             Although the author is/was an IBM employee, this software was created outside his job engagements.
+#             As such, all credits are due to the author.
+# Aknowledgemtns: The development of this script was possible through several contributions. A special thanks to Jacques Renaut for the technical guidance.
+#                 Other contributer were Frank Arias, an unamed customer who tested this on Solaris Sparc and Jonathan Leffler.
+#                 Many thanks for all the feedback, testing and guidance
+
+#-------------------------------------------------------------------------------------------------
+# Print help
+#-------------------------------------------------------------------------------------------------
+ix_help()
+{
+	echo "${PROGNAME}: -V | -h | [-s <session list> [-t temp_table]] [-u <user list>] [-d <database>] [-D <dbspace list>] [-I max_iterators]"
+	echo "               -V shows script version"
+	echo "               -h shows this help"
+	echo "               -s <session list>       : Show information for a session or list of sessions (separated by commas)"
+	echo "               -t <temp_table>         : Show temporary table structure for a single session/table (ALL for all)"
+	echo "               -u <user list>          : Show information for a user or list of users (separated by commmas)"
+	echo "               -d <database list>      : Show information for sessions in a database or list of databases (separated by commas)"
+	echo "               -D <dbspace list>       : Show information for a dbspace or list of dbspaces (separated by commas - must be temp dbspaces)"
+	echo "               -I <max_iterators list> : The script can generate an infinite recursion if something goes wrong."
+	echo "                                         To prevent this there's a limit of 100 iterators that can be overriden with this parameter"
+	echo "                                         But be advices that in most cases if the limit is reached, it means the script as a flaw. "
+	echo "                                         Apart a script bug, this situation should only happen on very complex queries which are unlikely"
+	echo "                                         to appear frequently. Overriding the limit may cause a FORK BOMB!!!"
+	echo "Ex: ${PROGNAME} -s 43,35,4"
+}
+
+
+#-------------------------------------------------------------------------------------------------
+# Parse program arguments
+#-------------------------------------------------------------------------------------------------
+get_args()
+{
+	arg_ok="Vhs:t:u:d:D:I:"
+	while getopts ${arg_ok} OPTION
+	do
+		case ${OPTION} in
+		h)   # show help
+			ix_help
+			exit 0
+			;;
+		V)      #show version
+			echo "${PROGNAME} ${VERSION}"
+			exit 0
+			;;
+		u)   # set up the -u flag and user list
+			USER_FLAG=1
+			USER_LIST_AUX=$OPTARG
+			echo ${USER_LIST_AUX} | egrep "^[a-zA-Z][a-zA-Z0-9_\-]*(,[a-zA-Z][a-zA-Z0-9_\-])*" 1>/dev/null 2>/dev/null
+			RES=$?
+			if [ "X${RES}" != "X0" ]
+			then
+				echo "${PROGNAME}: Syntax error - user list must be valid usernames separated by commas" >&2
+				return 1
+			else
+				USER_LIST=`echo "$USER_LIST_AUX" | $AWK -F',' 'BEGIN {LIST=""} {for(a=1;a<=NF;a++) {if ( a == 1) {LIST="\047"$a"\047"} else {LIST=LIST",\047"$a"\047"}}} END {print LIST}'`
+			fi
+			;;
+		s)   # set up the -s flag and session list
+			SESSION_FLAG=1
+			SESSION_LIST=$OPTARG
+			echo ${SESSION_LIST} | egrep "^[1-9][0-9]*(,[1-9][0-9]*)*" 1>/dev/null 2>/dev/null
+			RES=$?
+			if [ "X${RES}" != "X0" ]
+			then
+				echo "${PROGNAME}: Syntax error - session list must be valid numbers separated by commas" >&2
+				return 1
+			fi
+			;;
+		d)   # set up the -d flag and database list
+			DATABASE_FLAG=1
+			DATABASE_LIST_AUX=$OPTARG
+			echo ${DATABASE_LIST_AUX} | egrep "^[a-zA-Z][a-zA-Z0-9_\-]*(,[a-zA-Z][a-zA-Z0-9_\-])*" 1>/dev/null 2>/dev/null
+			RES=$?
+			if [ "X${RES}" != "X0" ]
+			then
+				echo "${PROGNAME}: Syntax error - database list must be valid database names separated by commas" >&2
+				return 1
+			else
+				DATABASE_LIST=`echo "$DATABASE_LIST_AUX" | $AWK -F',' 'BEGIN {LIST=""} {for(a=1;a<=NF;a++) {if ( a == 1) {LIST="\047"$a"\047"} else {LIST=LIST",\047"$a"\047"}}} END {print LIST}'`
+			fi
+			;;
+		D)   # set up the -D flag and DBSpace list
+			DBSPACE_FLAG=1
+			DBSPACE_LIST_AUX=$OPTARG
+			echo ${DBSPACE_LIST_AUX} | egrep "^[a-zA-Z][a-zA-Z0-9_\-]*(,[a-zA-Z][a-zA-Z0-9\_-])*" 1>/dev/null 2>/dev/null
+			RES=$?
+			if [ "X${RES}" != "X0" ]
+			then
+				echo "${PROGNAME}: Syntax error - dbspace list must be valid dbspacenames separated by commas" >&2
+				return 1
+			else
+				DBSPACE_LIST=`echo "$DBSPACE_LIST_AUX" | $AWK -F',' 'BEGIN {LIST=""} {for(a=1;a<=NF;a++) {if ( a == 1) {LIST="\047"$a"\047"} else {LIST=LIST",\047"$a"\047"}}} END {print LIST}'`
+			fi
+			;;
+		t)   # set up the -t flag and temp table name
+			TMPTAB_FLAG=1
+			TMPTAB=$OPTARG
+			echo ${TMPTAB} | egrep "^[a-zA-Z][a-zA-Z0-9_\-]*" 1>/dev/null 2>/dev/null
+			RES=$?
+			if [ "X${RES}" != "X0" ]
+			then
+				echo "${PROGNAME}: Syntax error - temp table name is invalid ($TMPTAB)" >&2
+				return 1
+			fi
+			;;
+		I)   # set up the -L flag 
+			ITERATOR_LIMIT_FLAG=1
+			ITERATOR_LIMIT=$OPTARG
+			echo ${ITERATOR_LIMIT} | egrep "[1-9][0-9]*" 1>/dev/null 2>/dev/null
+			RES=$?
+			if [ "X${RES}" != "X0" ]
+			then
+				echo "${PROGNAME}: Syntax error - ITERATOR_LIMIT must me a valid number ($ITERATOR_LIMIT)" >&2
+				return 1
+			fi
+			;;
+		?)      # Error in the parsing of getopts
+			return 1
+			;;
+		esac
+	done
+}
+
+#-------------------------------------------------------------------------------------------------
+# Generates the report with detailed info for one or more sessions
+#-------------------------------------------------------------------------------------------------
+report_session_detail()
+{
+	dbaccess -e sysmaster <<!EOF 2>$TMP_FILE_ERR 1>&2
+
+	CREATE TEMP TABLE ixtempuse
+	(
+		sid INTEGER,
+		type CHAR(10),
+		partnum INTEGER,
+		pool_address INT8,
+		pool_size INT
+	) WITH NO LOG;
+
+	LOAD FROM $TMP_FILE_1 INSERT INTO ixtempuse;
+
+	CREATE INDEX ix_ixtempuse_1 ON ixtempuse(sid);
+	CREATE INDEX ix_ixtempuse_2 ON ixtempuse(partnum);
+
+	UNLOAD TO $TMP_FILE_UNL
+	SELECT  
+	        tmp.sid,
+		scbl.username,
+		scbl.hostname,
+		scbl.pid,
+		DBINFO('utc_to_datetime',scbl.connected) conn_time,
+		dbs.dbsnum,
+		dbs.name,
+		CASE tmp.type
+			WHEN 'HASH' THEN
+				'H'
+			WHEN 'GROUP' THEN
+				'G'
+			WHEN 'SORT' THEN
+				'S'
+			WHEN 'TEMP' THEN
+				'T'
+			WHEN 'VIEW' THEN
+				'V'
+			ELSE
+				'?'
+		END tab_type,
+		pt.nptotal,
+		t1.tabname frag_name,
+		t2.tabname tab_name,
+		t1.partnum frag_partnum,
+		LOWER(HEX(t1.partnum)) frag_partnum_hex,
+		pt.lockid lockid,
+		LOWER(HEX(pt.lockid)) tab_partnum_hex,
+		dbs.pagesize
+	FROM
+	        systabnames t1, systabnames t2, sysptnhdr pt, ixtempuse  tmp, sysscblst scbl, sysdbstab dbs
+	WHERE
+		tmp.sid != DBINFO('sessionid') AND 	
+	        t1.partnum = pt.partnum AND
+		t2.partnum = pt.lockid AND
+	        (
+			BITVAL(pt.flags, 32)     = 1 OR -- System created Temp Table
+			BITVAL(pt.flags, 64)     = 1 OR -- User created Temp Table
+	                BITVAL(pt.flags, 128)    = 1 OR -- Sort File
+			BITVAL(pt.flags, 16384)  = 1 OR -- Special Function Temp Tables, no Bitmap Maintenance'
+			BITVAL(pt.flags, 131072) = 1    -- Hash Table
+		) AND
+		tmp.sid = scbl.sid AND
+		(
+			tmp.partnum = t1.partnum OR
+			(
+				tmp.partnum = 0 AND 
+				(t1.dbsname = 'SORTTEMP' AND
+				NVL(REPLACE(t1.tabname,'th_tmprun_','$HEX_PREFIX')::INT8,0) BETWEEN tmp.pool_address AND (tmp.pool_address + tmp.pool_size))
+			)
+		)
+		AND sysmaster:partdbsnum(pt.partnum) = dbs.dbsnum
+		AND $DBSPACE_FILTER
+		ORDER BY
+			1, 6, 8, 14, 12
+		-- SID, dbsnum, obj_type, tab_partnum, frag_partnum
+!EOF
+	if [ $? != 0 ]
+	then
+		echo "${PROGNAME}: Error running query (report detail):" >&2
+		cat $TMP_FILE_ERR >&2
+		exit 3
+	fi
+
+	[ $IX_DEBUG_FILES ] && cat $TMP_FILE_UNL >&2
+
+	if [ ! -s $TMP_FILE_UNL ]
+	then
+		printf "${PROGNAME}: None of the sessions is using temporary space\n"
+		return
+	fi
+
+	$AWK -F'|' '
+BEGIN {
+	PREV_SID=0
+}
+{
+	my_sid=$1
+	my_username=$2
+	my_hostname=$3
+	my_pid=$4
+	my_conn_time=$5
+	my_dbsnum=$6
+	my_dbsname=$7
+	my_obj_type=$8
+	my_nptotal=$9
+	my_fragname=$10
+	my_tabname=$11
+	my_frag_partnum=$12
+	my_frag_partnum_hex=$13
+	my_tab_partnum=$14
+	my_tab_partnum_hex=$15
+	my_dbs_pagesize=$16
+
+
+
+	if ( my_sid != PREV_SID )
+	{
+		if ( PREV_SID != 0 )
+		{
+			#Show totals for object type, dbspace and previous session
+			printf("    Total space for object of type %s in this dbspace: %sMB\n",PREV_OBJ_TYPE,OBJECTS_DBS[PREV_OBJ_TYPE] / 1048576);
+			printf("  Total space for DBSPACE %s is %sMB:\n\n", PREV_DBSPACE, (OBJECTS_DBS["H"] + OBJECTS_DBS["G"] + OBJECTS_DBS["S"] + OBJECTS_DBS["T"] + OBJECTS_DBS["U"] + OBJECTS_DBS["V"] + OBJECTS_DBS["OTHERS"]) / 1048576)
+			printf("Summary for space usage for session %s is:\n", my_sid);
+			printf("      Hash       : %-10sMB      Groups BY  : %sMB\n", OBJECTS_SID["H"]/ 1048576, OBJECTS_SID["G"]/ 1048576)
+			printf("      Sort       : %-10sMB      Temp Tables: %sMB\n", OBJECTS_SID["S"]/ 1048576, OBJECTS_SID["T"]/ 1048576)
+			printf("      Views      : %-10sMB      Others     : %sMB\n", OBJECTS_SID["V"]/ 1048576, OBJECTS_SID["OTHERS"]/ 1048576)
+			printf("Total space for session %s is %sMB\n\n", PREV_SID, (OBJECTS_SID["H"] + OBJECTS_SID["G"] + OBJECTS_SID["S"] + OBJECTS_SID["T"] + OBJECTS_SID["U"] + OBJECTS_SID["V"] + OBJECTS_SID["OTHERS"]) / 1048576)
+			printf "\n\n"
+		}
+		PREV_SID=my_sid
+		PREV_DBSPACE=my_dbsname
+		PREV_OBJ_TYPE=my_obj_type
+
+		OBJECTS_SID["H"]=0
+		OBJECTS_SID["G"]=0
+		OBJECTS_SID["S"]=0
+		OBJECTS_SID["T"]=0
+		OBJECTS_SID["U"]=0
+		OBJECTS_SID["V"]=0
+		OBJECTS_SID["OTHERS"]=0
+		OBJECTS_DBS["H"]=0
+		OBJECTS_DBS["G"]=0
+		OBJECTS_DBS["S"]=0
+		OBJECTS_DBS["T"]=0
+		OBJECTS_DBS["U"]=0
+		OBJECTS_DBS["V"]=0
+		OBJECTS_DBS["OTHERS"]=0
+
+		OBJECTS_DBS[my_obj_type]=my_nptotal * my_dbs_pagesize
+		OBJECTS_SID[my_obj_type]=my_nptotal * my_dbs_pagesize
+
+		# first line of session: Print header, dbspace header, table and fragment
+		printf("-----------------------------------------------------------------------------------------------------------------------------------\n")
+		printf("SID: %s       User: %s      Client: %s     PID: %s\n",my_sid, my_username, my_hostname, my_pid);
+		printf("Connected at: %s\n",my_conn_time)
+		printf("-----------------------------------------------------------------------------------------------------------------------------------\n")
+		printf("  DBSPACE: %s\n",my_dbsname)
+		printf("    %s: %-80s (%s/%s) %sMB\n",my_obj_type, my_tabname,my_tab_partnum,my_tab_partnum_hex,(my_nptotal * my_dbs_pagesize) / 1048576);
+		if ( my_frag_partnum != my_tab_partnum)
+		{
+			printf("      %-80s (%s/%s) %sMB\n",my_fragname,my_frag_partnum,my_frag_partnum_hex,(my_nptotal * my_dbs_pagesize) / 1048576);
+		}
+	
+	}
+	else
+	{
+		if ( PREV_DBSPACE != my_dbsname) 
+		{
+			# Show totals per object and dbspace
+			# reset values (totals per object and dbspace
+
+		
+			printf("    Total space for object of type %s in this dbspace: %sMB\n",PREV_OBJ_TYPE,OBJECTS_DBS[PREV_OBJ_TYPE] / 1048576);
+			printf("  Total space for DBSPACE %s is %sMB:\n\n", PREV_DBSPACE, (OBJECTS_DBS["H"] + OBJECTS_DBS["G"] + OBJECTS_DBS["S"] + OBJECTS_DBS["T"] + OBJECTS_DBS["U"] + OBJECTS_DBS["V"] + OBJECTS_DBS["OTHERS"]) / 1048576)
+			
+
+			printf("  DBSPACE: %s\n",my_dbsname)
+			printf("    %s: %-80s (%s/%s) %sMB\n",my_obj_type, my_tabname,my_tab_partnum,my_tab_partnum_hex,(my_nptotal * my_dbs_pagesize) / 1048576);
+			if ( my_frag_partnum != my_tab_partnum)
+			{
+				printf("      %-80s (%s/%s) %sMB\n",my_fragname,my_frag_partnum,my_frag_partnum_hex,(my_nptotal * my_dbs_pagesize) / 1048576);
+			}
+			OBJECTS_DBS["H"]=0
+			OBJECTS_DBS["G"]=0
+			OBJECTS_DBS["S"]=0
+			OBJECTS_DBS["T"]=0
+			OBJECTS_DBS["U"]=0
+			OBJECTS_DBS["V"]=0
+			OBJECTS_DBS["OTHERS"]=0
+			OBJECTS_DBS[my_obj_type]=my_nptotal * my_dbs_pagesize
+			OBJECTS_SID[my_obj_type]=OBJECTS_SID[my_obj_type] + (my_nptotal * my_dbs_pagesize)
+			PREV_DBSPACE=my_dbsname
+			PREV_OBJ_TYPE=my_obj_type
+		}
+		else
+		{
+			if ( PREV_OBJ_TYPE != my_obj_type)
+			{
+				#mostrar os totais por object type
+				#reinicializar os valores por object type
+				printf("    Total space for object of type %s in this dbspace: %s\n",PREV_OBJ_TYPE,OBJECTS_DBS[PREV_OBJ_TYPE] / 1048576);
+				OBJECTS_DBS[my_obj_type]=my_nptotal * my_dbs_pagesize
+				OBJECTS_SID[my_obj_type]=OBJECTS_SID[my_obj_type] + (my_nptotal * my_dbs_pagesize)
+				PREV_OBJ_TYPE=my_obj_type
+			}
+			else
+			{
+				#actualizar os calculos
+				OBJECTS_DBS[my_obj_type]=(OBJECTS_DBS[my_obj_type]) + (my_nptotal * my_dbs_pagesize)
+				OBJECTS_SID[my_obj_type]=(OBJECTS_SID[my_obj_type]) + (my_nptotal * my_dbs_pagesize)
+				printf("    %s: %-80s (%s/%s) %sMB\n",my_obj_type, my_tabname,my_tab_partnum,my_tab_partnum_hex,(my_nptotal * my_dbs_pagesize) / 1048576);
+				if ( my_frag_partnum != my_tab_partnum)
+				{
+					printf("      %-80s (%s/%s)%s MB\n",my_fragname,my_frag_partnum,my_frag_partnum_hex,(my_nptotal * my_dbs_pagesize) / 1048576);
+				}
+			}
+		}
+	}
+}
+END {
+	printf("    Total space for object of type %s in this dbspace: %sMB\n",PREV_OBJ_TYPE,OBJECTS_DBS[PREV_OBJ_TYPE] / 1048576);
+	printf("  Total space for DBSPACE %s is %sMB:\n\n", PREV_DBSPACE, (OBJECTS_DBS["H"] + OBJECTS_DBS["G"] + OBJECTS_DBS["S"] + OBJECTS_DBS["T"] + OBJECTS_DBS["U"] + OBJECTS_DBS["V"] + OBJECTS_DBS["OTHERS"]) / 1048576)
+	printf("Summary for space usage for session %s is:\n", my_sid);
+	printf("      Hash       : %-10sMB      Groups BY  : %sMB\n", OBJECTS_SID["H"]/ 1048576, OBJECTS_SID["G"]/ 1048576)
+	printf("      Sort       : %-10sMB      Temp Tables: %sMB\n", OBJECTS_SID["S"]/ 1048576, OBJECTS_SID["T"]/ 1048576)
+	printf("      Views      : %-10sMB      Others     : %sMB\n", OBJECTS_SID["V"]/ 1048576, OBJECTS_SID["OTHERS"]/ 1048576)
+	printf("Total space for session %s is %sMB\n\n", PREV_SID, (OBJECTS_SID["H"] + OBJECTS_SID["G"] + OBJECTS_SID["S"] + OBJECTS_SID["T"] + OBJECTS_SID["U"] + OBJECTS_SID["V"] + OBJECTS_SID["OTHERS"]) / 1048576)
+}' $TMP_FILE_UNL
+}
+
+
+#-------------------------------------------------------------------------------------------------
+# Generates overall report
+#-------------------------------------------------------------------------------------------------
+report_overview()
+{
+	SET_EXPLAIN_CLAUSE=""
+	[ $IX_DEBUG_DB ] && SET_EXPLAIN_CLAUSE="SET EXPLAIN ON;"
+
+	dbaccess -e sysmaster <<!EOF 2>$TMP_FILE_ERR 1>&2
+
+
+	$SET_EXPLAIN_CLAUSE
+
+	CREATE TEMP TABLE ixtempuse
+	(
+		sid INTEGER,
+		type CHAR(10),
+		partnum INTEGER,
+		pool_address INT8,
+		pool_size INT
+	) WITH NO LOG;
+
+	LOAD FROM $TMP_FILE_1 INSERT INTO ixtempuse;
+
+	CREATE INDEX ix_ixtempuse_1 ON ixtempuse(sid);
+	CREATE INDEX ix_ixtempuse_2 ON ixtempuse(partnum);
+
+	CREATE TEMP TABLE ixtempuse_work
+	(
+		sid                        INTEGER,
+		username                   CHAR(32),
+		hostname                   CHAR(32),
+		pid                        INT8,
+		conn_time                  DATETIME YEAR TO SECOND,
+		dbsnum                     INTEGER,
+		dbsname                    CHAR(128),
+		obj_type                   CHAR,
+		obj_count                  INTEGER,
+		obj_npages                 INT8
+	) WITH NO LOG;
+
+	
+	INSERT INTO ixtempuse_work ( sid, username, hostname, pid, conn_time, dbsnum, dbsname, obj_type, obj_count, obj_npages)
+	SELECT 
+	        tmp.sid,
+		scbl.username,
+		scbl.hostname,
+		scbl.pid,
+		DBINFO('utc_to_datetime',scbl.connected) conn_time,
+		dbs.dbsnum,
+		dbs.name,
+		CASE tmp.type
+			WHEN 'HASH' THEN
+				'H'
+			WHEN 'GROUP' THEN
+				'G'
+			WHEN 'SORT' THEN
+				'S'
+			WHEN 'TEMP' THEN
+				'T'
+			WHEN 'VIEW' THEN
+				'V'
+			ELSE
+				'?'
+		END tab_type,
+		COUNT(*),
+		SUM(pt.nptotal)
+	FROM
+	        sysdbstab dbs, sysptnhdr pt, systabnames t1, sysscblst scbl, ixtempuse tmp
+	WHERE
+		tmp.sid != DBINFO('sessionid') AND 	
+	        t1.partnum = pt.partnum AND
+	        (
+			BITVAL(pt.flags, 32)     = 1 OR -- System created Temp Table
+			BITVAL(pt.flags, 64)     = 1 OR -- User created Temp Table
+	                BITVAL(pt.flags, 128)    = 1 OR -- Sort File
+			BITVAL(pt.flags, 16384)  = 1 OR -- Sort File
+			BITVAL(pt.flags, 131072) = 1    -- Hash Table
+		) AND
+		tmp.sid = scbl.sid AND
+		(
+			tmp.partnum = t1.partnum OR
+			(
+				tmp.partnum = 0 AND 
+				(t1.dbsname = 'SORTTEMP' AND
+				NVL(REPLACE(t1.tabname,'th_tmprun_','$HEX_PREFIX')::INT8,0) BETWEEN tmp.pool_address AND (tmp.pool_address + tmp.pool_size))
+			)
+		)
+		AND sysmaster:partdbsnum(pt.partnum) = dbs.dbsnum
+		AND $DBSPACE_FILTER
+		GROUP BY 1,2,3,4,5,6,7,8;
+
+	SELECT
+		ixtempuse_work.*,
+		TRUNC((ixtempuse_work.obj_npages * dbs1.pagesize) / 1048576,2) mb_per_dbs_obj,
+		TRUNC((SELECT SUM(t1.obj_npages * t2.pagesize) FROM ixtempuse_work t1, sysdbstab t2 where t1.sid = ixtempuse_work.sid AND t1.dbsnum = ixtempuse_work.dbsnum AND t1.dbsnum = t2.dbsnum) / 1048576, 2) sum_mb_per_dbs,
+		 TRUNC((SELECT SUM(t1.obj_npages * (SELECT d.pagesize FROM sysdbstab d WHERE d.dbsnum = t1.dbsnum)) FROM ixtempuse_work t1 where t1.sid = ixtempuse_work.sid ) / 1048576, 2) sum_mb_per_sid
+	FROM 
+		ixtempuse_work, sysdbstab dbs1
+	WHERE
+		dbs1.dbsnum = ixtempuse_work.dbsnum
+	INTO
+		TEMP ixtempuse_work2 WITH NO LOG;
+
+
+	UNLOAD TO $TMP_FILE_UNL
+	SELECT
+		sid, username, hostname, pid, conn_time, dbsnum, dbsname, obj_type, obj_count, obj_npages,
+		mb_per_dbs_obj, sum_mb_per_dbs,  sum_mb_per_sid
+	FROM
+		ixtempuse_work2
+	ORDER BY sum_mb_per_sid DESC,sid,dbsname,obj_count DESC
+!EOF
+	if [ $? != 0 ]
+	then
+		echo "${PROGNAME}: Error running query (report overview):" >&2
+		echo "${PROGNAME}: Error running query (report overview):" >> $TMP_FILE_ERR
+		cat $TMP_FILE_ERR >&2
+		exit 3
+	fi
+
+	[ $IX_DEBUG_FILES ] && cat $TMP_FILE_UNL >&2
+
+	if [ ! -s $TMP_FILE_UNL ]
+	then
+		printf "$PROGNAME: Currently there are no sessions consuming temporary space\n"
+		return
+	fi
+
+	$AWK -v IX_DEBUG_AWK="$IX_DEBUG_AWK" -F'|' '
+BEGIN {
+
+	if ( IX_DEBUG_AWK != "" )
+		printf "DEBUG: AWK (overview report) - BEGIN\n"
+	PREV_SID=0
+	PREV_SID_TOTAL="UPS!"
+	PREV_DBSPACE="NOT_POSSIBLE+"
+	OBJECTS_H=0
+	OBJECTS_G=0
+	OBJECTS_S=0
+	OBJECTS_T=0
+	OBJECTS_V=0
+	OBJECTS_U=0
+	OBJECTS_OTHERS=0
+
+	#------------------------------- print header
+        printf("+----------+------------------+----------+-------------------+--------------------------+-------------------+----------+----------+\n")
+        printf("|%-10s|%-18s|%-10s|%-19s|%-26s|%-19s|%-10s|%-10s|\n","Sessionid", "Username", "PID", "Conn Time", "DBSpace", "   # (H/G/S/T/V)", "DBSpace MB", "Session MB")
+        printf("+----------+------------------+----------+-------------------+--------------------------+-------------------+----------+----------+\n")
+}
+{
+	if ( IX_DEBUG_AWK != "" )
+		printf "DEBUG: AWK (overview report) - new line\n"
+	my_sid=$1
+	my_username=$2
+	my_hostname=$3
+	my_pid=$4
+	my_conn_time=$5
+	my_dbsnum=$6
+	my_dbsname=$7
+	my_obj_type=$8
+	my_obj_count=$9
+	my_obj_npages=$10
+	my_mb_per_obj_type=$11
+	my_mb_per_dbs=$12
+	my_mb_per_sid=$13
+
+
+	if ( my_sid != PREV_SID )
+	{
+		if ( PREV_SID != 0 )
+		{
+			if ( FIRST_DBSPACE == 1)
+				printf("|%-26s|%-3s/%-3s/%-3s/%-3s/%-3s|%-10s|%-10s|\n", PREV_DBSPACE, OBJECTS_H, OBJECTS_G, OBJECTS_S, OBJECTS_T, OBJECTS_V, PREV_MB_PER_DBS, " ")
+			else
+				printf("|%-60s|%-26s|%-3s/%-3s/%-3s/%-3s/%-3s|%-10s|          |\n"," ", PREV_DBSPACE, OBJECTS_H, OBJECTS_G, OBJECTS_S, OBJECTS_T, OBJECTS_V, PREV_MB_PER_DBS)
+
+			#print soma total da sessao e divisoria
+			printf("|%-60s|%-26s|%-19s|%-10s|%-10s|\n", " ", " ", " ", " ",PREV_SID_TOTAL)
+		        printf("+------------------------------------------------------------+--------------------------+-------------------+----------+----------+\n")
+		}
+		PREV_SID=my_sid
+		PREV_SID_TOTAL=my_mb_per_sid
+		PREV_MB_PER_DBS=my_mb_per_dbs
+		PREV_DBSPACE=my_dbsname
+	        printf("|%-10s %-18s %-10s %-19s",my_sid, my_username, my_pid, my_conn_time);
+		PREV_DBSPACE=my_dbsname
+		OBJECTS_H=0
+		OBJECTS_G=0
+		OBJECTS_S=0
+		OBJECTS_T=0
+		OBJECTS_V=0
+		OBJECTS_U=0
+		OBJECTS_OTHERS=0
+		if ( my_obj_type == "H" )
+			OBJECTS_H=my_obj_count
+		if ( my_obj_type == "G" )
+			OBJECTS_G=my_obj_count
+		if ( my_obj_type == "S" )
+			OBJECTS_S=my_obj_count
+		if ( my_obj_type == "T" )
+			OBJECTS_T=my_obj_count
+		if ( my_obj_type == "V" )
+			OBJECTS_V=my_obj_count
+		if ( my_obj_type == "U" )
+			OBJECTS_U=my_obj_count
+		if ( my_obj_type == "?" )
+			OBJECTS_OTHERS=my_obj_count
+		PREV_MY_MB_PER_DBS=my_mb_per_dbs
+		FIRST_DBSPACE=1
+	}
+	else
+	{
+		if ( PREV_DBSPACE != my_dbsname )
+		{
+			if (FIRST_DBSPACE != 1)
+			{
+				printf("|%-60s"," ")
+			}
+			else
+				FIRST_DBSPACE = 0
+			printf("|%-26s|%-3s/%-3s/%-3s/%-3s/%-3s|%-10s|          |\n", PREV_DBSPACE, OBJECTS_H, OBJECTS_G, OBJECTS_S, OBJECTS_T, OBJECTS_V, PREV_MY_MB_PER_DBS);
+			PREV_DBSPACE=my_dbsname
+			PREV_MB_PER_DBS=my_mb_per_dbs
+		}
+		if ( my_obj_type == "H" )
+			OBJECTS_H=my_obj_count
+		if ( my_obj_type == "G" )
+			OBJECTS_G=my_obj_count
+		if ( my_obj_type == "S" )
+			OBJECTS_S=my_obj_count
+		if ( my_obj_type == "T" )
+			OBJECTS_T=my_obj_count
+		if ( my_obj_type == "V" )
+			OBJECTS_V=my_obj_count
+		if ( my_obj_type == "U" )
+			OBJECTS_U=my_obj_count
+		if ( my_obj_type == "?" )
+			OBJECTS_OTHERS=my_obj_count
+	}
+}
+END {
+	if ( IX_DEBUG_AWK != "" )
+		printf "DEBUG: AWK (overview report) - END\n"
+		if ( FIRST_DBSPACE == 1)
+			printf("|%-26s|%-3s/%-3s/%-3s/%-3s/%-3s|%-10s|%-10s|\n|%-60s|%-26s|%-19s|%-10s|%-10s|\n", my_dbsname, OBJECTS_H, OBJECTS_G, OBJECTS_S, OBJECTS_T, OBJECTS_V, OBJECTS_U, my_mb_per_dbs, " ", " ", " "," "," ",my_mb_per_sid)
+		else
+			printf("|%-60s|%-26s|%-3s/%-3s/%-3s/%-3s/%-3s|%-10s|%-10s|\n|%-60s|%-26s|%-19s|%-10s|%-10s|\n", " ", my_dbsname, OBJECTS_H, OBJECTS_G, OBJECTS_S, OBJECTS_T, OBJECTS_V, my_mb_per_dbs, " ", " ", " "," "," ",my_mb_per_sid)
+	        printf("+------------------------------------------------------------+--------------------------+-------------------+----------+----------+\n")
+}' $TMP_FILE_UNL
+}
+
+
+
+#-------------------------------------------------------------------------------------------------
+# Obtains a list of sessions depending on user criteria
+#-------------------------------------------------------------------------------------------------
+get_session_list()
+{
+
+
+dbaccess -e sysmaster <<!EOF 2>$TMP_FILE_ERR 1>&2
+UNLOAD TO $TMP_FILE_SES
+DELIMITER ' '
+SELECT
+	sysscblst.sid,                              -- Session ID
+	LOWER(HEX(sysscblst.sqscb)),                -- sqscb_t    For tem tables
+	NVL(LOWER(HEX(sysscblst.address)), '0x0'),  -- scb     sessiion control block
+	NVL(TRIM(po_name), 'NOSORT'),               -- SID_SORT   For sorts	
+	NVL(LOWER(HEX(syssdblock.sdb_cb)), '0x0')   -- currdb     For hash tables (when no current query, there is no conblock?)
+
+FROM
+	sysopendb, sysscblst, OUTER syspoollst, OUTER syssdblock
+WHERE
+	syssdblock.sdb_sessionid = sysscblst.sid AND
+	sysscblst.sid = po_sid AND
+	sysopendb.odb_sessionid = sysscblst.sid AND
+	sysopendb.odb_iscurrent = 'Y' AND
+	syspoollst.po_name LIKE '%SORT%' AND
+	$SESSION_FILTER AND
+	$DATABASE_FILTER AND
+	$USER_FILTER ;
+!EOF
+
+if [ $? != 0 ]
+then
+	echo "${PROGNAME}: Error running query (get session list):" >&2
+	echo "${PROGNAME}: Error running query (get session list):" >>$TMP_FILE_ERR
+	cat $TMP_FILE_ERR >&2
+	exit 3
+fi
+
+if [ ! -s $TMP_FILE_SES ]
+then
+	return 1
+else
+	return 0
+fi
+
+
+}
+
+#-------------------------------------------------------------------------------------------------
+# Shows a session temporary table strucutre
+#-------------------------------------------------------------------------------------------------
+display_tmp_tab_desc()
+{
+	PREV_SID=0
+	cat /dev/null >$TMP_FILE_IDX
+	cat /dev/null >$TMP_FILE_TMPCOLS
+	COLDESC_RELEVANT_INFO="(  ddc_flags  *= | ddc_name  *= | ddc_type  *= | ddc_len  *= |struct )"
+	TABDESC_RELEVANT_INFO="( fn_owner  *= | fn_name  *= | ddt_partnum  *= | ddt_flags  *= | ddt_flags2  *= | ddt_flags3  *= | ddt_ncols  *= | ddt_rowsize  *= | ddt_maxrowsize  *= | ddt_nindexes  *= | ddt_nallidxs  *= | ddt_nrows  *= | ddt_npused  *= | ddt_pgsize  *= | ddt_cols  *= | ddt_indexes  *= | ddt_trig  *= | ddt_uniq  *= | ddt_ref  *= | ddt_check  *= | ddt_next  *= | ddt_distrib  *= | ddt_frags  *= | ddt_numdidx  *= | ddt_didxlist  *= | ddt_createtime  *= | ddt_lastupdtime  *= |struct ddtabdesc)"
+	INDEXES_RELEVANT_INFO="( ddil_name  *= | ddil_colno| ddil_keylen  *= | ddil_pgsize  *= | ddil_flags  *= | ddil_flags1  *= | ddil_state  *= | ddil_collation  *= | ddil_nupdates  *= | ddil_ndeletes  *= | ddil_ninserts  *= | ddil_fextsize  *= | ddil_nextsize  *= |struct ddidxlist)"
+
+
+	while read SID SQSCB CURRCB SORT_POOL_NAME
+	do
+		#------------ Because we can have several lines for same SID (different mem pools)
+		if [ $SID -eq $PREV_SID ]
+		then
+			continue
+		fi
+
+		#--------- TEMP tables
+		onstat -g dmp $SQSCB sqscb_t | egrep -e " dicttab  *=" | read DUMMY EQUAL DICTTAB
+		echo $DICTTAB | egrep "^0x00*$" >/dev/null
+		if [ $? != 0 ]
+		then
+			[ $IX_DEBUG_LOOPS ] && echo DICTTAB: $DICTTAB >&2
+			[ $IX_DEBUG_STRUCTS ] && onstat -g dmp $DICTTAB  'ddtabdesc,LL(ddt_next)' >&2
+			onstat -g dmp $DICTTAB 'ddtabdesc,LL(ddt_next)' | egrep -e "$TABDESC_RELEVANT_INFO" | $AWK '
+BEGIN {
+	FIRST=1
+}
+/ fn_owner / { FN_OWNER = $NF;gsub("\042","",FN_OWNER) }
+/ fn_name / { FN_NAME = $NF;gsub("\042","",FN_NAME) }
+/ ddt_partnum / { DDT_PARTNUM = $NF }
+/ ddt_flags / { DDT_FLAGS = $NF }
+/ ddt_flags2 / { DDT_FLAGS2 = $NF }
+/ ddt_flags3 / { DDT_FLAGS3 = $NF }
+/ ddt_ncols / { DDT_NCOLS = $NF }
+/ ddt_rowsize / { DDT_ROWSIZE = $NF }
+/ ddt_maxrowsize / { DDT_MAXROWSIZE = $NF }
+/ ddt_nindexes / { DDT_NINDEXES = $NF }
+/ ddt_nallidxs / { DDT_NALLIDXS = $NF }
+/ ddt_nrows / { DDT_NROWS = $NF }
+/ ddt_npused / { DDT_NPUSED = $NF }
+/ ddt_pgsize / { DDT_PGSIZE = $NF }
+/ ddt_cols / { DDT_COLS = $NF }
+/ ddt_indexes / { DDT_INDEXES = $NF }
+/ ddt_trig / { DDT_TRIG = $NF }
+/ ddt_uniq / { DDT_UNIQ = $NF }
+/ ddt_ref / { DDT_REF = $NF }
+/ ddt_check / { DDT_CHECK = $NF }
+/ ddt_next / { DDT_NEXT = $NF }
+/ ddt_distrib / { DDT_DISTRIB = $NF }
+/ ddt_frags / { DDT_FRAGS = $NF }
+/ ddt_numdidx / { DDT_NUMDIDX = $NF }
+/ ddt_didxlist / { DDT_DIDXLIST = $NF }
+/ ddt_createtime / { DDT_CREATETIME = $NF }
+/ ddt_lastupdtime / { DDT_LASTUPDTIME = $NF }
+/struct ddtabdesc/ {
+			if (FIRST == 0 )
+				print FN_OWNER " " FN_NAME " " DDT_PARTNUM " " DDT_FLAGS " " DDT_FLAGS2 " " DDT_FLAGS3 " " DDT_NCOLS " " DDT_ROWSIZE " " DDT_MAXROWSIZE " " DDT_NINDEXES " " DDT_NALLIDXS " " DDT_NROWS " " DDT_NPUSED " " DDT_PGSIZE " " DDT_COLS " " DDT_INDEXES " " DDT_TRIG " " DDT_UNIQ " " DDT_REF " " DDT_CHECK " " DDT_NEXT " " DDT_DISTRIB " " DDT_FRAGS " " DDT_NUMDIDX " " DDT_DIDXLIST " " DDT_CREATETIME " " DDT_LASTUPDTIME
+			else
+				FIRST=0
+}
+END {
+	print FN_OWNER " " FN_NAME " " DDT_PARTNUM " " DDT_FLAGS " " DDT_FLAGS2 " " DDT_FLAGS3 " " DDT_NCOLS " " DDT_ROWSIZE " " DDT_MAXROWSIZE " " DDT_NINDEXES " " DDT_NALLIDXS " " DDT_NROWS " " DDT_NPUSED " " DDT_PGSIZE " " DDT_COLS " " DDT_INDEXES " " DDT_TRIG " " DDT_UNIQ " " DDT_REF " " DDT_CHECK " " DDT_NEXT " " DDT_DISTRIB " " DDT_FRAGS " " DDT_NUMDIDX " " DDT_DIDXLIST " " DDT_CREATETIME " " DDT_LASTUPDTIME
+}' | 			while read DDT_OWNER DDT_NAME DDT_PARTNUM DDT_FLAGS DDT_FLAGS2 DDT_FLAGS3 DDT_NCOLS DDT_ROWSIZE DDT_MAXROWSIZE DDT_NINDEXES DDT_NALLIDXS DDT_NROWS DDT_NPUSED DDT_PGSIZE DDT_COLS DDT_INDEXES DDT_TRIG DDT_UNIQ DDT_REF DDT_CHECK DDT_NEXT DDT_DISTRIB DDT_FRAGS DDT_NUMDIDX DDT_DIDXLIST DDT_CREATETIME DDT_LASTUPDTIME
+			do
+
+				if [ "X$TMPTAB" != "XALL" -a "X$TMPTAB" != "X$DDT_NAME" ]
+				then
+					continue
+				fi
+
+				rm -f $TMP_FILE_IDX
+				echo $DDT_COLS | egrep "^0x00*$" >/dev/null
+				if [ $? != 0 ]
+				then
+					onstat -g dmp $DDT_COLS 'ddcol_t,LL(ddc_next)'| egrep -e "$COLDESC_RELEVANT_INFO"| $AWK -v PARTNUM=$DDT_PARTNUM '
+BEGIN {
+	FIRST=1
+}
+/ ddc_flags / {DDC_FLAGS=$NF}
+/ ddc_name / {DDC_NAME=$NF;gsub("\042","",DDC_NAME)}
+/ ddc_type / {DDC_TYPE=$NF}
+/ ddc_len / {DDC_LEN=$NF}
+/struct / {
+		if ( FIRST == 0 )
+			print PARTNUM"|"DDC_NAME"|"DDC_TYPE"|"DDC_FLAGS"|"DDC_LEN
+		else
+			FIRST=0
+}
+END {
+	print PARTNUM"|"DDC_NAME"|"DDC_TYPE"|"DDC_FLAGS"|"DDC_LEN
+}' > $TMP_FILE_TMPCOLS
+
+
+				echo $DDT_INDEXES | egrep -e "(^$|^0x00*$)" >/dev/null
+				if [ $? != 0 ]
+				then
+					
+					[ $IX_DEBUG_STRUCTS ] &&  onstat -g dmp $DDT_INDEXES ddidxlist',LL(ddil_next)' >&2
+					onstat -g dmp $DDT_INDEXES ddidxlist',LL(ddil_next)' | egrep -e "$INDEXES_RELEVANT_INFO"  | $AWK '
+BEGIN {
+	FIRST=1
+	DDIL_COLNO=""
+}
+/ ddil_name / {DDIL_NAME=$NF;gsub("\042","",DDIL_NAME)}
+/ ddil_colno/ {
+			AUX=$0
+			split(AUX,AUX1, /\=/ )
+			AUX=AUX1[2]
+			if ( DDIL_COLNO == "" )
+				DDIL_COLNO=AUX
+			else
+				DDIL_COLNO=DDIL_COLNO","AUX
+}
+/ ddil_keylen / {DDIL_KEYLEN=$NF}
+/ ddil_pgsize / {DDIL_PGSIZE=$NF}
+/ ddil_flags / {DDIL_FLAGS=$NF}
+/ ddil_flags1 / {DDIL_FLAGS1=$NF}
+/ ddil_state/ {DDIL_STATE=$NF}
+/ ddil_collation / {DDIL_COLLATION=$NF}
+/ ddil_nupdates / {DDIL_NUPDATES=$NF}
+/ ddil_ndeletes / {DDIL_NDELETES=$NF}
+/ ddil_ninserts / {DDIL_NINSERTS=$NF}
+/ ddil_fextsize / {DDIL_FEXTSIZE=$NF}
+/ ddil_nextsize / {DDIL_NEXTSIZE=$NF}
+/struct ddidxlist/ {
+			if ( FIRST == 0 )
+			{
+				gsub(" ","",DDIL_COLNO)
+				print DDIL_NAME "|" DDIL_COLNO "|" DDIL_KEYLEN "|" DDIL_PGSIZE "|" DDIL_FLAGS "|" DDIL_FLAGS1 "|" DDIL_STATE "|" DDIL_COLLATION "|" DDIL_NUPDATES "|" DDIL_NDELETES "|" DDIL_NINSERTS "|" DDIL_FEXTSIZE "|" DDIL_NEXTSIZE
+				DDIL_COLNO=""
+			}
+			else
+				FIRST=0
+}
+END {
+	print DDIL_NAME "|" DDIL_COLNO "|" DDIL_KEYLEN "|" DDIL_PGSIZE "|" DDIL_FLAGS "|" DDIL_FLAGS1 "|" DDIL_STATE "|" DDIL_COLLATION "|" DDIL_NUPDATES "|" DDIL_NDELETES "|" DDIL_NINSERTS "|" DDIL_FEXTSIZE "|" DDIL_NEXTSIZE
+}' > $TMP_FILE_IDX
+
+					[ $IX_DEBUG_FILES ] && cat $TMP_FILE_IDX >&2
+				fi
+
+
+
+
+
+					$AWK -F'|' -v PARTNUM=$DDT_PARTNUM -v TMP_FILE_IDX=$TMP_FILE_IDX -v DDT_OWNER=$DDT_OWNER -v DDT_NAME=$DDT_NAME -v DDT_ROWSIZE=$DDT_ROWSIZE  '
+function bitval(bitset, bitmask)
+{
+	if (bitset < 0)
+	{
+		if (bitmask < 0)
+			return 1
+			bitset = bitset + 2147483648
+	}
+	if (bitset > 1073741824)
+		if (bitmask = 1073741824)
+			return 1
+	if ((bitset  % (2*bitmask)) >= bitmask)
+		return 1
+	return 0
+}
+
+function get_size_clause(COLTYPE, COLLENGTH)
+{
+	QUALIFIERS[0]="YEAR"
+	QUALIFIERS[2]="MONTH"
+	QUALIFIERS[4]="DAY"
+	QUALIFIERS[6]="HOUR"
+	QUALIFIERS[8]="MINUTE"
+	QUALIFIERS[10]="SECOND"
+	QUALIFIERS[11]="FRACTION(1)"
+	QUALIFIERS[12]="FRACTION(2)"
+	QUALIFIERS[13]="FRACTION(3)"
+	QUALIFIERS[14]="FRACTION(4)"
+	QUALIFIERS[15]="FRACTION(5)"
+
+	#--------------------------------- CHAR / NCHAR
+	if (COLTYPE == 0 || COLTYPE == 15)
+	{
+		return "("COLLENGTH")"
+	}
+
+	#--------------------------------- DECIMAL / MONEY
+	if (COLTYPE == 5 || COLTYPE == 8)
+	{
+		SCALE=(COLLENGTH % 256)
+		PRECISION=(COLLENGTH - SCALE) / 256
+		if ( SCALE == 255 )
+			return "("PRECISION")"
+		else
+			return "("PRECISION", "SCALE")"
+	}
+
+	#--------------------------------- DATETIME
+	if (COLTYPE == 10 )
+	{
+		REMAINDER=COLLENGTH % 256
+		NUMBER_DIGITS=(COLLENGTH - REMAINDER) / 256
+
+		AUX=REMAINDER
+		REMAINDER=AUX % 16
+		FIRST_QUALIFIER=(AUX - REMAINDER) / 16
+
+		LAST_QUALIFIER=REMAINDER
+
+		
+		return " "QUALIFIERS[FIRST_QUALIFIER]" TO "QUALIFIERS[LAST_QUALIFIER]
+		
+		
+	}
+
+	#--------------------------------- VARCHAR / NVARCHAR / LVARCHAR
+	if (COLTYPE == 13 || COLTYPE == 16 || COLTYPE == 40 )
+	{
+		if (COLLENGTH < 0 )
+		{
+			COLLENGTH=COLLENGTH+65536
+		}
+
+		MAX_SPACE=COLLENGTH % 256
+		MIN_SPACE=(COLLENGTH - MAX_SPACE) / 256
+	
+		if ( MIN_SPACE == 0 )
+			return "("MAX_SPACE")"
+		else
+			return "("MAX_SPACE", "MIN_SPACE")"
+	}
+}
+BEGIN {
+
+coltypes[0]="CHAR"
+coltypes[1]="SMALLINT"
+coltypes[2]="INTEGER"
+coltypes[3]="FLOAT"
+coltypes[4]="SMALLFLOAT"
+coltypes[5]="DECIMAL"
+coltypes[6]="SERIAL"
+coltypes[7]="DATE"
+coltypes[8]="MONEY"
+coltypes[9]="NULL"
+coltypes[10]="DATETIME"
+coltypes[11]="BYTE"
+coltypes[12]="TEXT"
+coltypes[13]="VARCHAR"
+coltypes[14]="INTERVAL"
+coltypes[15]="NCHAR"
+coltypes[16]="NVARCHAR"
+coltypes[17]="INT8"
+coltypes[18]="SERIAL8"
+coltypes[19]="SET"
+coltypes[20]="MULTISET"
+coltypes[21]="LIST"
+coltypes[22]="ROW (unnamed)"
+coltypes[23]="COLLECTION"
+coltypes[40]="LVARCHAR fixed-length opaque types 2"
+coltypes[41]="BLOB, BOOLEAN, CLOB variable-length opaque"
+coltypes[43]="LVARCHAR (client-side only)"
+coltypes[45]="BOOLEAN"
+coltypes[52]="BIGINT"
+coltypes[53]="BIGSERIAL"
+coltypes[2061]="IDSSECURITYLABEL 2, 3"
+coltypes[4118]="ROW (named)"
+FIRST=1
+COLINDEX=1
+}
+{
+	my_partnum=$1
+	my_colname=$2
+	my_coltype=$3
+	my_colflags=$4
+	my_collen=$5
+	
+	if ( $1 == PARTNUM )
+	{
+		COLUMNS[COLINDEX]=my_colname;
+		COLINDEX=COLINDEX+1
+		if ( bitval(my_coltype,256) == 1 )
+		{
+			NOT_NULL_CLAUSE=" NOT NULL"
+			my_coltype=my_coltype - 256
+		}
+		else
+		{
+			NOT_NULL_CLAUSE=""
+		}
+		if (my_coltype == 0 || my_coltype  == 5 || my_coltype == 7 || my_coltype == 8 || my_coltype == 10 || my_coltype == 13 || my_coltype == 15 || my_coltype == 16 || my_coltype == 40 )
+		{
+			SIZE_CLAUSE=get_size_clause(my_coltype, my_collen)
+			if (FIRST == 1 )
+			{
+				BODY=sprintf("	%-32s %s%s%s",my_colname,coltypes[my_coltype],SIZE_CLAUSE,NOT_NULL_CLAUSE)
+				FIRST=0
+			}
+			else
+				BODY=sprintf("%s,\n	%-32s %s%s%s",BODY, my_colname,coltypes[my_coltype],SIZE_CLAUSE,NOT_NULL_CLAUSE)
+				
+		}
+		else
+		{
+			if (FIRST == 1 )
+			{
+				BODY=sprintf("	%-32s %s%s", my_colname,coltypes[my_coltype],NOT_NULL_CLAUSE)
+				FIRST=0
+			}
+			else
+				BODY=sprintf("%s,\n	%-32s %s%s",my_colname,coltypes[my_coltype],NOT_NULL_CLAUSE)
+		}
+	}
+}
+END {
+	TOTAL_INDEX_SIZE=0
+	INDEXES_STMT=""
+	while (getline < TMP_FILE_IDX > 0)
+	{
+		COLUMNS_CLAUSE=""
+		DDIL_NAME=$1
+		gsub(" ", "", $2)
+		DDIL_COLNO=$2
+		DDIL_KEYLEN=$3
+		DDIL_PGSIZE=$4
+		DDIL_FLAGS=$5
+		DDIL_FLAGS1=67
+		DDIL_STATE=$7
+		DDIL_COLLATION=$8
+		DDIL_NUPDATES=$9
+		DDIL_NDELETES=$10
+		DDIL_NINSERTS=$11
+		DDIL_FEXTSIZE=$12
+		DDIL_NEXTSIZE=$13
+
+		TOTAL_INDEX_SIZE=TOTAL_INDEX_SIZE+DDIL_KEYLEN
+		if ( bitval(DDIL_FLAGS,8) == 1 )
+			UNIQUE_CLAUSE="UNIQUE "
+		else
+			UNIQUE_CLAUSE=""
+
+		split(DDIL_COLNO,AUX2,/\,/)
+		COLINDEX=1
+			
+		while (AUX2[COLINDEX] != 0)
+		{
+			if ( AUX2[COLINDEX] > 0 )
+				if (COLINDEX == 1 )
+					COLUMNS_CLAUSE=COLUMNS[AUX2[COLINDEX]]
+				else
+					COLUMNS_CLAUSE=COLUMNS_CLAUSE", "COLUMNS[AUX2[COLINDEX]]
+			else
+				if (COLINDEX == 1 )
+					COLUMNS_CLAUSE=COLUMNS[-1 * AUX2[COLINDEX] ]" DESC"
+				else
+					COLUMNS_CLAUSE=COLUMNS_CLAUSE", "COLUMNS[-1 * AUX2[COLINDEX] ]" DESC"
+			COLINDEX=COLINDEX+1
+		}
+
+		INDEXES_STMT=sprintf("%s\nCREATE %sINDEX %s ON %s (%s);", INDEXES_STMT, UNIQUE_CLAUSE, DDIL_NAME, DDT_NAME, COLUMNS_CLAUSE)
+	}
+
+	printf ("{ TABLE \042%s\042.\042%s\042 row size = %s number of columns = %s index size = %s }\n", DDT_OWNER, DDT_NAME, DDT_ROWSIZE, COLINDEX - 1, TOTAL_INDEX_SIZE)
+	printf ("CREATE TEMP TABLE \042%s\042.\042%s\042\n(\n",DDT_OWNER, DDT_NAME)
+	printf("%s\n);\n",BODY)
+	printf("%s\n\n\n", INDEXES_STMT)
+}' $TMP_FILE_TMPCOLS
+				fi
+
+			done
+		fi
+
+		PREV_SID=$SID
+	done < $TMP_FILE_SES
+}
+
+#-------------------------------------------------------------------------------------------------
+# travels the query iterator strucutre to find temp objects
+#-------------------------------------------------------------------------------------------------
+get_tmp_structs_from_iterators()
+{
+	IT=$1
+
+	if [ 	$ITERATOR_COUNT -gt $ITERATOR_LIMIT ]
+	then
+		printf "${PROGNAME} - Max iterators ($ITERATOR_LIMIT) reached\n. This probaly means the script has an error.\nIf you're sure it hasn't Use -I to increase (CAREFUL!!! THIS WILL PROBABLY CAUSE a FORK BOMB)" >&2
+		kill 0
+	fi
+	ITERATOR_COUNT=`expr $ITERATOR_COUNT + 1`
+
+	[ $IX_DEBUG_LOOPS ] && echo "Entering processing iterators with IT: $IT" >&2
+
+	# exits on empty (?!), 0x and ox000... arguments
+	echo $IT | egrep -e "(^$|^0x0*$)" >/dev/null
+	if [ $? = 0 ]
+	then
+		return
+	fi
+
+	[ $IX_DEBUG_STRUCTS ] && onstat -g dmp $IT iterator_t >&2
+	onstat -g dmp $IT iterator_t | egrep -e "( it_type  *= | it_input  *= | it_input2  *= )" | $AWK '
+/it_type / {IT_TYPE=$3}
+/it_input2 / {INPUT2=$3}
+/it_input / {INPUT1=$3}
+END {print IT_TYPE " " INPUT1 " " INPUT2}' | read IT_TYPE INPUT1 INPUT2
+
+
+	#---- HASH TABLES
+	if [ "$IT_TYPE" = "IT_HJOIN" ]
+	then
+		HASHJ=`onstat -g dmp $IT hjoin_t | egrep " hj_hash  *=" | $AWK '{print $3}'`
+		for HEAD in `onstat -g dmp $HASHJ hash_struct_t | egrep " head  *=" | $AWK '{print $3}'`
+		do
+			echo $HEAD"" | egrep -e "(^$|^0x00*$)" >/dev/null
+			if [ $? != 0 ]
+			then
+				for j in `onstat -g dmp $HEAD 'hash_partition_node_t,LL(next)' | egrep hp_u_rsam_partp | $AWK '{print $3}'`
+				do
+					onstat -g dmp $j rpartn_t | egrep pt_partnum | $AWK '{print "HASH "$3}'
+				done
+			fi
+		done
+        fi
+
+	if [ "$IT_TYPE" = "IT_GROUP" ]
+	then
+		GROUP_HASH=`onstat -g dmp $IT group_t | egrep " gr_hash_info  *=" | $AWK '{print $3}'`
+		for HEAD in `onstat -g dmp $GROUP_HASH hash_struct_t | egrep " head  *=" | $AWK '{print $3}'`
+		do
+			echo $HEAD"" | egrep "(^$|^0x00*$)" >/dev/null
+			if [ $? != 0 ]
+			then
+				for j in `onstat -g dmp $HEAD 'hash_partition_node_t,LL(next)' | egrep hp_u_rsam_partp | $AWK '{print $3}'`
+				do
+					onstat -g dmp $j rpartn_t | egrep pt_partnum | $AWK '{print "GROUP "$3}'
+				done
+			fi
+		done
+        fi
+
+	if [ "$IT_TYPE" = "IT_SCAN" ]
+	then
+		onstat -g dmp $IT scan_t | egrep -e "( sc_scanflags  *= | sc_scantab  *= )" | $AWK '
+function bitval(bitset, bitmask)
+{
+	if (bitset < 0)
+	{
+		if (bitmask < 0)
+			return 1
+		bitset = bitset + 2147483648
+	}
+	if (bitset > 1073741824)
+		if (bitmask = 1073741824)
+			return 1
+	if ((bitset  % (2*bitmask)) >= bitmask)
+		return 1
+	return 0
+}
+
+/ sc_scanflags / {SCANFLAGS=$NF}
+/ sc_scantab / {SCANTAB=$NF}
+END {
+	if (bitval(SCANFLAGS, 32) == 1 )
+	{
+		if ( bitval(SCANFLAGS,64) == 1)
+			print "VIEW "SCANTAB
+		else
+			print "OTHER "SCANTAB
+	}
+}' | while read TTYPE SCANTAB
+		do
+			echo $SCANTAB | egrep "^0x00*$" >/dev/null
+			if [ $? != 0 ]	
+			then
+				[ $IX_DEBUG_STRUCTS ] && onstat -g dmp $SCANTAB tab_t >&2
+				DDINFO=`onstat -g dmp $SCANTAB tab_t | egrep -e " td_ddinfo  *= " | $AWK '{print $3}'`
+				onstat -g dmp $DDINFO ddtab_t| egrep -e " ddt_partnum  *= " | $AWK -v TTYPE=$TTYPE '{print TTYPE " " $NF}'
+			fi
+		done
+	fi
+	
+
+
+	[ $IX_DEBUG_LOOPS ] && echo "INPUT1: $INPUT1 INPUT2: $INPUT2" >&2
+        echo $INPUT1 | egrep "(^$|^0x00*$)" >/dev/null
+        if [ $? != 0 ]
+        then
+                get_tmp_structs_from_iterators $INPUT1 &
+                wait
+        fi
+
+        echo $INPUT2 | egrep "(^$|^0x00*$)" >/dev/null
+        if [ $? != 0 ]
+        then
+                get_tmp_structs_from_iterators $INPUT2 &
+                wait
+        fi
+
+}
+
+#-------------------------------------------------------------------------------------------------
+# Clean up function
+#-------------------------------------------------------------------------------------------------
+cleanup()
+{
+	rm -f $TMPFILE_1 $TMP_FILE_DBS $TMP_FILE_SES $TMP_FILE_ERR $TMP_FILE_IDX $TMP_FILE_TMPCOLS $TMP_FILE_UNL
+}
+
+#-------------------------------------------------------------------------------------------------
+#script start
+#-------------------------------------------------------------------------------------------------
+
+[ $IX_DEBUG_ALL ] && set -x
+PROGNAME=`basename $0`
+VERSION=`echo "$Revision: 2.0.7 $" | cut -f2 -d' '`
+TMP_FILE_1=/tmp/${PROGNAME}_$$_1.tmp
+TMP_FILE_CBS=/tmp/${PROGNAME}_$$_cbs.tmp
+TMP_FILE_ERR=/tmp/${PROGNAME}_$$_err.tmp
+TMP_FILE_SES=/tmp/${PROGNAME}_$$_ses_unl.tmp
+TMP_FILE_IDX=/tmp/${PROGNAME}_$$_idx.tmp
+TMP_FILE_UNL=/tmp/${PROGNAME}_$$_unl.tmp
+TMP_FILE_TMPCOLS=/tmp/${PROGNAME}_$$_tmpcols.tmp
+SESSION_FILTER=" 1 = 1 "
+DATABASE_FILTER=" 1 = 1 "
+USER_FILTER=" 1 = 1 "
+DBSPACE_FILTER=" 1 = 1 "
+
+SO=`uname -s | tr "[:upper:]" "[:lower:]"`
+case $SO in
+sunos*)
+	HEX_PREFIX="0x"
+        AWK=nawk
+        ;;
+osf*)
+        AWK=nawk
+        ;;
+hp-ux)
+        AWK=gawk
+	which $AWK 2>/dev/null 1>&2
+	if [ $? != 0 ]
+	then
+		AWK=awk
+	fi
+        ;;
+aix)
+	HEX_PREFIX="0x"
+	AWK=awk
+	;;
+linux|*)
+        AWK=awk
+        ;;
+esac
+
+
+ITERATOR_COUNT=0
+REPORT_TYPE=OVERVIEW
+
+
+trap cleanup 0
+get_args $*
+if [ $? != 0 ]
+then
+	echo "${PROGNAME}: Error parsing parameters. Use -h to view the syntax help. Exiting!" >&2
+	exit
+fi
+
+if [ "X$ITERATOR_LIMIT_FLAG" != "X1" ]
+then
+	ITERATOR_LIMIT=100
+fi
+
+if [ "X$SESSION_FLAG" = "X1" ]
+then
+	SESSION_FILTER=" sysscblst.sid IN ( $SESSION_LIST ) "
+	REPORT_TYPE=SESSION_DETAIL
+fi
+
+if [ "X$DATABASE_FLAG" = "X1" ]
+then
+	DATABASE_FILTER=" sysopendb.odb_dbname IN ( $DATABASE_LIST ) "
+	#should "sysopendb.odb_iscurrent = 'Y'" be added?
+fi
+
+if [ "X$DBSPACE_FLAG" = "X1" ]
+then
+	DBSPACE_FILTER=" dbs.name IN ( $DBSPACE_LIST ) "
+fi
+
+if [ "X$USER_FLAG" = "X1" ]
+then
+	USER_FILTER=" sysscblst.username IN ( $USER_LIST ) "
+	REPORT_TYPE=SESSION_DETAIL
+fi
+
+#-------------------------------------------------------------------------------------
+# Validate parameter consistency
+# -t cannot be used with -d, -u nor -d and must be used with -s with a single session
+#-------------------------------------------------------------------------------------
+
+if [ "X$TMPTAB_FLAG" = "X1" ]
+then
+	echo $SESSION_LIST | egrep ',' >/dev/null
+	RES=$?
+	if [ "X$SESSION_FLAG" != "X1" -o $RES = 0 -o "X$DATABASE_FLAG" = "X1" -o "X$USER_FLAG" = "X1" -o "X$DBSPACE_FLAG" = "X1" ]
+	then
+		echo "${PROGNAME}: Syntax error - The -t option must be used solely with the -s option and a single session" >&2
+		exit 1
+	else
+		echo $TMPTAB | egrep -i "^all$" >/dev/null
+		if [ $? = 0 ]
+		then
+			TMPTAB=ALL
+		fi
+		get_session_list
+		if [ $? != 0 ]
+		then
+			printf "${PROGNAME}: There are no sessions to process\n"
+			exit 0
+		fi
+		display_tmp_tab_desc
+		exit 0
+	fi
+fi
+	
+
+#-------------------------------------------------------------------------------------
+# Reduce session range with user, session list and database list
+#-------------------------------------------------------------------------------------
+
+get_session_list
+
+if [ $? != 0 ]
+then
+	printf "${PROGNAME}: There are no sessions to process\n"
+	exit
+fi
+
+#-------------------------------------------------------------------------------------
+# Process each session and gather details
+#-------------------------------------------------------------------------------------
+
+[ $IX_DEBUG_FILES ] && cat $TMP_FILE_SES >&2
+cat /dev/null > $TMP_FILE_1
+PREV_SID=0
+while read SID SQSCB SCB SORT_POOL_NAME CURRCB
+do
+	[ $IX_DEBUG_LOOPS ] && echo "SID: $SID CURRCB: $CURRCB" >&2
+	#------------ Because we can have several lines for same SID (different mem pools)
+	if [ $SID != $PREV_SID ]
+	then
+		#--------- HASH tables (and hash tables for GROUP BY?)
+		cat /dev/null > $TMP_FILE_CBS
+		for SDBLOCK in `onstat -g stm $SID | egrep -v -e "^$" -e "^IBM" -e "^session" -e "^sdblock" | $AWK '{if ($3 ~ /^\*/ ) { print "0x"$1 } } '`
+		do
+		
+			[ $IX_DEBUG_LOOPS ] &&	echo SID: $SID SDBLOCK: $SDBLOCK >&2
+			SD_CBLIST=`onstat -g dmp $SDBLOCK sdblock  | egrep -e " sd_cblist  *= " | $AWK '{print $3}'`
+		
+			
+#DEU _temptable dups			onstat -g dmp $SD_CBLIST cblist_t,LL'(cbl_next)' | egrep -e " cbl_cb  *= " | $AWK '{ print $3 }' | sed 's/^0x0*/0x/g' >> $TMP_FILE_CBS
+			onstat -g dmp $SD_CBLIST cblist_t | egrep -e " cbl_cb  *= " | $AWK '{ print $3 }' | sed 's/^0x0*/0x/g' >> $TMP_FILE_CBS
+		done
+		echo $CURRCB | sed 's/0x0*/0x/g' >> $TMP_FILE_CBS
+			
+			
+		[ $IX_DEBUG_LOOPS ] && cat $TMP_FILE_CBS >&2
+		sort -u $TMP_FILE_CBS | egrep -v -e "0x0*$" | while read CB
+		do
+			[ $IX_DEBUG_STRUCTS ] && onstat -g dmp $CB conblock >&2 
+			onstat -g dmp $CB conblock | egrep -e "( cb_ithandle  *= | cb_tables  *= )" | $AWK '
+/cb_ithandle/ {ITHANDLE=$3}
+/cb_tables/ {CBTABLES=$3}
+END {print ITHANDLE " " CBTABLES}' | read ITROOT CBTABLES
+		
+			get_tmp_structs_from_iterators $ITROOT | while read HASH_TYPE PARTNUM
+			do
+				echo "$SID|$HASH_TYPE|$PARTNUM|||" >> $TMP_FILE_1
+			done
+		done
+
+		#--------- TEMP tables
+
+		onstat -g dmp $SQSCB sqscb_t | egrep -e " dicttab  *=" | read DUMMY EQUAL DICTTAB
+		echo $DICTTAB | egrep "^0x00*$" >/dev/null
+		if [ $? != 0 ]
+		then
+			onstat -g dmp $DICTTAB 'ddtabdesc,LL(ddt_next)' | egrep -e "( ddt_partnum  *= | ddt_frags  *= |struct )"| $AWK '
+/struct / { if ( DDT_PARTNUM != "" ) { print DDT_PARTNUM " " DDT_FRAGS} }
+/ddt_partnum/ {DDT_PARTNUM=$NF}
+/ddt_frags/ {DDT_FRAGS=$NF}
+END {print DDT_PARTNUM " " DDT_FRAGS}' | while read TMP_PARTNUM TMP_FRAGS
+			do
+				if [ "X$TMP_PARTNUM" = "X0" ]
+				then
+					FRAG_START=`onstat -g dmp $TMP_FRAGS ddlfraglist_t | egrep -e " lf_frag  *= " | $AWK '{print $3}'`
+					echo $FRAG_START | egrep "^0x00*$" >/dev/null
+					if [ $? != 0 ]
+					then
+						onstat -g dmp $FRAG_START 'ddlfrag_t,LL(lf_next)'| egrep -e " lf_fragid  *= " | $AWK -v SID=$SID '{print SID"|TEMP|"$NF"|||"}' >>$TMP_FILE_1
+					fi
+				else
+					printf $SID"|TEMP|"$TMP_PARTNUM"|||\n" >>$TMP_FILE_1
+				fi
+			
+			done
+		fi
+	fi
+
+	#--------- SORT tables
+
+	if [ "X$SORT_POOL_NAME" != "XNOSORT" ]
+	then
+		onstat -g afr $SORT_POOL_NAME | $AWK -v SID=$SID '{if ($3 == "sort" ) {print SID"|SORT|0|0x"$1"|"$2}}' >> $TMP_FILE_1
+	fi
+	PREV_SID=$SID
+done < $TMP_FILE_SES
+
+[ $IX_DEBUG_FILES ] && cat $TMP_FILE_1 >&2
+
+case $REPORT_TYPE in
+SESSION_DETAIL)
+	report_session_detail
+	break
+	;;
+OVERVIEW|*)
+	report_overview
+	break
+	;;
+esac
