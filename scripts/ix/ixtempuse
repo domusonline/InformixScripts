@@ -2,8 +2,8 @@
 # Copyright (c) 2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision: 2.0.7 $
-# $Date 2016-09-21 23:50:06$
+# $Revision: 2.0.8 $
+# $Date 2016-10-11 18:16:35$
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -26,7 +26,7 @@ ix_help()
 	echo "               -D <dbspace list>       : Show information for a dbspace or list of dbspaces (separated by commas - must be temp dbspaces)"
 	echo "               -I <max_iterators list> : The script can generate an infinite recursion if something goes wrong."
 	echo "                                         To prevent this there's a limit of 100 iterators that can be overriden with this parameter"
-	echo "                                         But be advices that in most cases if the limit is reached, it means the script as a flaw. "
+	echo "                                         But be adviced that in most cases if the limit is reached, it means the script as a flaw. "
 	echo "                                         Apart a script bug, this situation should only happen on very complex queries which are unlikely"
 	echo "                                         to appear frequently. Overriding the limit may cause a FORK BOMB!!!"
 	echo "Ex: ${PROGNAME} -s 43,35,4"
@@ -111,7 +111,7 @@ get_args()
 				return 1
 			fi
 			;;
-		I)   # set up the -L flag 
+		I)   # set up the -I flag 
 			ITERATOR_LIMIT_FLAG=1
 			ITERATOR_LIMIT=$OPTARG
 			echo ${ITERATOR_LIMIT} | egrep "[1-9][0-9]*" 1>/dev/null 2>/dev/null
@@ -134,6 +134,13 @@ get_args()
 #-------------------------------------------------------------------------------------------------
 report_session_detail()
 {
+	if [ $VER -lt 1000 ]
+	then
+		PAGE_SIZE_CLAUSE="( SELECT sh_pagesize FROM sysshmvals )"
+	else
+		PAGE_SIZE_CLAUSE="dbs.pagesize"
+		
+	fi
 	dbaccess -e sysmaster <<!EOF 2>$TMP_FILE_ERR 1>&2
 
 	CREATE TEMP TABLE ixtempuse
@@ -143,7 +150,7 @@ report_session_detail()
 		partnum INTEGER,
 		pool_address INT8,
 		pool_size INT
-	) WITH NO LOG;
+	) $LOG_CLAUSE ;
 
 	LOAD FROM $TMP_FILE_1 INSERT INTO ixtempuse;
 
@@ -180,7 +187,7 @@ report_session_detail()
 		LOWER(HEX(t1.partnum)) frag_partnum_hex,
 		pt.lockid lockid,
 		LOWER(HEX(pt.lockid)) tab_partnum_hex,
-		dbs.pagesize
+		$PAGE_SIZE_CLAUSE
 	FROM
 	        systabnames t1, systabnames t2, sysptnhdr pt, ixtempuse  tmp, sysscblst scbl, sysdbstab dbs
 	WHERE
@@ -369,6 +376,20 @@ END {
 #-------------------------------------------------------------------------------------------------
 report_overview()
 {
+	if [ $VER -lt 1000 ]
+	then
+		PAGE_SIZE_CLAUSE_1=" ( SELECT sh_pagesize FROM sysshmvals ) "
+
+		PAGE_SIZE_CLAUSE_2="TRUNC((SELECT SUM(t1.obj_npages * t2.sh_pagesize) FROM ixtempuse_work t1, sysshmvals t2 where t1.sid = ixtempuse_work.sid AND t1.dbsnum = ixtempuse_work.dbsnum ) / 1048576, 2) sum_mb_per_dbs, "
+
+		PAGE_SIZE_CLAUSE_3=" TRUNC((SELECT SUM(t1.obj_npages * (SELECT d.sh_pagesize FROM sysshmvals d )) FROM ixtempuse_work t1 where t1.sid = ixtempuse_work.sid ) / 1048576, 2) sum_mb_per_sid "
+
+	else
+		PAGE_SIZE_CLAUSE_1=" dbs1.pagesize "
+		PAGE_SIZE_CLAUSE_2="TRUNC((SELECT SUM(t1.obj_npages * t2.pagesize) FROM ixtempuse_work t1, sysdbstab t2 where t1.sid = ixtempuse_work.sid AND t1.dbsnum = ixtempuse_work.dbsnum AND t1.dbsnum = t2.dbsnum) / 1048576, 2) sum_mb_per_dbs, "
+		PAGE_SIZE_CLAUSE_3=" TRUNC((SELECT SUM(t1.obj_npages * (SELECT d.pagesize FROM sysdbstab d WHERE d.dbsnum = t1.dbsnum)) FROM ixtempuse_work t1 where t1.sid = ixtempuse_work.sid ) / 1048576, 2) sum_mb_per_sid "
+	fi
+
 	SET_EXPLAIN_CLAUSE=""
 	[ $IX_DEBUG_DB ] && SET_EXPLAIN_CLAUSE="SET EXPLAIN ON;"
 
@@ -384,7 +405,7 @@ report_overview()
 		partnum INTEGER,
 		pool_address INT8,
 		pool_size INT
-	) WITH NO LOG;
+	) $LOG_CLAUSE ;
 
 	LOAD FROM $TMP_FILE_1 INSERT INTO ixtempuse;
 
@@ -403,7 +424,7 @@ report_overview()
 		obj_type                   CHAR,
 		obj_count                  INTEGER,
 		obj_npages                 INT8
-	) WITH NO LOG;
+	) $LOG_CLAUSE ;
 
 	
 	INSERT INTO ixtempuse_work ( sid, username, hostname, pid, conn_time, dbsnum, dbsname, obj_type, obj_count, obj_npages)
@@ -458,15 +479,16 @@ report_overview()
 
 	SELECT
 		ixtempuse_work.*,
-		TRUNC((ixtempuse_work.obj_npages * dbs1.pagesize) / 1048576,2) mb_per_dbs_obj,
-		TRUNC((SELECT SUM(t1.obj_npages * t2.pagesize) FROM ixtempuse_work t1, sysdbstab t2 where t1.sid = ixtempuse_work.sid AND t1.dbsnum = ixtempuse_work.dbsnum AND t1.dbsnum = t2.dbsnum) / 1048576, 2) sum_mb_per_dbs,
-		 TRUNC((SELECT SUM(t1.obj_npages * (SELECT d.pagesize FROM sysdbstab d WHERE d.dbsnum = t1.dbsnum)) FROM ixtempuse_work t1 where t1.sid = ixtempuse_work.sid ) / 1048576, 2) sum_mb_per_sid
+		TRUNC((ixtempuse_work.obj_npages * $PAGE_SIZE_CLAUSE_1 ) / 1048576,2) mb_per_dbs_obj,
+		$PAGE_SIZE_CLAUSE_2 
+		$PAGE_SIZE_CLAUSE_3 
+
 	FROM 
 		ixtempuse_work, sysdbstab dbs1
 	WHERE
 		dbs1.dbsnum = ixtempuse_work.dbsnum
 	INTO
-		TEMP ixtempuse_work2 WITH NO LOG;
+		TEMP ixtempuse_work2 $LOG_CLAUSE ;
 
 
 	UNLOAD TO $TMP_FILE_UNL
@@ -639,7 +661,8 @@ FROM
 	sysopendb, sysscblst, OUTER syspoollst, OUTER syssdblock
 WHERE
 	syssdblock.sdb_sessionid = sysscblst.sid AND
-	sysscblst.sid = po_sid AND
+--	sysscblst.sid = po_sid AND
+	$SYSPOOLLST_CLAUSE
 	sysopendb.odb_sessionid = sysscblst.sid AND
 	sysopendb.odb_iscurrent = 'Y' AND
 	syspoollst.po_name LIKE '%SORT%' AND
@@ -697,6 +720,9 @@ display_tmp_tab_desc()
 			onstat -g dmp $DICTTAB 'ddtabdesc,LL(ddt_next)' | egrep -e "$TABDESC_RELEVANT_INFO" | $AWK '
 BEGIN {
 	FIRST=1
+	# To avoid that the lack of field causes shift in resutl:
+	DDT_FLAGS3="EMPTY"
+	DDT_PGSIZE=-1
 }
 / fn_owner / { FN_OWNER = $NF;gsub("\042","",FN_OWNER) }
 / fn_name / { FN_NAME = $NF;gsub("\042","",FN_NAME) }
@@ -735,6 +761,7 @@ END {
 	print FN_OWNER " " FN_NAME " " DDT_PARTNUM " " DDT_FLAGS " " DDT_FLAGS2 " " DDT_FLAGS3 " " DDT_NCOLS " " DDT_ROWSIZE " " DDT_MAXROWSIZE " " DDT_NINDEXES " " DDT_NALLIDXS " " DDT_NROWS " " DDT_NPUSED " " DDT_PGSIZE " " DDT_COLS " " DDT_INDEXES " " DDT_TRIG " " DDT_UNIQ " " DDT_REF " " DDT_CHECK " " DDT_NEXT " " DDT_DISTRIB " " DDT_FRAGS " " DDT_NUMDIDX " " DDT_DIDXLIST " " DDT_CREATETIME " " DDT_LASTUPDTIME
 }' | 			while read DDT_OWNER DDT_NAME DDT_PARTNUM DDT_FLAGS DDT_FLAGS2 DDT_FLAGS3 DDT_NCOLS DDT_ROWSIZE DDT_MAXROWSIZE DDT_NINDEXES DDT_NALLIDXS DDT_NROWS DDT_NPUSED DDT_PGSIZE DDT_COLS DDT_INDEXES DDT_TRIG DDT_UNIQ DDT_REF DDT_CHECK DDT_NEXT DDT_DISTRIB DDT_FRAGS DDT_NUMDIDX DDT_DIDXLIST DDT_CREATETIME DDT_LASTUPDTIME
 			do
+				[ $IX_DEBUG_LOOPS ] && echo "Proc table: $DDT_OWNER.$DDT_NAME ($DDT_PARTNUM) DDT_COLS: $DDT_COLS"
 
 				if [ "X$TMPTAB" != "XALL" -a "X$TMPTAB" != "X$DDT_NAME" ]
 				then
@@ -745,6 +772,7 @@ END {
 				echo $DDT_COLS | egrep "^0x00*$" >/dev/null
 				if [ $? != 0 ]
 				then
+					[ $IX_DEBUG_STRUCTS ] && onstat -g dmp $DDT_COLS 'ddcol_t,LL(ddc_next)' >&2
 					onstat -g dmp $DDT_COLS 'ddcol_t,LL(ddc_next)'| egrep -e "$COLDESC_RELEVANT_INFO"| $AWK -v PARTNUM=$DDT_PARTNUM '
 BEGIN {
 	FIRST=1
@@ -1178,9 +1206,11 @@ cleanup()
 #script start
 #-------------------------------------------------------------------------------------------------
 
+
 [ $IX_DEBUG_ALL ] && set -x
+
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision: 2.0.7 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.8 $" | cut -f2 -d' '`
 TMP_FILE_1=/tmp/${PROGNAME}_$$_1.tmp
 TMP_FILE_CBS=/tmp/${PROGNAME}_$$_cbs.tmp
 TMP_FILE_ERR=/tmp/${PROGNAME}_$$_err.tmp
@@ -1218,6 +1248,47 @@ linux|*)
         AWK=awk
         ;;
 esac
+
+onstat -g dmp 0x1 dummy | egrep -e "Informix Dynamic |Must be.* to run this program" | $AWK '
+BEGIN {
+	DBSA=0
+}
+/Informix Dynamic/ { split($0, a, "Version"); split(a[2],b,".");VER=b[1]b[2] }
+/Must be/ { DBSA=1}
+END {
+	print VER " " DBSA
+}' | read VER DBSA
+
+
+if [ "X$DBSA" = "X1" ]
+then
+	echo "This script requires the execution of 'onstat -g dmp 0xNNNNNNNN... '. Must be a DBSA to run it" >&2
+	exit 1
+else
+	if [ $VER -lt 1150 ]
+	then
+		SYSPOOLLST_CLAUSE=" \
+sysscblst.sid || '' =  SUBSTR(po_name, 1, (SELECT \
+\
+CASE \
+        WHEN po_name[2] = '_' THEN 1 \
+        WHEN po_name[3] = '_' THEN 2 \
+        WHEN po_name[4] = '_' THEN 3 \
+        WHEN po_name[5] = '_' THEN 4 \
+        WHEN po_name[6] = '_' THEN 5 \
+        WHEN po_name[7] = '_' THEN 6 \
+        WHEN po_name[8] = '_' THEN 6 \
+        WHEN po_name[9] = '_' THEN 8 \
+        WHEN po_name[10] = '_' THEN 9 \
+        ELSE \
+                -1 \
+END \
+FROM systables WHERE tabid = 1)) AND "
+	else
+		SYSPOOLLST_CLAUSE=" sysscblst.sid = po_sid AND "
+	fi
+fi
+
 
 
 ITERATOR_COUNT=0
@@ -1259,6 +1330,8 @@ then
 	USER_FILTER=" sysscblst.username IN ( $USER_LIST ) "
 	REPORT_TYPE=SESSION_DETAIL
 fi
+
+LOG_CLAUSE=" WITH NO LOG "
 
 #-------------------------------------------------------------------------------------
 # Validate parameter consistency
@@ -1348,10 +1421,12 @@ END {print ITHANDLE " " CBTABLES}' | read ITROOT CBTABLES
 
 		#--------- TEMP tables
 
+		[ $IX_DEBUG_STRUCTS ] && onstat -g dmp $SQSCB sqscb_t >&2 
 		onstat -g dmp $SQSCB sqscb_t | egrep -e " dicttab  *=" | read DUMMY EQUAL DICTTAB
 		echo $DICTTAB | egrep "^0x00*$" >/dev/null
 		if [ $? != 0 ]
 		then
+			[ $IX_DEBUG_STRUCTS ] && onstat -g dmp $DICTTAB 'ddtabdesc,LL(ddt_next)' >&2 
 			onstat -g dmp $DICTTAB 'ddtabdesc,LL(ddt_next)' | egrep -e "( ddt_partnum  *= | ddt_frags  *= |struct )"| $AWK '
 /struct / { if ( DDT_PARTNUM != "" ) { print DDT_PARTNUM " " DDT_FRAGS} }
 /ddt_partnum/ {DDT_PARTNUM=$NF}
