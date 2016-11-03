@@ -2,8 +2,8 @@
 # Copyright (c) 2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision: 2.0.8 $
-# $Date 2016-10-11 18:16:35$
+# $Revision: 2.0.9 $
+# $Date 2016-11-03 18:58:24$
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -148,7 +148,7 @@ report_session_detail()
 		sid INTEGER,
 		type CHAR(10),
 		partnum INTEGER,
-		pool_address INT8,
+		pool_address DECIMAL(32,9),
 		pool_size INT
 	) $LOG_CLAUSE ;
 
@@ -207,7 +207,7 @@ report_session_detail()
 			(
 				tmp.partnum = 0 AND 
 				(t1.dbsname = 'SORTTEMP' AND
-				NVL(REPLACE(t1.tabname,'th_tmprun_','$HEX_PREFIX')::INT8,0) BETWEEN tmp.pool_address AND (tmp.pool_address + tmp.pool_size))
+				NVL(REPLACE(t1.tabname,'th_tmprun_','$HEX_PREFIX')::DECIMAL(32,0),0) BETWEEN tmp.pool_address AND (tmp.pool_address + tmp.pool_size))
 			)
 		)
 		AND sysmaster:partdbsnum(pt.partnum) = dbs.dbsnum
@@ -343,6 +343,11 @@ BEGIN {
 				printf("    Total space for object of type %s in this dbspace: %s\n",PREV_OBJ_TYPE,OBJECTS_DBS[PREV_OBJ_TYPE] / 1048576);
 				OBJECTS_DBS[my_obj_type]=my_nptotal * my_dbs_pagesize
 				OBJECTS_SID[my_obj_type]=OBJECTS_SID[my_obj_type] + (my_nptotal * my_dbs_pagesize)
+				printf("    %s: %-80s (%s/%s) %sMB\n",my_obj_type, my_tabname,my_tab_partnum,my_tab_partnum_hex,(my_nptotal * my_dbs_pagesize) / 1048576);
+				if ( my_frag_partnum != my_tab_partnum)
+				{
+					printf("      %-80s (%s/%s)%s MB\n",my_fragname,my_frag_partnum,my_frag_partnum_hex,(my_nptotal * my_dbs_pagesize) / 1048576);
+				}
 				PREV_OBJ_TYPE=my_obj_type
 			}
 			else
@@ -403,7 +408,7 @@ report_overview()
 		sid INTEGER,
 		type CHAR(10),
 		partnum INTEGER,
-		pool_address INT8,
+		pool_address DECIMAL(32,0),
 		pool_size INT
 	) $LOG_CLAUSE ;
 
@@ -417,13 +422,13 @@ report_overview()
 		sid                        INTEGER,
 		username                   CHAR(32),
 		hostname                   CHAR(32),
-		pid                        INT8,
+		pid                        DECIMAL(16,0),
 		conn_time                  DATETIME YEAR TO SECOND,
 		dbsnum                     INTEGER,
 		dbsname                    CHAR(128),
 		obj_type                   CHAR,
 		obj_count                  INTEGER,
-		obj_npages                 INT8
+		obj_npages                 DECIMAL(16,0)
 	) $LOG_CLAUSE ;
 
 	
@@ -470,7 +475,7 @@ report_overview()
 			(
 				tmp.partnum = 0 AND 
 				(t1.dbsname = 'SORTTEMP' AND
-				NVL(REPLACE(t1.tabname,'th_tmprun_','$HEX_PREFIX')::INT8,0) BETWEEN tmp.pool_address AND (tmp.pool_address + tmp.pool_size))
+				NVL(REPLACE(t1.tabname,'th_tmprun_','$HEX_PREFIX')::DECIMAL(32,0),0) BETWEEN tmp.pool_address AND (tmp.pool_address + tmp.pool_size))
 			)
 		)
 		AND sysmaster:partdbsnum(pt.partnum) = dbs.dbsnum
@@ -1004,7 +1009,7 @@ COLINDEX=1
 				FIRST=0
 			}
 			else
-				BODY=sprintf("%s,\n	%-32s %s%s",my_colname,coltypes[my_coltype],NOT_NULL_CLAUSE)
+				BODY=sprintf("%s,\n	%-32s %s%s", BODY, my_colname,coltypes[my_coltype],NOT_NULL_CLAUSE)
 		}
 	}
 }
@@ -1199,7 +1204,7 @@ END {
 #-------------------------------------------------------------------------------------------------
 cleanup()
 {
-	rm -f $TMPFILE_1 $TMP_FILE_DBS $TMP_FILE_SES $TMP_FILE_ERR $TMP_FILE_IDX $TMP_FILE_TMPCOLS $TMP_FILE_UNL
+	rm -f $TMP_FILE_1 $TMP_FILE_CBS $TMP_FILE_SES $TMP_FILE_ERR $TMP_FILE_IDX $TMP_FILE_TMPCOLS $TMP_FILE_UNL
 }
 
 #-------------------------------------------------------------------------------------------------
@@ -1210,7 +1215,7 @@ cleanup()
 [ $IX_DEBUG_ALL ] && set -x
 
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision: 2.0.8 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.9 $" | cut -f2 -d' '`
 TMP_FILE_1=/tmp/${PROGNAME}_$$_1.tmp
 TMP_FILE_CBS=/tmp/${PROGNAME}_$$_cbs.tmp
 TMP_FILE_ERR=/tmp/${PROGNAME}_$$_err.tmp
@@ -1239,6 +1244,7 @@ hp-ux)
 	then
 		AWK=awk
 	fi
+	HEX_PREFIX="0x"
         ;;
 aix)
 	HEX_PREFIX="0x"
@@ -1391,7 +1397,7 @@ do
 	then
 		#--------- HASH tables (and hash tables for GROUP BY?)
 		cat /dev/null > $TMP_FILE_CBS
-		for SDBLOCK in `onstat -g stm $SID | egrep -v -e "^$" -e "^IBM" -e "^session" -e "^sdblock" | $AWK '{if ($3 ~ /^\*/ ) { print "0x"$1 } } '`
+		for SDBLOCK in `onstat -g stm $SID | egrep -v -e "^$" -e "^IBM" -e "^session" -e "^sdblock" | $AWK '{if ( ($1 ~ /^[0-9a-f][0-9a-f]*/ ) && ( $2 ~ /^[0-9][0-9]*/ ) && ($3 ~ /^\*/ ) ) { print "0x"$1 } } '`
 		do
 		
 			[ $IX_DEBUG_LOOPS ] &&	echo SID: $SID SDBLOCK: $SDBLOCK >&2
@@ -1453,7 +1459,20 @@ END {print DDT_PARTNUM " " DDT_FRAGS}' | while read TMP_PARTNUM TMP_FRAGS
 
 	if [ "X$SORT_POOL_NAME" != "XNOSORT" ]
 	then
-		onstat -g afr $SORT_POOL_NAME | $AWK -v SID=$SID '{if ($3 == "sort" ) {print SID"|SORT|0|0x"$1"|"$2}}' >> $TMP_FILE_1
+#		onstat -g afr $SORT_POOL_NAME | $AWK -v SID=$SID '{if ($3 == "sort" ) {print SID"|SORT|0|0x"$1"|"$2}}' >> $TMP_FILE_1
+#		LOAD cannot process HEX numbers > 15 digits
+		onstat -g afr $SORT_POOL_NAME | $AWK -v SID=$SID '{if ($3 == "sort" ) {
+if (length($1) > 15 )
+{
+	CMD="echo \"ibase=16;"toupper($1)"\" | bc";
+	CMD | getline ADDR
+}
+else
+{
+	ADDR=$1
+}
+print SID"|SORT|0|0x"ADDR"|"$2}}' >> $TMP_FILE_1
+
 	fi
 	PREV_SID=$SID
 done < $TMP_FILE_SES
