@@ -2,8 +2,8 @@
 # Copyright (c) 2006-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision 2.0.1 $
-# $Date 2016-02-22 02:38:48$
+# $Revision: 2.0.11 $
+# $Date 2016-11-28 03:16:17$
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -134,7 +134,7 @@ EOF
 		dbaccess sysmaster $TEMP_SQL_FILE 2>${TEMP_SQL_ERROR} 1>/dev/null
 		if [ $? != 0 ]
 		then
-			printf "Error calling dbaccess. Exiting..." >&2
+			printf "Error calling dbaccess (use admin API). Exiting..." >&2
 			cat ${TEMP_SQL_ERROR}
 			exit 2
 		fi
@@ -165,7 +165,7 @@ EOF
 		dbaccess sysmaster ${TEMP_SQL_FILE} 2>${TEMP_SQL_ERROR} 1>/dev/null
 		if [ $? != 0 ]
 		then
-			printf "Error calling dbaccess. Exiting..." >&2
+			printf "Error calling dbaccess (use admin API). Exiting..." >&2
 			cat ${TEMP_SQL_ERROR}
 			exit 2
 		fi
@@ -179,19 +179,44 @@ EOF
 #--------------------------------------------------------------------------
 # gets the desired info using onstat commands. This is the default and
 # requires local database execution. This is faster than SQL Admin API
+# This needed changes due to the fact that "onstat -g opn" output changed
+# in V12
 #--------------------------------------------------------------------------
 use_onstat()
 {
 
-	onstat -g opn | ${AWK} -v "partnum=${TABLE_HEX}" -v "ocount_flag=${OCOUNT_FLAG}" 'BEGIN {arr_size=split(partnum,arr_partnum," ")}
+	onstat -g opn | ${AWK} -v "partnum=${TABLE_HEX}" -v "ocount_flag=${OCOUNT_FLAG}" 'BEGIN {RE_SUFFIX="";PART_IDX=6;OCOUNT_IDX=8;arr_size=split(partnum,arr_partnum," ")}
 {
+
+	if ( $0 ~ /^rstcb/ )
+	{
+		PART_IDX=4
+		OCOUNT_IDX=6
+		RSTCB=$2
+		for(f=1;f<=arr_size;f++)
+			gsub(/^0x0*/, "",arr_partnum[f])
+		RE_SUFFIX="$"
+	}
+
 	for (f=1;f<=arr_size;f++)
 		if ( ocount_flag == 0 )
-			if ($6 ~ arr_partnum[f])
-				{print $2}
+		{
+			if ($PART_IDX ~ arr_partnum[f]RE_SUFFIX)
+				if ( PART_IDX == 6 )
+					print $2
+				else
+					print RSTCB
+		}
 		else
-			if ($6 ~ arr_partnum[f] && $8 > 0 )
-				{print $2}
+		{
+			if ($PART_IDX ~ arr_partnum[f]RE_SUFFIX && $OCOUNT_IDX > 0 )
+			{
+				if ( PART_IDX == 6 )
+					print $2
+				else
+					print RSTCB
+			}
+		}
 
 } ' | sort -u | sed 's/0x0*//g' > ${TEMP_FILE}
 
@@ -250,7 +275,7 @@ clean_up()
 	RC=$?
 	if [ "X${TEMP_FILE_1}" != "X" -a ${RC} = 0 -a "X${MODE}" = "Xonstat" ]
 	then
-		rm -f ${TEMP_FILE_1}.*
+		rm -f ${TEMP_FILE_1}*
 	fi
 }
 
@@ -308,7 +333,7 @@ TEMP_FILE_1=/tmp/${PROGNAME}_tmp_1.$$
 TEMP_SQL_ERROR=/tmp/${PROGNAME}_sqlerr.$$
 TEMP_SQL_FILE=/tmp/${PROGNAME}_$$.sql
 trap clean_up 0
-VERSION=`echo "$Revision 2.0.1 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.11 $" | cut -f2 -d' '`
 
 
 OCOUNT_FLAG=0
@@ -375,20 +400,21 @@ do
 		DBNAME=`echo ${TABLE} | cut -f1 -d':'`
 		TABNAME=`echo ${TABLE} | cut -f2 -d':'`
 	
-		TABLE_HEX=`dbaccess sysmaster <<EOF 2>${TEMP_SQL_ERROR} | ${AWK} 'BEGIN {myflag=1} /^0x.*/ { if (myflag==1) { myflag=0;printf "%s",$0} else {printf " %s",$0 }} END {printf "\n"}'
+		dbaccess $DBNAME <<EOF 2>${TEMP_SQL_ERROR}
+	SET ISOLATION TO DIRTY READ;
+	UNLOAD TO $TEMP_FILE DELIMITER ' '
 	SELECT lower(hex(partnum))
-	FROM systabnames
-	WHERE dbsname = "$DBNAME"
-	AND tabname = "$TABNAME";
+	FROM systables
+	WHERE tabname = "$TABNAME";
 EOF
-`
+
 		if [ $? != 0 ]
 		then
-			printf "Error calling dbaccess. Exiting..." >&2
+			printf "Error calling dbaccess (FROM systables... TABNAME=$TABNAME). Exiting..." >&2
 			cat ${TEMP_SQL_ERROR}
 			exit 2
 		fi
-	
+		TABLE_HEX=`${AWK} 'BEGIN {myflag=1} /^0x.*/ { if (myflag==1) { myflag=0;printf "%s",$0} else {printf " %s",$0 }} END {printf "\n"}' $TEMP_FILE`
 	else
 		TABLE=`echo ${TABLE} | tr "[:upper:]" "[:lower:]"`
 		echo ${TABLE} | ${GREP} "^(0x)*[a-f0-9]*$" >/dev/null
@@ -398,7 +424,7 @@ EOF
 			echo "PARTNUM has invalid characters" >&2
 			exit 1
 		else
-			echo ${TABLE} | grep "[a-f]" > /dev/null
+			echo ${TABLE} | egrep "(^0x|[a-f])" > /dev/null
 			if [ $? = 0 ]
 			then
 				echo ${TABLE} | grep "^0x" >/dev/null
@@ -448,15 +474,15 @@ EOF
 				fi
 			fi
 		fi
-		TABLE=`dbaccess sysmaster <<EOF 2>${TEMP_SQL_ERROR} | grep "OUT"  | ${AWK} '{print $3}'
+		TABLE=`dbaccess sysmaster <<!EOF 2>${TEMP_SQL_ERROR} | grep "OUT"  | ${AWK} '{print $3}'
 		SELECT "OUT "|| TRIM(dbsname) || ":" || TRIM(tabname)
 		FROM systabnames
 		WHERE partnum = "$TABLE_HEX";
-EOF
+!EOF
 `
 		if [ $? != 0 ]
 		then
-			printf "Error calling dbaccess. Exiting..." >&2
+			printf "Error calling dbaccess (FROM systabnames... PARTNUM=$TABLE_HEX ). Exiting..." >&2
 			cat ${TEMP_SQL_ERROR}
 			exit 2
 		fi
