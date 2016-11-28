@@ -1,0 +1,246 @@
+#!/bin/sh
+# Copyright (c) 2002-2016 Fernando Nunes - domusonline@gmail.com
+# License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
+# $Author: Fernando Nunes - domusonline@gmail.com $
+# $Revision: 2.0.10 $
+# $Date 2016-11-28 03:03:26$
+# Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
+#             Although the author is/was an IBM employee, this software was created outside his job engagements.
+#             As such, all credits are due to the author.
+# Description: Shows through which listener the select connections were established
+
+ix_help()
+{
+	echo "${PROGNAME}: -V | -h | { -a | [ -l <login[,login]> ] | [session [ sessions...]] } "
+	echo "               -V shows script version"
+	echo "               -h shows this help"
+	echo "               -a shows all the sessions"
+	echo "               -l <login>[,login] filters sessions from the specified login"
+	echo "               session [ sessions...] session(s) number(s)"
+	echo "Ex: ${PROGNAME} 23345"
+}
+
+clean_up_function()
+{
+	rm -f ${TMP_SESSION_LIST} ${TMP_FILE_1} ${TMP_FILE_2} ${TMP_FILE_DBACCESS}
+}
+get_args()
+{
+	arg_ok="Vhal:"
+	while getopts ${arg_ok} OPTION
+	do
+		case ${OPTION} in
+		h)   # show help
+			ix_help
+			exit 0
+			;;
+		V)      #show version
+			echo "${PROGNAME} ${VERSION}" >&1
+			exit 0
+                        ;;
+		a)   # set up the -a (all sessions flag)
+			if [ "X${LOGIN_FLAG}" != "X" ]
+			then
+				printf "${PROGNAME}: Syntax error - Option -l cannot be used with -a\n" >&2
+				return 1
+			else
+				ALL_SESSIONS_FLAG=1
+                        fi
+                        ;;
+		l)   # set up the -l login
+			if [ "X${ALL_SESSIONS_FLAG}" != "X" ]
+			then
+				printf "${PROGNAME}: Syntax error - Option -a cannot be used with -l\n" >&2
+				return 1
+			else 
+				LOGIN_FLAG=1
+				LOGIN_LIST=$OPTARG
+				echo ${LOGIN_LIST} | egrep "^[a-zA-Z][a-zA-Z0-9\-_]*(,[a-zA-Z][a-zA-Z0-9\-_])*" 1>/dev/null 2>/dev/null
+				RES=$?
+				if [ "X${RES}" != "X0" ]
+				then
+					echo "${PROGNAME}: Syntax error - Login list must be valid logins separated by commas" >&2
+					return 1
+				fi
+			fi
+			;;
+		?)      # Error in the parsing of getopts
+			return 1
+			;;
+		esac
+	done
+	if [ ${NUM_ARGUMENTS} -ge ${OPTIND} ]
+	then
+		shift `expr $OPTIND - 1`
+		if [ "X${ALL_SESSIONS_FLAG}" != "X" -o "X${LOGIN_FLAG}" != "X" ]
+		then
+			printf "${PROGNAME}: Syntax error - Options -a and -l cannot be used with list of session\n" >&2
+			return 1
+		else 
+			for OPTION in $*
+			do
+				echo $OPTION | grep "^[0-9][0-9]*$" 1>/dev/null 2>/dev/null
+				RES=$?
+				if [ ${RES} != 0 ]
+				then
+					echo "${PROGNAME}: Syntax error - Invalid parameter for session number" >&2
+					return 1
+				else
+					echo $1
+					shift
+					continue
+				fi
+			done > $TMP_SESSION_LIST
+			SESSION_LIST_OK=1
+		fi
+	fi
+}
+
+#INIT
+
+PROGNAME=`basename $0`
+VERSION=`echo "$Revision: 2.0.10 $" | cut -f2 -d' '`
+TMP_FILE_1=/tmp/$PROGNAME_$$_1
+TMP_FILE_2=/tmp/$PROGNAME_$$_2
+TMP_SESSION_LIST=/tmp/$PROGNAME_$$_seslst
+TMP_FILE_DBACCESS=/tmp/${PROGNAME}_dbacces_$$
+
+
+NUM_ARGUMENTS=$#
+get_args $*
+if [ $? != 0 ]
+then
+	ix_help >&2
+	exit 1
+fi
+
+
+
+SO=`uname -s | tr "[:upper:]" "[:lower:]"`
+case $SO in
+sunos*)
+	AWK=nawk
+	PS_CMD="ps -o \"time,comm\""
+	;;
+osf*)
+	PS_CMD="ps -o \"time,cmd\""
+	AWK=nawk
+	;;
+hp-ux)
+	PS_CMD="export UNIX_STD=2003;ps -o \"time,comm\""
+	AWK=gawk
+	;;
+linux|*)
+	PS_CMD="ps -o \"time,cmd\""
+	AWK=gawk
+	;;
+esac
+
+#fallback to an existing awk
+
+type ${AWK} 2>/dev/null 1>/dev/null
+RES=$?
+if [ ${RES} != 0 ]
+then
+	AWK=awk
+fi
+
+DBSA=`onstat -g dmp 0x1 dummy | egrep -e "Informix Dynamic |Must be.* to run this program" | $AWK '
+BEGIN {
+	DBSA=0
+}
+/Must be/ { DBSA=1}
+END {
+	print  DBSA
+}'`
+
+if [ "X$DBSA" = "X1" ]
+then
+        echo "This script requires the execution of 'onstat -g dmp 0xNNNNNNNN... '. Must be a DBSA to run it" >&2
+        exit 1
+fi
+
+trap clean_up_function 0
+
+if [ "X${ALL_SESSIONS_FLAG}" = "X1" ]
+then
+	onstat -u | ${AWK} '{if ( $2 ~ /.*([DF]$|active)/ ) {next} else { print $3}}' | grep '^[0-9]' > $TMP_SESSION_LIST
+	SESSION_LIST_OK=1
+fi
+
+if [ "X${LOGIN_FLAG}" = "X1" ]
+then
+	onstat -u | ${AWK} -v LOGIN_LIST="${LOGIN_LIST}" 'BEGIN {
+NUM_LOGINS=split(LOGIN_LIST,LOGIN_ARRAY,",");
+}
+{
+	if ( $2 ~ /.*([DF]$|active)/ )
+		next;
+	else
+		for (a=1;a<=NUM_LOGINS;a++)
+			if ( $4 == LOGIN_ARRAY[a] )
+			{
+				print $3;
+				next;
+			}
+}' > $TMP_SESSION_LIST
+	SESSION_LIST_OK=1
+fi
+
+if [ "X${SESSION_LIST_OK}" = "X" ]
+then
+	echo "${PROGNAME}: Error - No sessions to process" >&2
+	exit 1
+
+fi
+
+
+onstat -g ntt | egrep "(soctcplst)" | $AWK '{split($NF,aux,"|");print "0x"$1 " " aux[1] " " aux[2]}' | while read NETSCB HOST SERVICE
+do
+	ADDR=`onstat -g dmp $NETSCB netscb_t | grep server_tladdr | $AWK '{print $NF}'`
+	echo $NETSCB $HOST $SERVICE $ADDR
+done > $TMP_FILE_1
+
+
+onstat -g ntt | egrep "(drdaexec|srvinfx|sqlexec)" | while read NETSCB DUMMY SID DUMMY1
+do
+	grep "^$SID\$" $TMP_SESSION_LIST >/dev/null
+	if [ $? = 0 ]
+	then
+		SERVER_TLADDR=`onstat -g dmp 0x$NETSCB netscb_t | grep server_tladdr | $AWK '{print $NF}'`
+		echo $SID $SERVER_TLADDR
+	fi
+done > $TMP_FILE_2
+
+dbaccess sysmaster <<EOF 2>$TMP_FILE_DBACCESS
+CREATE TEMP TABLE sessions
+(
+	sid INT8,
+	addr CHAR(20)
+) WITH NO LOG;
+CREATE TEMP TABLE listeners
+(
+	netscb CHAR(20),
+	host CHAR(20),
+	service CHAR(20),
+	addr CHAR(20)
+) WITH NO LOG;
+
+LOAD FROM $TMP_FILE_1 DELIMITER ' ' INSERT INTO listeners;
+LOAD FROM $TMP_FILE_2 DELIMITER ' ' INSERT INTO sessions;
+
+SELECT
+	s.sid Session, NVL(l.host || ' '|| l.service,"Shared Memory") Listener
+FROM
+	sessions s, OUTER listeners l
+WHERE
+	s.addr = l.addr;
+
+EOF
+
+if [ $? != 0 ]
+then
+	printf "Error running dbaccess:\n" >&2
+	cat $TMP_FILE_DBACCESS
+	exit 1
+fi
