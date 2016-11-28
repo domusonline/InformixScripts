@@ -2,8 +2,8 @@
 # Copyright (c) 2004-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision 2.0.1 $
-# $Date 2016-02-22 02:38:48$
+# $Revision: 2.0.12 $
+# $Date 2016-11-28 03:35:02$
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -11,41 +11,40 @@
 usage()
 {
 	echo "$PROGNAME Usage:" >&2
-	echo "$PROGNAME <existing INFORMIXDIR> <new virt INFORMIXDIR> <version> [ {DBSA GROUP} {AAO_GROUP} {DBSSO_GROUP} ]" >&2
-	echo "          <version> is 7, 9 10, 11, 11.5, 11.7 or 12.10" >&2
+	echo "$PROGNAME <existing INFORMIXDIR> <new virt INFORMIXDIR> [ {DBSA GROUP} {AAO_GROUP} {DBSSO_GROUP} ]" >&2
 }
 
 
 
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision 2.0.1 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.12 $" | cut -f2 -d' '`
 
 case $# in
-3)
+2)
 	EXISTING_IXDIR=$1
 	NEW_IXDIR=$2
-	IX_VERSION=$3
+#	IX_VERSION=$3
 	GROUPS_FLAG=0
 	;;
-6)
+5)
 	EXISTING_IXDIR=$1
 	NEW_IXDIR=$2
-	IX_VERSION=$3
-	DBSA_GROUP=$4
+#	IX_VERSION=$3
+	DBSA_GROUP=$3
 	grep "^${DBSA_GROUP}:" /etc/group 1>/dev/null 2>/dev/null
 	if [ $? != 0 ]
 	then
 		echo "The group given for DBSA ( ${DBSA_GROUP} ) does not exist in /etc/group" >&2
 		exit 1
 	fi
-	AAO_GROUP=$5
+	AAO_GROUP=$4
 	grep "^${AAO_GROUP}:" /etc/group 1>/dev/null 2>/dev/null
 	if [ $? != 0 ]
 	then
 		echo "The group given for AAO ( ${AAO_GROUP} ) does not exist in /etc/group" >&2
 		exit 1
 	fi
-	DBSSO_GROUP=$6
+	DBSSO_GROUP=$5
 	grep "^${DBSSO_GROUP}:" /etc/group 1>/dev/null 2>/dev/null
 	if [ $? != 0 ]
 	then
@@ -59,43 +58,6 @@ case $# in
 	exit 1
 esac
 
-OPTIONAL_DIRS="dummy"
-case $IX_VERSION in
-7)
-	IX_SUB_DIRS="aaodir bin dbssodir demo etc forms gls help incl ism lib msg release snmp"
-	IX_DIRS="bin demo forms gls help incl ism lib msg release snmp"
-	;;
-9)
-	IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp"
-	IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp"
-	;;
-10|11)
-	IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp ids_license tmp"
-	IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp ids_license"
-	;;
-11.5)
-	IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp ids_license gskit gsk ssl tmp"
-	IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp ids_license gskit gsk"
-	OPTIONAL_DIRS=snmp
-	;;
-11.7)
-	IX_SUB_DIRS="SDK aaodir bin dbssodir demo doc etc extend forms gls gskit help incl isa lib license msg properties release ssl tmp uninstall jdbc"
-	IX_DIRS="SDK bin demo doc extend forms gls gskit help incl isa lib license msg properties release ism jdbc"
-	OPTIONAL_DIRS="jdbc ism"
-	#ism as optional?
-	;;
-12.1)
-        IX_SUB_DIRS="SDK aaodir bin dbssodir demo doc etc extend gls gskit help incl isa lib license msg properties release snmp ssl tmp uninstall jdbc"
-        IX_DIRS="SDK bin demo doc extend gls gskit help incl isa lib license msg properties release snmp jdbc"
-        OPTIONAL_DIRS="snmp jdbc"
-        #ism as optional?
-        ;;
-*)
-	echo "Version can only be 7, 9, 10, 11, 11.5, 11.7 or 12.1" >&2
-	usage
-	exit 1
-	;;
-esac
 SO=`uname -s | tr "[:upper:]" "[:lower:]"`
 case $SO in
 sunos*)
@@ -107,6 +69,54 @@ sunos*)
 esac
 
 export AWK
+
+IX_VERSION=`$EXISTING_IXDIR/bin/onstat -V | egrep -e "Informix Dynamic " | $AWK '
+BEGIN {
+        DBSA=0
+}
+/Informix Dynamic/ { split($0, a, "Version"); split(a[2],b,".");VER=b[1]"."b[2] }
+END {
+        print VER 
+}' | $AWK '{print $1}'`
+
+
+OPTIONAL_DIRS="dummy"
+case $IX_VERSION in
+7*)
+	IX_SUB_DIRS="aaodir bin dbssodir demo etc forms gls help incl ism lib msg release snmp"
+	IX_DIRS="bin demo forms gls help incl ism lib msg release snmp"
+	;;
+9*)
+	IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp"
+	IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp"
+	;;
+10.00|11.10)
+	IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp ids_license tmp"
+	IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp ids_license"
+	;;
+11.50)
+	IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp ids_license gskit gsk ssl tmp"
+	IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp ids_license gskit gsk"
+	OPTIONAL_DIRS=snmp
+	;;
+11.70)
+	IX_SUB_DIRS="SDK aaodir bin dbssodir demo doc etc extend forms gls gskit help incl isa lib license msg properties release ssl tmp uninstall jdbc"
+	IX_DIRS="SDK bin demo doc extend forms gls gskit help incl isa lib license msg properties release ism jdbc"
+	OPTIONAL_DIRS="jdbc ism"
+	#ism as optional?
+	;;
+12.10)
+        IX_SUB_DIRS="SDK aaodir bin dbssodir demo doc etc extend gls gskit help incl isa lib license msg properties release snmp ssl tmp uninstall jdbc"
+        IX_DIRS="SDK bin demo doc extend gls gskit help incl isa lib license msg properties release snmp jdbc"
+        OPTIONAL_DIRS="snmp jdbc"
+        #ism as optional?
+        ;;
+*)
+	echo "Version can only be 7, 9, 10, 11, 11.5, 11.7 or 12.1. Found:$IX_VERSION" >&2
+	usage
+	exit 1
+	;;
+esac
 GROUP_MEMBERSHIP=`groups | ${AWK} '{for (a=1;a<=NF;a++) {printf("%s|",$a)} printf ("\n");}'`
 
 MY_USER=`id | ${AWK} -F"[()]" ' { print $2 } '`
@@ -229,14 +239,14 @@ case ${GROUPS_FLAG} in
 		chown informix:${DBSA_GROUP} $NEW_IXDIR/etc
 		chown informix:${AAO_GROUP} $NEW_IXDIR/aaodir
 
-		#Should ssl and tmp belong to group informix or DBSA_GROUP?
+		#Should ssl and tmp belong to group informix or DBSA_GROUP? 
 		if [ -d $NEW_IXDIR/ssl ]
 		then
 			chown informix:${DBSA_GROUP} $NEW_IXDIR/ssl
 		fi
 		if [ -d $NEW_IXDIR/tmp ]
 		then
-			chown informix:${DBSA_GROUP} $NEW_IXDIR/tmp
+			chown informix:informix $NEW_IXDIR/tmp
 		fi
 	else
 		#If WARN_FLAG = 1 then we are informix and we don't belong to all the groups
@@ -252,7 +262,7 @@ case ${GROUPS_FLAG} in
 		fi
 		if [ -d $NEW_IXDIR/tmp ]
 		then
-			echo chown informix:${DBSA_GROUP} $NEW_IXDIR/tmp
+			echo chown informix:informix $NEW_IXDIR/tmp
 		fi
 	fi
 	;;
@@ -264,7 +274,7 @@ case ${GROUPS_FLAG} in
 		chown informix:informix $NEW_IXDIR/aaodir
 		if [ -d $NEW_IXDIR/ssl ]
 		then
-			chown informix:informix $NEW_IXDIR/ssl
+			chown informix:${DBSA_GROUP} $NEW_IXDIR/ssl
 		fi
 		if [ -d $NEW_IXDIR/tmp ]
 		then
