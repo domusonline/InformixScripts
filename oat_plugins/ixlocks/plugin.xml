@@ -1,11 +1,11 @@
-<!-- $Id$ -->
+<!-- $Revision: 2.0.16 $ -->
 <oat_plugin>
     <plugin_info>
         <plugin_name>Lock Monitoring Plugin-In</plugin_name> 
         <plugin_author>Fernando Nunes</plugin_author>
         <plugin_desc>This plugins enables the DBA to easily monitor locks in the instance</plugin_desc>  
-        <plugin_version>2.0.4</plugin_version>
-        <plugin_buildtime>8/23/2016 21:51pm</plugin_buildtime>
+        <plugin_version>2.0.5</plugin_version>
+        <plugin_buildtime>8/21/2017 21:00pm</plugin_buildtime>
         <plugin_server_version>11.10</plugin_server_version> 
         <plugin_upgrade_url>none</plugin_upgrade_url> 
         <!--  <plugin_license>{LICENSE FILE}</plugin_license> -->

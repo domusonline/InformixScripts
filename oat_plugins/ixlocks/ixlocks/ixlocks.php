@@ -1,11 +1,11 @@
 <?php
 /*
  **************************************************************************
- * Copyright (c) 2016 Fernando Nunes - domusonline@gmail.com
+ * Copyright (c) 2017 Fernando Nunes - domusonline@gmail.com
  * License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
  * $Author: Fernando Nunes - domusonline@gmail.com$
- * $Revision: 2.0.4 $
- * $Date 2016-08-23 23:46:30$
+ * $Revision: 2.0.16 $
+ * $Date 2017-08-21 23:11:51$
  * Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
  *             Although the author is/was an IBM employee, this software was created outside his job engagements.
  *             As such, all credits are due to the author.
@@ -360,7 +360,7 @@ class ixlocks {
 		* Other queries may scan the syslocks view which can take a very long time to run
 		*/
 
-		$qry =  "SELECT " .
+		$qry =  "SELECT {+ ORDERED } " .
 			"l.indx out_lock_id, " .
 			"f.txt[1,4] out_lock_type, " .
 			"l.rowidr out_rowidr, " .
@@ -379,7 +379,7 @@ class ixlocks {
 			"h2.hostname out_wait_hostname, " .
 			"h2.pid out_wait_pid " .
 			"FROM " .
-			"sysrstcb t, syslcktab l, sysrstcb t2,  systxptab c, systabnames a, systcblst g, sysscblst h, sysscblst h2, flags_text f " .
+			"sysrstcb t, sysscblst h2, systcblst g, syslcktab l, systxptab c, sysrstcb t2, sysscblst h, flags_text f, systabnames a " .
 			"WHERE " .
 			"t.lkwait = l.address AND " .
 			"l.owner = c.address AND " .
