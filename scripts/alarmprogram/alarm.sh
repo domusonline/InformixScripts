@@ -1,14 +1,19 @@
-#!/bin/sh
-# Copyright (c) 2001-2016 Fernando Nunes - domusonline@gmail.com
+#!/bin/ksh
+# Copyright (c) 2001-2017 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision 2.0.1 $
-# $Date 2016-02-22 02:38:48$
+# $Revision: 2.0.18 $
+# $Date 2017-08-22 00:07:46$
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
+# !!!!!!!!!!!!! WARNING !!!!!!!!!!!!! 
+# This script is intended to work with /bin/sh (standard bourne sh). But some /bin/sh (solaris) don't implement
+# SIGERR. /bin/ksh does. Check the caveats below...
+# Name: $RCSfile: alarm.sh,v $
+#
 # Based on ideas from David Ranney and lots of stuff from 10.00.xC6 alarmprogram.sh
-# To use: chmod 555 alarm.sh and configure the alarm_conf.sh
+# To use: chmod 755 alarm.sh alarm_conf.sh and configure the alarm_conf.sh
 # caveats:
 #	With some alarms (lock table overflow) you can get thousands of
 # executions of this script. This can generate two undesirable effects:
@@ -21,12 +26,13 @@
 # want this (if you need to debug it) you can turn this off. See below
 # at the top of the script.
 # To Run:
-#        alarm.sh severity class-id class-msg specific-msg see-also
+#        alarm.sh severity class-id class-msg specific-msg see-also event-uniqueid
 #        -   severity: Category of event
 #        -   class-id: Class identifier
 #        -   class-msg: string containing text of message
 #        -   specific-msg: string containing specific information
 #        -   see-also: path to a see-also file
+#        -   uniqid: Specific ID for the event
 
 
 #If having repeated alarms (locks on v7...) you can reach max proc per user
@@ -37,12 +43,20 @@ jump_out()
 }
 
 #comment this line if you don't want the script to exit on any error or
-#give the variable IFMX_ALARM_DEBUG the value 1 to get DEBUG messages
+# NOTE: some SHELLs may not implement signal ERR. Check the alarm.err file for possible errors
 trap jump_out ERR
+
+IFMX_ALARM_BASE_DIR=`dirname $0`
+
+#redirect stout for stderr. Script should be silent. Also redirect stderr for a file
+IFMX_ALARM_DEFAULT_ERR_FILE=${IFMX_ALARM_BASE_DIR}/alarm_${INFORMIXSERVER}_$(date -u +'%Y-%m').err
+exec 1>&2
+exec 2>>${IFMX_ALARM_DEFAULT_ERR_FILE}
+
+#give the variable IFMX_ALARM_DEBUG the value 1 to get DEBUG messages
 IFMX_ALARM_DEBUG=0
 
-
-VERSION=`echo "$Revision 2.0.1 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.18 $" | cut -f2 -d' '`
 
 #Max number of seconds to wait for the execution of a previous alarm for the same event
 IFMX_ALARM_MAX_LOOP=5
@@ -63,10 +77,10 @@ send_sms()
 		echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` ERROR: PID=$$ CLASS_ID=${CLASS_ID} Tried to call SEND SMS ( ${AUX} ) program but it doesn't exist or is not executable..." >&2
 		return
 	fi
-	MSG_SMS="${INFORMIXSERVER}@${HOST}: ${CLASS_MSG} ${SPECIFIC_MSG} -- ${DATE_VAR}"
+	MSG_SMS="${INFORMIXSERVER}@${HOST}: ${CLASS_MSG}[${EVENT_UNIQID}] ${SPECIFIC_MSG} -- ${DATE_VAR}"
 	for PHONE in ${IFMX_ALARM_NUM_SMS}
 	do
-		${IFMX_ALARM_SENDSMS} ${PHONE} ${MSG_SMS}
+		${IFMX_ALARM_SENDSMS} ${PHONE} ${MSG_SMS} | cat
 	done
 }
 
@@ -97,7 +111,7 @@ send_syslog()
 	esac
 
 
-	logger -p ${IFMX_ALARM_SYSLOG_FACILITY}.${IFMX_ALARM_SYSLOG_PRIORITY} "${IFMX_ALARM_IX_COMPONENT}#${IFMX_ALARM_IX_SUBCOMPONENT}#${SEVERITY}#${CLASS_ID}##informix#${INFORMIXSERVER}#${CLASS_MSG}#${SPECIFIC_MSG}"
+	logger -p ${IFMX_ALARM_SYSLOG_FACILITY}.${IFMX_ALARM_SYSLOG_PRIORITY} "${IFMX_ALARM_IX_COMPONENT}#${IFMX_ALARM_IX_SUBCOMPONENT}#${SEVERITY}#${CLASS_ID}#${EVENT_UNIQID}##informix#${INFORMIXSERVER}#${CLASS_MSG}#${SPECIFIC_MSG}"
 
 }
 
@@ -120,7 +134,7 @@ FROM: ${IFMX_ALARM_HEADER_FROM}
 TO: ${IFMX_ALARM_HEADER_TO}
 CC: ${IFMX_ALARM_HEADER_CC}
 SUBJECT: Instance: ${INFORMIXSERVER} : Host: ${HOST} ${SEV_MSG}
- 
+
 This is an automatic generated mail created by the alarm.sh script
 of the Informix instance ${INFORMIXSERVER} at host ${HOST}
 ------------------------------------------------------------------
@@ -134,7 +148,9 @@ Class msg: ${CLASS_MSG}
 
 Specific msg: ${SPECIFIC_MSG}
 
- 
+Event Uniq ID: ${EVENT_UNIQID}
+
+
 Aditional information:
 ${SEE_ALSO}
 
@@ -153,10 +169,6 @@ clean_up()
 }
 
 
-IFMX_ALARM_BASE_DIR=`dirname $0`
-#redirect stout for stderr. Script should be silent. Also redirect stderr for a file
-exec 1>&2
-exec 2>>${IFMX_ALARM_BASE_DIR}/alarm.err
 
 if [ "X${IFMX_ALARM_DEBUG}" != "X0" ]
 then
@@ -169,8 +181,8 @@ TMPFILE=/tmp/__TMPFILE_$$
 
 if [ $# -lt 4 ]
 then
-   echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` requires at least 4 arguments." >&2
-   exit 1
+	echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` requires at least 4 arguments." >&2
+	exit 1
 fi
 
 # Get the arguments passed by IDS alarm subsystem
@@ -179,12 +191,12 @@ CLASS_ID=$2
 CLASS_MSG=$3
 SPECIFIC_MSG=$4
 SEE_ALSO=$5
+EVENT_UNIQID=$6
 
 # Init other useful variables
 DATE_VAR=`date`
 TIMESTAMP=`date +"%Y%j%H%M%S"`
 HOST=`hostname`
-
 
 
 #implement critical session
@@ -219,25 +231,39 @@ if [ -x ${ALARM_CONF} ]
 then
 	. ${ALARM_CONF}
 else
-	ALARM_CONF=`dirname ${INFORMIXSQLHOSTS}`/alarm_conf.sh
+	if [ "X${INFORMIXSQLHOSTS}" != "X" ]
+	then
+		ALARM_CONF=`dirname ${INFORMIXSQLHOSTS}`/alarm_conf.sh
+		if [ ! -x ${ALARM_CONF} ]
+		then
+			ALARM_CONF=${INFORMIXDIR}/etc/alarm_conf.sh
+		fi
+	else
+		ALARM_CONF=${INFORMIXDIR}/etc/alarm_conf.sh
+	fi
+
 	if [ -x ${ALARM_CONF} ]
 	then
 		. ${ALARM_CONF}
 	else
-		ALARM_CONF=${INFORMIXDIR}/etc/alarm_conf.sh
-		if [ -x ${ALARM_CONF} ]
-		then
-			. ${ALARM_CONF}
-		else
-			echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` ERROR: PID=$$ CLASS_ID=${CLASS_ID} Alarm program could not find alarm_conf.sh" >&2
-			exit 4
-		fi
+		echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` ERROR: PID=$$ CLASS_ID=${CLASS_ID} Alarm program could not find alarm_conf.sh" >&2
+		exit 4
 	fi
 fi
 
 if [ "X${IFMX_ALARM_DEBUG}" != "X0" ]
 then
 	echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` DEBUG: PID=$$ CLASS_ID=${CLASS_ID} Loaded config file..." >&2
+fi
+
+if [ "X${IFMX_ALARM_ERR_FILE}" != "X" ]
+then
+	exec 2>>${IFMX_ALARM_ERR_FILE}
+fi
+
+if [ "X${IFMX_LOG_FREE_THRESHOLD}" = "X" ]
+then
+	IFMX_LOG_FREE_THRESHOLD=50
 fi
 
 #check for event repetition
@@ -282,7 +308,7 @@ case $RC in
 
 		MINUTES_TO_ADD=`expr ${TSTAMP_INTERVAL} / 60  | cat`
 		SECONDS_TO_ADD=`expr ${TSTAMP_INTERVAL} - ${MINUTES_TO_ADD} \* 60 | cat`
-		
+
 		AUX=`expr ${SECONDS_TO_ADD} + ${TSTAMP_SEC} | cat`
 		if [ ${AUX} -gt 59 ]
 		then
@@ -299,7 +325,7 @@ case $RC in
 		fi
 		NEW_TSTAMP=`expr ${LAST_EVENT_TSTAMP} + ${HOURS_TO_ADD} + ${MINUTES_TO_ADD}00 + ${SECONDS_TO_ADD}`
 
-		
+
 		if [ ${NEW_TSTAMP} -gt ${TIMESTAMP} ]
 		then
 			echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} `basename $0` ERROR: PID=$$ exiting due to TSTAMP_INTERVAL for event ${CLASS_ID}" >&2
@@ -364,7 +390,7 @@ case ${SEVERITY} in
 	*) SEV_MSG="Event level: UNKNOWN - ${SEVERITY} - ";
 	;;
 esac
- 
+
 if [ "X${IFMX_ALARM_DEBUG}" != "X0" ]
 then
 	echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` DEBUG: PID=$$ CLASS_ID=${CLASS_ID} Starting case for class_id..." >&2
@@ -557,11 +583,26 @@ where tx_longtx != 0
 	23)
 		#Severity 2
 		CLASS_TEXT="Logical Log Complete"
+
 		if [ "X${IFMX_BAR_LOG_BACKUP}" = "X1" ]
 		then
-			rc=0;$INFORMIXDIR/bin/onbar -b -l || rc=$?
-			CLASS_TEXT="${class_text}: Return code de onbar -b -l: ${rc}"
+			rc=0;
+			if [ "X${IFMX_BAR_LOG_COMMAND}" != "X" ]
+			then
+				$IFMX_BAR_LOG_COMMAND || rc=$?
+			else
+				$INFORMIXDIR/bin/onbar -b -l || rc=$?
+			fi
+			if [ ${rc} != 0 ]
+			then
+				SEVERITY=4
+				SPECIFIC_MSG="Logical log backup failed return code: ${rc}"
+			else
+				SPECIFIC_MSG="Logical log backup return code: ${rc}"
+			fi
+		
 		fi
+
 		# Now check if the logs are near to fill up
 		NUMLOGUB=`$ONSTATCMD -l | grep U-B | wc -l`
 		NUMLOGF=`$ONSTATCMD -l | grep F- | wc -l`
@@ -570,14 +611,15 @@ where tx_longtx != 0
 		NUMLOG=`expr $NUMLOGU + $NUMLOGA + $NUMLOGF | cat`
 		PERC=`expr  \( 100 \*  \( $NUMLOGUB + $NUMLOGF + $NUMLOGA \) \) / $NUMLOG | cat`
 
-		if [ $PERC -lt 10 ]
-		then
-			IFMX_ALARM_CLASS_MAIL="${IFMX_ALARM_CLASS_MAIL} 23"
-			IFMX_ALARM_CLASS_SMS="${IFMX_ALARM_CLASS_SMS} 23"
-			IFMX_ALARM_CLASS_SYSLOG="${IFMX_ALARM_CLASS_SYSLOG} 23"
-			PERC=`expr 100 - $PERC`
+		#PERC=Usable logs
+
+		if ( `test  $PERC -le $IFMX_LOG_FREE_THRESHOLD` ) then
+			PERC_USED=`expr 100 - $PERC`
+			SEVERITY=4
+			SPECIFIC_MSG="${SPECIFIC_MSG}. Logical logs may be full ($PERC_USED) !!!"
+			IFMX_ALARM_SYSLOG_PRIORITY=err
 			printf "\n-------------------------------------\n\n" >> $MAILBODY
-			printf "WARNING : MORE THAN 90 PERCENT (%s percent) OF THE LOGICAL LOGS ARE FULL\n" $PERC >> $MAILBODY
+			printf "WARNING : PERCENTAGE OF LOGS FREE (%s) IS LESS THAN THE DEFINED THRESHOLD (%s)\n" $PERC $IFMX_LOG_FREE_THRESHOLD >> $MAILBODY
 			printf "          A LOGICAL LOG BACKUP IS NEEDED. SEE INFO BELOW\n" >> $MAILBODY
 			$ONSTATCMD -l | grep -v Blocked: | grep -v Block: | tail ${TAIL_OPTION}4 >> $MAILBODY
 		fi
@@ -639,45 +681,96 @@ where dbsnum = $DBSNUM;
 		CLASS_TEXT="Internal Subsystem: $CLASS_MSG"
 		;;
 	40)
-		CLASS_TEXT="Checkpoint Completed"
+		CLASS_TEXT="RSS alarm"
 		;;
-		
-	#this are custom classes to be used by another IX* script (ixproclogs)
+	44)
+		CLASS_TEXT="Dbspace is full"
+		SEVERITY=4
+		;;
+	45)
+		CLASS_TEXT="Number of extents exceeded"
+		;;
+	#these are custom classes to be used by other IX* scripts (ixproclogs) and/or sysadmin tasks
 	#If this numbers are ever used by IBM this must be changed...
 	900)
-		#custom class for events generated by ixproclog
 		CLASS_TEXT="Checkpoint completed"
 		;;
 	901)
-		#custom class for events generated by ixproclog
 		CLASS_TEXT="Connection problem"
 		;;
 	902)
-		#custom class for events generated by ixproclog
 		CLASS_TEXT="Archive Started"
 		;;
 	903)
-		#custom class for events generated by ixproclog
 		CLASS_TEXT="Operating status change"
 		;;
 	904)
-		#custom class for events generated by ixproclog
 		CLASS_TEXT="Runtime error"
+		;;
+	905)
+		CLASS_TEXT="Dynamically allocated new memory segment"
+		;;
+	906)
+		CLASS_TEXT="Archive Problem"
+		;;
+	907)
+		CLASS_TEXT="DR server"
+		;;
+	908)
+		CLASS_TEXT="Dbspace Usage"
+		;;
+	909)
+		CLASS_TEXT="Session Status"
+		;;
+	910)
+		CLASS_TEXT="Object state"
+		;;
+	911)
+		CLASS_TEXT="Session memory"
+		;;
+	912)
+		CLASS_TEXT="Number of extents"
+		;;
+	913)
+		CLASS_TEXT="Alert to central"
+		;;
+	914)
+		CLASS_TEXT="Number of cores"
+		;;
+	915)
+		CLASS_TEXT="Logical Logs usage"
+		;;
+	916)
+		CLASS_TEXT="Pages limit"
+		;;
+	917)
+		CLASS_TEXT="Replication log diff"
+		;;
+	918)
+		CLASS_TEXT="Checkpoint duration"
+		;;
+	919)
+		CLASS_TEXT="Too many sessions"
+		;;
+	920)
+		CLASS_TEXT="RSS acknowledging"
 		;;
 	*)
 		CLASS_TEXT="Unknow event ID. Maybe due to v10+ and ALRM_ALL_EVENTS 1 in ONCONFIG file?"
 		;;
 esac
- 
+
 if [ "X${IFMX_ALARM_DEBUG}" != "X0" ]
 then
 	echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` DEBUG: PID=$$ CLASS_ID=${CLASS_ID} Ended case for class_id..." >&2
 fi
-FLAG_SEND_MAIL=`echo ${IFMX_ALARM_CLASS_MAIL} | egrep -c "(${CLASS_ID} |${CLASS_ID}$)" | cat`
+FLAG_SEND_MAIL=`echo ${IFMX_ALARM_CLASS_MAIL} | egrep -c -e "(^${CLASS_ID} |^${CLASS_ID}$| ${CLASS_ID} | ${CLASS_ID}$)" | cat`
 
-FLAG_SEND_SMS=`echo ${IFMX_ALARM_CLASS_SMS} | egrep -c "(${CLASS_ID} |${CLASS_ID}$)" | cat`
+FLAG_SEND_SMS=`echo ${IFMX_ALARM_CLASS_SMS} | egrep -c -e "(^${CLASS_ID} |^${CLASS_ID}$| ${CLASS_ID} | ${CLASS_ID}$)" | cat`
 
-FLAG_SEND_SYSLOG=`echo ${IFMX_ALARM_CLASS_SYSLOG} | egrep -c "(${CLASS_ID} |${CLASS_ID}$)" | cat`
+FLAG_SEND_SYSLOG=`echo ${IFMX_ALARM_CLASS_SYSLOG} | egrep -c -e "(^${CLASS_ID} |^${CLASS_ID}$| ${CLASS_ID} | ${CLASS_ID}$)" | cat`
+
+FLAG_SEND_MONITORING=`echo ${IFMX_ALARM_CLASS_MONITORING} | egrep -c -e "(^${CLASS_ID} |^${CLASS_ID}$| ${CLASS_ID} | ${CLASS_ID}$)" | cat`
 
 
 #send sms/paging event
@@ -689,7 +782,7 @@ then
 	then
 		echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` DEBUG: PID=$$ CLASS_ID=${CLASS_ID} Will call send_sms..." >&2
 	fi
-	send_sms
+	send_sms | cat
 fi
 
 #send message to syslog
@@ -701,7 +794,7 @@ then
 	then
 		echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` DEBUG: PID=$$ CLASS_ID=${CLASS_ID} Will call send_syslog..." >&2
 	fi
-	send_syslog
+	send_syslog | cat
 fi
 
 # Send email to those who may be interested
@@ -711,6 +804,15 @@ then
 	then
 		echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` DEBUG: PID=$$ CLASS_ID=${CLASS_ID} Will call send_mail..." >&2
 	fi
-	send_mail
+	send_mail | cat
 fi
- 
+
+# Send event to monitoring system if conditions match
+if [ ${SEVERITY} -ge ${IFMX_ALARM_SEV_MONITORING} -o ${FLAG_SEND_MONITORING} -eq 1 ]
+then
+	if [ "X${IFMX_ALARM_DEBUG}" != "X0" ]
+	then
+		echo "`date +'%Y-%m-%d %H:%M:%S'`: ${INFORMIXSERVER} : `basename $0` DEBUG: PID=$$ CLASS_ID=${CLASS_ID} Will call send_monitoring..." >&2
+	fi
+	send_monitoring | cat
+fi
