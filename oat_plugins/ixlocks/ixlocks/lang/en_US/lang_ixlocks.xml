@@ -4,8 +4,8 @@
 <!-- Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk. -->
 <!--             Although the author is/was an IBM employee, this software was created outside his job engagements. -->
 <!--             As such, all credits are due to the author. -->
-<!-- $Revision 2.0.1 $ -->
-<!-- $Date 2016-02-22 02:38:48$
+<!-- $Revision: 2.0.20 $ -->
+<!-- $Date 2017-08-22 12:03:10$
 <lang module="lang_ixlocks">
 
 <page_title><![CDATA[Locks Manager]]></page_title>
