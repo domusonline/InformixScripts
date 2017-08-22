@@ -4,8 +4,8 @@
  * Copyright (c) 2017 Fernando Nunes - domusonline@gmail.com
  * License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
  * $Author: Fernando Nunes - domusonline@gmail.com$
- * $Revision: 2.0.16 $
- * $Date 2017-08-21 23:11:51$
+ * $Revision: 2.0.23 $
+ * $Date: 2017-08-22 12:21:30 $
  * Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
  *             Although the author is/was an IBM employee, this software was created outside his job engagements.
  *             As such, all credits are due to the author.
