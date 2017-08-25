@@ -5,7 +5,7 @@ If you're interested in Informix the author would also recommend his blog at:
 
 [http://informix-technology.blogspot.com](http://informix-technology.blogspot.com "Fernando Nunes's blog")
 
-###Introdution
+### Introdution
 
 The documentation is the weakest part of this repository. For now I'm just including a very brief description of the structure and contents of the project.
 
@@ -14,7 +14,7 @@ These repository uses GPL V2 (unless stated in a specific script or folder). In 
 
 [http://www.gnu.org/licenses/old-licenses/gpl-2.0.html](http://www.gnu.org/licenses/old-licenses/gpl-2.0.html "GNU GPL V2")
 
-###Disclaimer
+## Disclaimer
 
 These scripts are provided AS IS. No guaranties of any sort are provided. Use at your own risk<br/>
 None of the scripts should do any harm to your instances or your data. The worst they could do is to provide some misleading information.
@@ -27,5 +27,5 @@ As stated in the disclaimer section above, the scripts are provided AS IS. The a
 
 Nevertheless the author is insterested in improving these scripts. if you find a bug or have some special need please contact the author and provide information that can help him fix the bug ordecide if the feature is relevant and can be added in a future version
 
-###TODO
+# TODO
 
