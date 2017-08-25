@@ -2,8 +2,8 @@
 # Copyright (c) 2006-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision 2.0.1 $
-# $Date 2016-02-22 02:38:48$
+# $Revision: 2.0.30 $
+# $Date: 2017-08-25 13:41:34 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -19,6 +19,7 @@ ix_help()
 	echo "               environment Admin environment number">&1
         echo "Ex: ${PROGNAME} -f DAEMON" >&1
 }
+
 get_args()
 {
 	arg_ok='fVh'
@@ -156,6 +157,7 @@ worker_ignore()
 {
 	echo "Worker stopped"
 }
+
 clean_all()
 {
 	trap worker_ignore USR1
@@ -174,7 +176,7 @@ run_daemon()
 	# checking to see if it's running
 	#-------------------------------------------------------------------------
 
-	${PS_CMD} | grep "${PROGNAME} .*DAEMON" | grep -v grep | ${AWK} -v "PID=${THIS_PID}" '{ if ( ( $2 != PID ) && ( $3 != PID) ) {print $1 ":" $2}}' | read PS_LINE
+	${PS_CMD} | grep "${PROGNAME} .*DAEMON" | grep -v grep | ${SETINFX_UTILS_AWK} -v "PID=${THIS_PID}" '{ if ( ( $2 != PID ) && ( $3 != PID) ) {print $1 ":" $2}}' | read PS_LINE
 	if [ "X${PS_LINE}" != "X" ]
 	then
 
@@ -294,11 +296,11 @@ run_worker()
 
 	IDS_MAJOR_VERSION=`onstat -V | tr "[:upper:]" "[:lower:]" | sed "s/\(.* \)\([0-9]\{1,2\}\)\(\..*\)/\2/"`
 
-	if [ -x ${FUNCTION_FILE} ]
+	if [ -r ${FUNCTION_FILE} ]
 	then
-	. ${FUNCTION_FILE}
+		. ${FUNCTION_FILE}
 	else
-		echo "${PROGNAME} - Error [ Worker ${IX_NUM} ${INFORMIXSERVER} ] - FUNCTION file is not executable: ${FUNCTION_FILE}" >&2
+		echo "${PROGNAME} - Error [ Worker ${IX_NUM} ${INFORMIXSERVER} ] - FUNCTION file is not readable: ${FUNCTION_FILE}" >&2
 		kill -USR2 $PPID
 		trap 0
 		exit 1
@@ -306,8 +308,8 @@ run_worker()
 
 	trap alert_daemon 0
 
-	IX_MSG_LOG_FILE=`grep -v "^[ 	]*#" $INFORMIXDIR/etc/$ONCONFIG | grep "^[ 	]*MSGPATH" | ${AWK} '{print $2}' | cut -f1 -d'#'`
-	ALARM_SCRIPT=`grep -v "^[ 	]*#" $INFORMIXDIR/etc/$ONCONFIG | grep "^[ 	]*ALARMPROGRAM" | ${AWK} '{print $2}'| cut -f1 -d'#'`
+	IX_MSG_LOG_FILE=`grep -v "^[ 	]*#" $INFORMIXDIR/etc/$ONCONFIG | grep "^[ 	]*MSGPATH" | ${SETINFX_UTILS_AWK} '{print $2}' | cut -f1 -d'#'`
+	ALARM_SCRIPT=`grep -v "^[ 	]*#" $INFORMIXDIR/etc/$ONCONFIG | grep "^[ 	]*ALARMPROGRAM" | ${SETINFX_UTILS_AWK} '{print $2}'| cut -f1 -d'#'`
 
 	#older (solaris 5.6) versions of tail don't handle tail -0f correctly: they throw the file completly before waiting...
 	#hack to do tail -1f but skip firt line... lousy, but couldn't find a better way...
@@ -319,7 +321,7 @@ run_worker()
 			FLAG_FIRST_LOOP=0
 			continue
 		fi
-		cat ${EXPR_FILE} | grep -v "^#" | ${AWK} -F'|' -v "IDS_VERSION=${IDS_MAJOR_VERSION}" '{ if ( $7 ~ ":"IDS_VERSION":" ) {print $0}}' | while read EXPR_DATA
+		cat ${EXPR_FILE} | grep -v "^#" | ${SETINFX_UTILS_AWK} -F'|' -v "IDS_VERSION=${IDS_MAJOR_VERSION}" '{ if ( $7 ~ ":"IDS_VERSION":" ) {print $0}}' | while read EXPR_DATA
 		do
 			EXPR_GREP=`echo ${EXPR_DATA} | cut -f1 -d'|'`
 			echo $LOG_LINE | grep "${EXPR_GREP}" >/dev/null
@@ -348,10 +350,21 @@ run_worker()
 #---------------------------------------------------------------------------------
 PROGNAME=`basename $0`
 DIRNAME=`dirname $0`
-VERSION=`echo "$Revision 2.0.1 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.30 $" | cut -f2 -d' '`
 
 LAUNCH_INTERVAL=30
 export LAUNCH_INTERVAL
+
+SO=`uname -s | tr "[:upper:]" "[:lower:]"`
+case $SO in
+hp-ux)
+        PS_CMD="env UNIX_STD=2003 ps -eo user,pid,ppid,args"
+        ;;
+sunos*|osf*|linux|*)
+        PS_CMD="ps -eo user,pid,ppid,args"
+        ;;
+esac
+
 
 get_args $*
 if [ $? != 0 ]
@@ -360,7 +373,7 @@ then
         exit 1
 fi
 . setinfx_utils
-MYUSER=`id | ${AWK} -F"[()]" ' { print $2 } '`
+MYUSER=`id | ${SETINFX_UTILS_AWK} -F"[()]" ' { print $2 } '`
 case ${RUN_MODE} in
 DAEMON)
 	THIS_PID=$$
