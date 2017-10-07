@@ -81,7 +81,8 @@ The tasks/functions are:
    This function implements the TASK _Monit Clear Logical Log Alerts_. It eliminates the alerts for logical log change in the ph_alert table that usually are not cleaned.
  
 * monit_force_log_change.sql
-   Creates the function _monit_force_log_change_ 
+
+   Creates the function _monit_force_log_change_  
    This function implements the TASK _Monit Force Log Change_. It makes sure that a logical log is kept at most for the specificed ammount of time. If the last log change was older than the specified interval (seconfs) then a log switch if forced.
 
 ### TODO
