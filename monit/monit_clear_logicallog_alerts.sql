@@ -1,8 +1,8 @@
 -- Copyright (c) 2010-2017 Fernando Nunes - domusonline@gmail.com
 -- License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 -- $Author: Fernando Nunes - domusonline@gmail.com $
--- $Revision: 2.0.25 $
--- $Date: 2017-08-25 01:01:40 $
+-- $Revision: 2.0.31 $
+-- $Date: 2017-10-07 01:19:06 $
 -- Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 --             Although the author is/was an IBM employee, this software was created outside his job engagements.
 --             As such, all credits are due to the author.
@@ -121,15 +121,15 @@ COMMIT WORK;
 
 RETURN 0;
 
-END PROCEDURE;
+END FUNCTION;
 
 ------------------------------------------------------------------------------------------------------
 -- Configuration of parameters in the ph_threshold table
 ------------------------------------------------------------------------------------------------------
-DELETE FROM ph_threshold WHERE task_name = 'Monit Clear Logical Log Alerts');
+DELETE FROM ph_threshold WHERE task_name = 'Monit Clear Logical Log Alerts';
 
 INSERT INTO ph_threshold VALUES(0, 'COMMIT INTERVAL','Monit Clear Logical Log Alerts', '100', 'NUMERIC', 'Number of records in each commit cycle');
-INSERT INTO ph_threshold VALUES(0, 'LIMIT PER RUN','Monit Clear Logical Log Alerts','500', 'NUMERIC' 'Maximum number of records deleted in each run');
+INSERT INTO ph_threshold VALUES(0, 'LIMIT PER RUN','Monit Clear Logical Log Alerts','500', 'NUMERIC', 'Maximum number of records deleted in each run');
 INSERT INTO ph_threshold VALUES(0, 'MIN DAYS AGE','Monit Clear Logical Log Alerts', '5', 'NUMERIC', 'Delete only records older than this number of days');
 
 ------------------------------------------------------------------------------------------------------
@@ -147,7 +147,7 @@ INSERT INTO ph_task (
 	tk_stop_time,
 	tk_frequency,
 	tk_monday, tk_tuesday, tk_wednesday, tk_thursday, tk_friday, tk_saturday, tk_sunday,
-	tk_group varchar(129)
+	tk_group,
 	tk_enable
 )
 VALUES (
@@ -159,7 +159,7 @@ VALUES (
 	'00:00:00',
 	'23:59:59',
 	'0 02:00:00',
-	'T','T','T','T','T','T','T'
+	'T','T','T','T','T','T','T',
 	'USER',
 	'T'
 );
