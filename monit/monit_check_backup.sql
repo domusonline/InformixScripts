@@ -1,8 +1,8 @@
 -- Copyright (c) 2010-2017 Fernando Nunes - domusonline@gmail.com
 -- License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 -- $Author: Fernando Nunes - domusonline@gmail.com $
--- $Revision: 2.0.25 $
--- $Date: 2017-08-25 01:01:40 $
+-- $Revision: 2.0.36 $
+-- $Date: 2018-03-12 14:00:26 $
 -- Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 --             Although the author is/was an IBM employee, this software was created outside his job engagements.
 --             As such, all credits are due to the author.
@@ -184,7 +184,7 @@ FOREACH
 		FROM                             
 			ph_alert p       
 		WHERE            
-			p.alert_task_id = task_id
+			p.alert_task_id = v_task_id
 			AND p.alert_object_name = 'NO LEVEL 0 ' ||TRIM(v_dbspace_name)
 			AND p.alert_state = "NEW"; 
 

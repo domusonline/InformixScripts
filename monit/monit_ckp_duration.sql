@@ -1,8 +1,8 @@
 -- Copyright (c) 2010-2017 Fernando Nunes - domusonline@gmail.com
 -- License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 -- $Author: Fernando Nunes - domusonline@gmail.com $
--- $Revision: 2.0.25 $
--- $Date: 2017-08-25 01:01:40 $
+-- $Revision: 2.0.36 $
+-- $Date: 2018-03-12 14:00:26 $
 -- Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 --             Although the author is/was an IBM employee, this software was created outside his job engagements.
 --             As such, all credits are due to the author.
@@ -19,7 +19,7 @@
 
 
 --DROP FUNCTION IF EXISTS monit_ckp_duration;
-CREATE FUNCTION monit_ckp_duration(task_id INTEGER, v_id INTEGER) RETURNING INTEGER
+CREATE FUNCTION monit_ckp_duration(v_task_id INTEGER, v_id INTEGER) RETURNING INTEGER
 
 ---------------------------------------------------------------------------------------
 -- Generic Variables and to send ALARM
@@ -105,7 +105,7 @@ INTO
 FROM
 	sysadmin:ph_run r
 WHERE
-	run_task_id = task_id;
+	run_task_id = v_task_id;
 
 IF ( v_last_task_run IS NULL)
 THEN
@@ -151,7 +151,7 @@ INTO
 FROM
         ph_alert p
 WHERE
-        p.alert_task_id = task_id
+        p.alert_task_id = v_task_id
         AND p.alert_object_name = 'Monit Checkpoint Duration'
         AND p.alert_state = 'NEW';
 
@@ -182,7 +182,7 @@ THEN
 
         INSERT INTO ph_alert (id, alert_task_id, alert_task_seq, alert_type, alert_color, alert_time, alert_state,
                 alert_state_changed, alert_object_type, alert_object_name, alert_message, alert_action_dbs)
-        VALUES(0, task_id, v_id, 'WARNING', v_alert_color, CURRENT YEAR TO SECOND, 'NEW',
+        VALUES(0, v_task_id, v_id, 'WARNING', v_alert_color, CURRENT YEAR TO SECOND, 'NEW',
                 CURRENT YEAR TO SECOND, 'ALARM', 'Monit Checkpoint Duration', v_message, 'sysadmin');
 
         EXECUTE PROCEDURE call_alarmprogram(v_severity, v_class, 'Checkpoint Duration',v_message,NULL);

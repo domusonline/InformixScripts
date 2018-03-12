@@ -1,8 +1,8 @@
 -- Copyright (c) 2010-2017 Fernando Nunes - domusonline@gmail.com
 -- License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 -- $Author: Fernando Nunes - domusonline@gmail.com $
--- $Revision: 2.0.25 $
--- $Date: 2017-08-25 01:01:40 $
+-- $Revision: 2.0.36 $
+-- $Date: 2018-03-12 14:00:26 $
 -- Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 --             Although the author is/was an IBM employee, this software was created outside his job engagements.
 --             As such, all credits are due to the author.
@@ -36,7 +36,7 @@
 
 -- DROP FUNCTION IF EXISTS monit_check_session_status;
 
-CREATE FUNCTION monit_check_session_status(task_id INTEGER, v_id INTEGER) RETURNING INTEGER
+CREATE FUNCTION monit_check_session_status(v_task_id INTEGER, v_id INTEGER) RETURNING INTEGER
 
 ------------------------------------------------------------------------------------------
 -- Thresholds in the code... overriden by parameters in ph_threshold
@@ -531,7 +531,7 @@ THEN
 			FROM
 				ph_alert p
 			WHERE
-				p.alert_task_id = task_id
+				p.alert_task_id = v_task_id
 				AND p.alert_object_name = v_wait_type
 				AND p.alert_state = "NEW";
 		
@@ -569,7 +569,7 @@ THEN
 			FROM
 				ph_alert p
 			WHERE
-				p.alert_task_id = task_id
+				p.alert_task_id = v_task_id
 				AND p.alert_object_name = v_wait_type
 				AND p.alert_state = "NEW";
 
@@ -584,7 +584,7 @@ THEN
 					alert_state, alert_state_changed, alert_object_type, alert_object_name, alert_message,
 					alert_action_dbs)
 				VALUES(
-					0, task_id, v_id, 'WARNING', v_alert_color, CURRENT YEAR TO SECOND,
+					0, v_task_id, v_id, 'WARNING', v_alert_color, CURRENT YEAR TO SECOND,
 					'NEW', CURRENT YEAR TO SECOND,'DBSPACE', v_wait_type, v_message, 'sysadmin');
  
 				EXECUTE PROCEDURE call_alarmprogram(v_severity_yellow, v_class, 'Session status',v_message,NULL);
