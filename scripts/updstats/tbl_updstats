@@ -2,8 +2,8 @@
 # Copyright (c) 2001-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision 2.0.1 $
-# $Date 2016-02-22 02:38:48$
+# $Revision: 2.0.39 $
+# $Date: 2018-04-03 17:28:33 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -15,7 +15,7 @@
 #-------------------------------------------------------
 
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision 2.0.1 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.39 $" | cut -f2 -d' '`
 
 DEFAULT_RESOLUTION_MEDIUM=2.5
 
@@ -29,430 +29,171 @@ export DELIMIDENT
 
 show_help()
 {
-	echo "${PROGNAME}: -h | -V | { [-d] database } { [-t] table } [ -e | -E file ] [ -p priority ]\n [ -m size ] [ -r resolution ] [ -c confidence ] [ -R resolution ] [ -l ] [ -x|X ] [ -T ]" >&2
-	echo "               { [ -d ] database } (required)" >&2
-	echo "               { [-t] table}  (required)" >&2
-	echo "               [-h] Show help and exit">&2
-	echo "               [-V] Show version and exit" >&2
-	echo "               [-p] Set PDQPRIORITY (versions >= 7.31.UD2 and 9.30.UC2)" >&2
-	echo "               [-r resolution] Set resolution for MEDIUM distributions" >&2
-	echo "               [-c confidence] Set confidence" >&2
-	echo "               [-R resolution] Set resolution for HIGH distributions" >&2
-	echo "               [-m size] Set sampling size (versions >= 11.10)" >&2
-	echo "               [-l] Use quick LOW mode (Avoid b-tree leaf scan Only minimal table info is collected)" >&2
-	echo "               [-e] Set explain on (versions >= 7.31.UD2 and 9.30.UC2)" >&2
-	echo "               [-E file ] Set explain file (versions >= 11.10)" >&2
-	echo "               [-X] Display and execute" >&2
-	echo "               [-x] Display only. Don't execute" >&2
-	echo "               [-T] Include timings in de SQL generated" >&2
-	echo "               [-o user] define owner for ANSI databases" >&2
-	echo "               [-i] Set DIRTY READ isolation level" >&2
-	echo "               [-a] Database is ANSI (includes COMMIT after each UPD. STAT. cmd to avoid locking)" >&2
-	echo "               [-w N] Set LOCK MODE TO WAIT N seconds" >&2
-#	echo "               [-S user] SET SESSION AUTH TO user (run as...)" >&2
-
+	echo "${PROGNAME}: -h | -V | { [-d] database } { [-t] table } [ -e | -E file ] [ -p priority ]\n [ -m size ] [ -r resolution ] [ -c confidence ] [ -R resolution ] [ -l ] [ -x|X ] [ -T ] [ -F | -S {stat_change}]" 
+	echo "               { [ -d ] database } (required)"
+	echo "               { [-t] table}  (required)"
+	echo "               [-h] Show help and exit"
+	echo "               [-V] Show version and exit"
+	echo "               [-p] Set PDQPRIORITY (versions >= 7.31.UD2 and 9.30.UC2)"
+	echo "               [-r resolution] Set resolution for MEDIUM distributions"
+	echo "               [-c confidence] Set confidence"
+	echo "               [-R resolution] Set resolution for HIGH distributions"
+	echo "               [-m size] Set sampling size (versions >= 11.10)"
+	echo "               [-l] Use quick LOW mode (Avoid b-tree leaf scan Only minimal table info is collected)"
+	echo "               [-e] Set explain on (versions >= 7.31.UD2 and 9.30.UC2)"
+	echo "               [-E file ] Set explain file (versions >= 11.10)"
+	echo "               [-X] Display and execute"
+	echo "               [-x] Display only. Don't execute"
+	echo "               [-T] Include timings in de SQL generated"
+	echo "               [-o user] define owner for ANSI databases"
+	echo "               [-i] Set DIRTY READ isolation level"
+	echo "               [-a] Database is ANSI (includes COMMIT after each UPD. STAT. cmd to avoid locking)"
+	echo "               [-w N] Set LOCK MODE TO WAIT N seconds"
+	echo "               [-F] to force statistics even if AUTO_STAT_MODE is on"
+	echo "               [-S stat_change] to define a STATCHANGE value and work in AUTO mode"
 }
 
 get_args()
 {
-	arg_ok="d:t:p:m:r:R:c:E:hleVTxXo:S:iaw:"
-	list="$*"
-	getopt ${arg_ok} $list >/dev/null 2>&1
-	# check result of parsing                                                
-	if [ $? != 0 ]
-	then
-		return 1
-	fi
-	set -- `getopt "${arg_ok}" $list`
-
-	while [ $1 != -- ]
+	arg_ok="d:t:p:m:r:R:c:E:hleVTxXo:S:iaw:F"
+	while getopts ${arg_ok} OPTION
 	do
-		case $1 in
-		-h)   # show help
+		case ${OPTION} in
+		h)   # show help
 			show_help
 			exit 0
 			;;
-		-V)   # show version
+		V)   # show version
 			echo "${PROGNAME} version ${VERSION}"
 			exit 0
 			;;
-		-l)   # quick low mode
+		l)   # quick low mode
 			LOW_MODE_FLAG=1
 			;;
-		-T)   # show timings (to stdout)
+		T)   # show timings (to stdout)
 			TIMINGS_FLAG=1
 			;;
-		-e)   # set up the -e (set explain flag)
+		e)   # set up the -e (set explain flag)
 			EXPLAIN_FLAG=1
 			;;
-		-E)   # set up the -e (set explain flag)
+		E)   # set up the -e (set explain flag)
 			EXPLAIN_FLAG=2
-			explain_file=$2
-			shift
+			explain_file=${OPTARG}
 			;;
-		-i)   # set up the -i (set DIRTY_READ flag)
+		i)   # set up the -i (set DIRTY_READ flag)
 			DIRTY_READ_FLAG=1
 			;;
-		-a)   # set up the -i (set DIRTY_READ flag)
+		a)   # set up the -a (set ANSI flag)
 			ANSI_FLAG=1
 			;;
-		-x)   # set up the -x (set DISPLAY_ONLY flag)
+		x)   # set up the -x (set DISPLAY_ONLY flag)
 			DISPLAY_FLAG=1
 			;;
-		-X)   # set up the -X (set DISPLAY_&_EXECUTE flag)
+		X)   # set up the -X (set DISPLAY_&_EXECUTE flag)
 			DISPLAY_FLAG=2
 			;;
-		-d)   # set up the -d (database flag)
+		d)   # set up the -d (database flag)
 			DATABASE_FLAG=1
-			DATABASE=$2
-			shift
+			DATABASE=${OPTARG}
 			;;
-		-t)   # set up the -f (filter flag)
+		t)   # set up the -f (filter flag)
 			TABLE_FLAG=1
-			tabname=$2
-			shift
+			tabname=${OPTARG}
 			;;
-		-p)   # set up the -p ( PDQPRIORITY flag)
+		p)   # set up the -p ( PDQPRIORITY flag)
 			PRIORITY_FLAG=1
-			priority=$2
-			shift
+			priority=${OPTARG}
 			;;
-		-w)   # set up the -w ( LOCK MODE flag)
+		w)   # set up the -w ( LOCK MODE flag)
 			LOCK_MODE_FLAG=1
-			LOCK_MODE_TIME=$2
+			LOCK_MODE_TIME=${OPTARG}
 			echo ${LOCK_MODE_TIME} | grep "^[1-9][0-9]*" >/dev/null
  			if [ $? != 0  ]
 			then
 				echo "${PROGNAME} Syntax error: LOCK WAIT time must be between a number >= 1" >&2
 				return 1
 			fi
-			shift
 			;;
-		-m)   # set up the -m (sampling flag)
+		m)   # set up the -m (sampling flag)
 			SAMPLING_FLAG=1
-			sampling=$2
-			shift
+			sampling=${OPTARG}
 			;;
-		-R)   # set up the -R (resolution High flag)
+		R)   # set up the -R (resolution High flag)
 			RESOLUTION_HIGH_FLAG=1
-			resolution_high=$2
-			shift
+			resolution_high=${OPTARG}
 			;;
-		-r)   # set up the -r (resolution medium flag)
+		r)   # set up the -r (resolution medium flag)
 			RESOLUTION_MEDIUM_FLAG=1
-			resolution_medium=$2
-			shift
+			resolution_medium=${OPTARG}
 			;;
-		-c)   # set up the -c (confidence flag)
+		c)   # set up the -c (confidence flag)
 			CONFIDENCE_FLAG=1
-			confidence=$2
-			shift
+			confidence=${OPTARG}
 			;;
-		-o)   # set up the -u (ANSI user flag)
+		o)   # set up the -u (ANSI user flag)
 			ANSI_USER_FLAG=1
-			ANSI_USER=$2
-			shift
+			ANSI_USER=${OPTARG}
 			;;
-		-S)   # set up the -S (SET SESSION flag)
-			SET_AUTH_FLAG=1
-			SET_AUTH_USER=$2
-			shift
+		F)   # FORCE mode for AUTO_STAT_MODE
+			if [ "X${STATCHANGE_FLAG}" != "X" ]
+			then
+				echo "${PROGNAME} Syntax error: Option -F cannot be used with -S" >&2
+				return 1
+			else
+				FORCE_FLAG=1
+			fi
+                        ;;
+		S)   # set up the -S (SET SESSION flag)
+			if [ "X${FORCE_FLAG}" != "X" ]
+			then
+				echo "${PROGNAME} Syntax error: Option -S cannot be used with -F" >&2
+				return 1
+			else
+				STATCHANGE_FLAG=1
+				STATCHANGE_VALUE=${OPTARG}
+			fi
+			;;
+		?)   # unkown option
+			return 1
 			;;
 		esac
-		shift
 	done
-	shift   # skip double dash
-	while [ $# -ge 1 ]
-	do
-		case $1 in
-		-X)
-			if [ "X"$DISPLAY_FLAG != "X" ]	
-			then
-				echo "${PROGNAME}: Syntax error: DISPLAY or DYSPLAY/EXECUTE already processed" >&2
-				return 1
-			else
-				DISPLAY_FLAG=2
-				shift
-			fi
-			;;
-		-x)
-			if [ "X"$DISPLAY_FLAG != "X" ]	
-			then
-				echo "${PROGNAME}: Syntax error: DISPLAY or DYSPLAY/EXECUTE already processed" >&2
-				return 1
-			else
-				DISPLAY_FLAG=1
-				shift
-			fi;;
-		-E)
-			if [ "X"$EXPLAIN_FLAG != "X" ]	
-			then
-				echo "${PROGNAME}: Syntax error: SET EXPLAIN already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
+
+	if [ $? != 0 ]
+	then
+		return 1
+	fi
+
+	if [ ${NUM_ARGUMENTS} -ge ${OPTIND} ]
+	then
+		shift `expr $OPTIND - 1`
+		if [ "X${DATABASE_FLAG}" != "X" -o "X${TABLE_FLAG}" != "X" ]
+		then
+			printf "${PROGNAME}: Syntax error - Options -d and -t cannot be used with database/table simple syntax\n" >&2
+			return 1
+		else
+			for OPTION in $*
+			do
+				if [ "X"$DATABASE_FLAG != "X1" ]	
 				then
-					echo "Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
-					EXPLAIN_FLAG=2
-					explain_file=$2
-					shift 2
-			fi
-			;;
-		-l)
-			if [ "X"$LOW_MODE_FLAG != "X" ]	
-			then
-				echo "${PROGNAME}: Syntax error: LOW MODE already processed" >&2
-				return 1
-			else
-				LOW_MODE_FLAG=1
-				shift
-			fi;;
-		-i)
-			if [ "X"$DIRTY_READ_FLAG != "X" ]	
-			then
-				echo "${PROGNAME}: Syntax error: DIRTY READ already processed" >&2
-				return 1
-			else
-				DIRTY_READ_FLAG=1
-				shift
-			fi;;
-		-a)
-			if [ "X"ANSI_FLAG != "X" ]	
-			then
-				echo "${PROGNAME}: Syntax error: ANSI flag already processed" >&2
-				return 1
-			else
-				ANSI_FLAG=1
-				shift
-			fi;;
-		-T)
-			if [ "X"$TIMINGS_FLAG = "X1" ]	
-			then
-				echo "${PROGNAME}: Syntax error: TIMINGS already processed" >&2
-				return 1
-			else
-				TIMINGS_FLAG=1
-				shift
-			fi;;
-		-e)
-			if [ "X"$EXPLAIN_FLAG != "X" ]	
-			then
-				echo "${PROGNAME}: Syntax error: SET EXPLAIN already processed" >&2
-				return 1
-			else
-				EXPLAIN_FLAG=1
-				shift
-			fi;;
-		-h)   # show help
-			show_help
-			exit 0
-			;;
-		-V)   # show version
-			echo "${PROGNAME} version ${VERSION}"
-			exit 0
-			;;
-		-d)
-			if [ "X"$DATABASE_FLAG = "X1" ]	
-			then
-				echo "Syntax error: DATABASE already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
 					DATABASE_FLAG=1
-					DATABASE=$2
-					shift 2
-			fi;;
-		-t)
-			if [ "X"$TABLE_FLAG = "X1" ]	
-			then
-				echo "Syntax error: TABLE already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
+					DATABASE=$OPTION
+					shift
+					continue	
+				fi
+				if [ "X"$TABLE_FLAG != "X1" ]	
 				then
-					echo "Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
 					TABLE_FLAG=1
-					tabname=$2
-					shift 2
-			fi;;
-		-p)
-			if [ "X"$PRIORITY_FLAG = "X1" ]	
-			then
-				echo "Syntax error: PRIORITY already processed" >&2
+					tabname=$OPTION
+					shift
+					continue
+				fi
+				echo "${PROGNAME}: Syntax error: ${OPTION}" >&2
 				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
-					PRIORITY_FLAG=1
-					priority=$2
-					if [ ${priority} -lt 1 -o ${priority} -gt 100 ]
-					then
-						echo "Error: PDQPRIORITY value must be between 0 and 100" >&2
-						return 1
-					fi
-					shift 2
-			fi;;
-		-w)
-			if [ "X"$LOCK_MODE_FLAG = "X1" ]
-			then
-				echo "${PROGNAME} Syntax error: LOCK WAIT already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "${PROGNAME} Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
-					LOCK_MODE_FLAG=1
-					LOCK_MODE_TIME=$2
-					echo ${LOCK_MODE_TIME} | grep "^[1-9][0-9]*" >/dev/null
- 					if [ $? != 0  ]
-					then
-						echo "${PROGNAME} Syntax error: LOCK WAIT time must be between a number >= 1" >&2
-						return 1
-					fi
-					shift 2
-			fi;;
-		-m)
-			if [ "X"$SAMPLING_FLAG = "X1" ]
-			then
-				echo "${PROGNAME} Syntax error: SAMPLING already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "${PROGNAME} Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
-					SAMPLING_FLAG=1
-					sampling=$2
-					echo ${sampling} | grep '^[0-9][0-9]*$' 2>&1 >/dev/null
-					RESULT=$?
-					if [ ${RESULT} != 0 -o ${sampling} -lt 1 ]
-					then
-						echo "${PROGNAME} Syntax error: SAMPLING value must be numeric and greater than 0" >&2
-						return 1
-					fi
-					shift 2
-                        fi;;
-		-R)
-			if [ "X"$RESOLUTION_HIGH_FLAG = "X1" ]
-			then
-				echo "Syntax error: RESOLUTION HIGH already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
-					RESOLUTION_HIGH_FLAG=1
-                                        resolution_high=$2
-					echo ${resolution_high} | grep '^[0-9]\{0,3\}\.\{0,1\}[0-9]\{1,\}$' 2>&1 >/dev/null
-					RESULT=$?
-                                        if [ ${RESULT} != 0 -o ${resolution_high} -gt 100 ]
-                                        then
-                                                echo "Error: Resolution for HIGH distributions value must be numeric and less than or equal to 100" >&2
-                                                return 1
-                                        fi
-                                        shift 2
-                        fi;;
-		-r)
-			if [ "X"$RESOLUTION_MEDIUM_FLAG = "X1" ]
-			then
-				echo "Syntax error: RESOLUTION MEDIUM already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
-					RESOLUTION_MEDIUM_FLAG=1
-                                        resolution_medium=$2
-					echo ${resolution_medium} | grep '^[0-9]\{0,3\}\.\{0,1\}[0-9]\{1,\}$' 2>&1 >/dev/null
-					RESULT=$?
-                                        if [ ${RESULT} != 0 -o ${resolution_medium} -gt 100 ]
-                                        then
-                                                echo "Error: Resolution for MEDIUM distributions value must be numeric and less than or equal to 100" >&2
-                                                return 1
-                                        fi
-                                        shift 2
-                        fi;;
-		-c)
-			if [ "X"$CONFIDENCE_FLAG = "X1" ]
-			then
-				echo "Syntax error: CONFIDENCE already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
-					CONFIDENCE_FLAG=1
-					confidence=$2
-					echo ${confidence} | grep "0\.[89][0-9]*" 2>&1 >/dev/null
-					RESULT=$?
-					if [ ${RESULT} != 0 ]
-					then
-						
-						echo "Error: CONFIDENCE value must be between 0.80 and 0.99" >&2
-						return 1
-					fi
-				shift 2
-			fi;;
-		-o)
-			if [ "X"$ANSI_USER_FLAG = "X1" ]
-			then
-				echo "Syntax error: ANSI user already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
-					ANSI_USER_FLAG=1
-					ANSI_USER=$2
-			fi
-			shift 2
-			;;
-		-S)
-			if [ "X"$SET_AUTH_FLAG = "X1" ]
-			then
-				echo "Syntax error: SET AUTH already processed" >&2
-				return 1
-			elif [ $# -le 1 ]
-				then
-					echo "Syntax error: Option $1 requires an argument" >&2
-					return 1
-				else
-					SET_AUTH_FLAG=1
-					SET_AUTH_USER=$2
-			fi
-			shift 2
-			;;
-		*)
-			if [ "X"$DATABASE_FLAG != "X1" ]	
-			then
-				DATABASE_FLAG=1
-				DATABASE=$1
-				shift
-				continue	
-			fi
-			if [ "X"$TABLE_FLAG != "X1" ]	
-			then
-				TABLE_FLAG=1
-				tabname=$1
-				shift
-				continue	
-			fi
-			echo "${PROGNAME}: Syntax error: $1" >&2
-			return 1;;
-		esac
-	done
+			done
+                fi
+        fi
+	return 0
 }
 
 
@@ -464,10 +205,12 @@ get_args()
 # script start...
 #--------------------------------------------------------
 
+NUM_ARGUMENTS=$#
 get_args $*
 if [ $? != 0 ]
 then
 	echo "Error parsing parameters" >&2
+	show_help >&2
 	exit 1
 fi
 
@@ -527,6 +270,18 @@ then
 		exit 1
 	fi
 fi
+
+if [ "X${STATCHANGE_FLAG}" = "X1" ]
+then
+	echo ${STATCHANGE_VALUE} | grep '^[0-9]\{1,3\}$' 2>&1 >/dev/null
+	RESULT=$?
+	if [ ${RESULT} != 0 -o ${STATCHANGE_VALUE} -lt 1 -o ${STATCHANGE_VALUE} -gt 100 ]
+	then
+		echo "${PROGNAME} Syntax error: STATCHANGE value must be numeric and between 1 and 100" >&2
+		exit 1
+	fi
+fi
+
 #--------------------------------------------------------
 # define filenames using process id
 #--------------------------------------------------------
@@ -554,13 +309,6 @@ else
 	ANSI_CLAUSE=""
 fi
 
-if [ "X${SET_AUTH_FLAG}" = "X1" ]
-then
-	SET_AUTH_CLAUSE="SET SESSION AUTHORIZATION TO '${SET_AUTH_USER}';"
-else
-	SET_AUTH_CLAUSE=""
-fi
-
 if [ "X${DIRTY_READ_FLAG}" = "X1" ]
 then
 	ISOLATION_CLAUSE="SET ISOLATION TO DIRTY READ;"
@@ -584,7 +332,6 @@ dbaccess ${DATABASE} 1>/dev/null 2>${SQL_ERROR_FILE} <<EOSQL
 -------------------------------------------------------
 $ISOLATION_CLAUSE
 $LOCK_MODE_CLAUSE
-$SET_AUTH_CLAUSE
 unload to ${IDX_HEADER_COLUMNS_FILE} delimiter ' '
 select unique trim(colname)
 from informix.systables t, informix.sysindexes i, informix.syscolumns c
@@ -654,7 +401,6 @@ if [ $? != 0 ]
 then
 	printf "${PROGNAME} Error: dbaccess error when fetching column information for table ${DATABASE}@${INFORMIXSERVER}:${tabname}\n">&2
 	cat ${SQL_ERROR_FILE} >&2
-	echo $SET_AUTH_CLAUSE
 	exit 1
 fi
 
@@ -677,7 +423,11 @@ then
 	printf "\n-- SET LOCK MODE CLAUSE\n${LOCK_MODE_CLAUSE}\n" >> ${SQL_FILE}
 fi
 
-printf "\n${SET_AUTH_CLAUSE}\n" >>${SQL_FILE}
+
+if [ "X${STATCHANGE_FLAG}" = "X1" ]
+then
+	printf "\n-- SET STATCHANGE ENVIRONMENT\nSET ENVIRONMENT STATCHANGE '${STATCHANGE_VALUE}';\n" >> ${SQL_FILE}
+fi
 
 if [ "X${ANSI_USER_FLAG}" = "X1" ]
 then
@@ -702,6 +452,14 @@ fi
 if [ "X"${PRIORITY_FLAG} = "X1" ]
 then
 	printf "\n-- Set PDQPRIORITY\nset pdqpriority ${priority};\n" >>${SQL_FILE}
+fi
+
+
+if [ "X${FORCE_FLAG}" = "X1" ]
+then
+	FORCE_CLAUSE=" FORCE "
+else
+	FORCE_CLAUSE=""
 fi
 
 #-------------------------------------------------------
@@ -745,7 +503,7 @@ then
 			printf ",%s" ${COLNAME} >>${SQL_FILE}
 		fi
 	done < ${NONINDEX_HEADER_COLUMNS_FILE}
-	printf  ")\n${sampling_clause}${resolution_clause_medium} distributions only;\n" >>${SQL_FILE}
+	printf  ")\n${sampling_clause}${resolution_clause_medium} distributions only${FORCE_CLAUSE};\n" >>${SQL_FILE}
 fi
 if [ "X${ANSI_FLAG}" = "X1" ]
 then
@@ -780,7 +538,7 @@ then
 			printf ",%s" ${COLNAME} >>${SQL_FILE}
 		fi
 	done <${IDX_HEADER_COLUMNS_FILE}
-	printf ")\n${resolution_clause_high} distributions only;\n" >>${SQL_FILE}
+	printf ")\n${resolution_clause_high} distributions only${FORCE_CLAUSE};\n" >>${SQL_FILE}
 fi
 if [ "X${ANSI_FLAG}" = "X1" ]
 then
@@ -813,9 +571,9 @@ X)
 				printf ",%s" ${COLNAME} >>${SQL_FILE}
 			fi
 		done <${INDEXED_COLUMNS_FILE}
-		printf ");\n\n" >>${SQL_FILE}
+		printf ")${FORCE_CLAUSE};\n\n" >>${SQL_FILE}
 	else
-		printf "\n-- LOW for table if table has no indexes\nupdate statistics low for table ${tabowner}\"${tabname}\";\n\n" >>${SQL_FILE}
+		printf "\n-- LOW for table if table has no indexes\nupdate statistics low for table ${tabowner}\"${tabname}\"${FORCE_CLAUSE};\n\n" >>${SQL_FILE}
 	fi
 	;;
 X1)
@@ -834,10 +592,10 @@ X1)
 				printf ",%s" ${COLNAME} >>${SQL_FILE}
 			fi
 		done <${NON_INDEXED_COLUMNS_FILE}
-		printf ");\n\n" >>${SQL_FILE}
+		printf ")${FORCE_CLAUSE};\n\n" >>${SQL_FILE}
 	else
 		COLNAME=`head -1 ${INDEXED_COLUMNS_FILE}`
-		printf "\n-- Using LOW quick mode, but all columns are indexed! Using just one column...\nupdate statistics low for table${tabowner} \"${tabname}\"( ${COLNAME} );\n\n" >>${SQL_FILE}
+		printf "\n-- Using LOW quick mode, but all columns are indexed! Using just one column...\nupdate statistics low for table${tabowner} \"${tabname}\"( ${COLNAME} )${FORCE_CLAUSE};\n\n" >>${SQL_FILE}
 	fi
 	;;
 esac

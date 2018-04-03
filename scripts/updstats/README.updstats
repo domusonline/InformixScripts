@@ -1,7 +1,7 @@
 INTRODUCTION:
 ====================================================================================================
 
-# Copyright (c) 2001-2016 Fernando Nunes - domusonline@gmail.com
+# Copyright (c) 2001-2018 Fernando Nunes - domusonline@gmail.com
 
 This is the second public release of my updstats shell scripts
 The software is distributed accordingly to the GPL 2.0 license:
@@ -45,7 +45,7 @@ Option -l will workaround this by running low with a column that does not belong
 This of course will have consequences. Only number of rows and number of pages in systables will be
 updated. No index info will be collected.
 
-2- Traditionaly there was a problemwith update statisctis in ANSI databases. Since the updates on
+2- Traditionaly there was a problem with update statisctis in ANSI databases. Since the updates on
 systables is done in a transaction (due to the nature of ANSI databases), some locking errors would
 happen. If this is an issue check APAR IC57589:
 
