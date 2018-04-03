@@ -2,8 +2,8 @@
 # Copyright (c) 2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision: 2.0.9 $
-# $Date 2016-11-03 18:58:24$
+# $Revision: 2.0.41 $
+# $Date: 2018-04-03 23:52:05 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -231,6 +231,8 @@ report_session_detail()
 		return
 	fi
 
+	[ $IX_DEBUG_FILES ] && cat $TMP_FILE_UNL >&2
+
 	$AWK -F'|' '
 BEGIN {
 	PREV_SID=0
@@ -317,10 +319,14 @@ BEGIN {
 			
 
 			printf("  DBSPACE: %s\n",my_dbsname)
-			printf("    %s: %-80s (%s/%s) %sMB\n",my_obj_type, my_tabname,my_tab_partnum,my_tab_partnum_hex,(my_nptotal * my_dbs_pagesize) / 1048576);
 			if ( my_frag_partnum != my_tab_partnum)
 			{
+				printf("    %s: %-80s (%s/%s)\n",my_obj_type, my_tabname,my_tab_partnum,my_tab_partnum_hex);
 				printf("      %-80s (%s/%s) %sMB\n",my_fragname,my_frag_partnum,my_frag_partnum_hex,(my_nptotal * my_dbs_pagesize) / 1048576);
+			}
+			else
+			{
+				printf("    %s: %-80s (%s/%s) %sMB\n",my_obj_type, my_tabname,my_tab_partnum,my_tab_partnum_hex,(my_nptotal * my_dbs_pagesize) / 1048576);
 			}
 			OBJECTS_DBS["H"]=0
 			OBJECTS_DBS["G"]=0
@@ -340,13 +346,17 @@ BEGIN {
 			{
 				#mostrar os totais por object type
 				#reinicializar os valores por object type
-				printf("    Total space for object of type %s in this dbspace: %s\n",PREV_OBJ_TYPE,OBJECTS_DBS[PREV_OBJ_TYPE] / 1048576);
+				printf("    Total space for object of type %s in this dbspace: %sMB\n",PREV_OBJ_TYPE,OBJECTS_DBS[PREV_OBJ_TYPE] / 1048576);
 				OBJECTS_DBS[my_obj_type]=my_nptotal * my_dbs_pagesize
 				OBJECTS_SID[my_obj_type]=OBJECTS_SID[my_obj_type] + (my_nptotal * my_dbs_pagesize)
-				printf("    %s: %-80s (%s/%s) %sMB\n",my_obj_type, my_tabname,my_tab_partnum,my_tab_partnum_hex,(my_nptotal * my_dbs_pagesize) / 1048576);
 				if ( my_frag_partnum != my_tab_partnum)
 				{
+					printf("    %s: %-80s (%s/%s)\n",my_obj_type, my_tabname,my_tab_partnum,my_tab_partnum_hex);
 					printf("      %-80s (%s/%s)%s MB\n",my_fragname,my_frag_partnum,my_frag_partnum_hex,(my_nptotal * my_dbs_pagesize) / 1048576);
+				}
+				else
+				{
+					printf("    %s: %-80s (%s/%s) %sMB\n",my_obj_type, my_tabname,my_tab_partnum,my_tab_partnum_hex,(my_nptotal * my_dbs_pagesize) / 1048576);
 				}
 				PREV_OBJ_TYPE=my_obj_type
 			}
@@ -520,6 +530,7 @@ report_overview()
 		return
 	fi
 
+
 	$AWK -v IX_DEBUG_AWK="$IX_DEBUG_AWK" -F'|' '
 BEGIN {
 
@@ -538,7 +549,7 @@ BEGIN {
 
 	#------------------------------- print header
         printf("+----------+------------------+----------+-------------------+--------------------------+-------------------+----------+----------+\n")
-        printf("|%-10s|%-18s|%-10s|%-19s|%-26s|%-19s|%-10s|%-10s|\n","Sessionid", "Username", "PID", "Conn Time", "DBSpace", "   # (H/G/S/T/V)", "DBSpace MB", "Session MB")
+        printf("|%-10s|%-18s|%-10s|%-19s|%-26s|%-19s|%-10s|%-10s|\n","SessionId", "Username", "PID", "Conn Time", "DBSpace", "   # (H/G/S/T/V)", "DBSpace MB", "Session MB")
         printf("+----------+------------------+----------+-------------------+--------------------------+-------------------+----------+----------+\n")
 }
 {
@@ -548,6 +559,7 @@ BEGIN {
 	my_username=$2
 	my_hostname=$3
 	my_pid=$4
+	gsub(".0$","",my_pid)
 	my_conn_time=$5
 	my_dbsnum=$6
 	my_dbsname=$7
@@ -614,7 +626,7 @@ BEGIN {
 				FIRST_DBSPACE = 0
 			printf("|%-26s|%-3s/%-3s/%-3s/%-3s/%-3s|%-10s|          |\n", PREV_DBSPACE, OBJECTS_H, OBJECTS_G, OBJECTS_S, OBJECTS_T, OBJECTS_V, PREV_MY_MB_PER_DBS);
 			PREV_DBSPACE=my_dbsname
-			PREV_MB_PER_DBS=my_mb_per_dbs
+			PREV_MY_MB_PER_DBS=my_mb_per_dbs
 		}
 		if ( my_obj_type == "H" )
 			OBJECTS_H=my_obj_count
@@ -643,6 +655,70 @@ END {
 }' $TMP_FILE_UNL
 }
 
+#-------------------------------------------------------------------------------------------------
+# Obtains the data from sysptnhdr (12.10.xC8+)
+#-------------------------------------------------------------------------------------------------
+get_report_data()
+{
+#                type CHAR(10),
+#                partnum INTEGER,
+#                pool_address DECIMAL(32,0),
+#                pool_size INT
+#'HASH'
+#'GROUP
+#'SORT'
+#'TEMP'
+#'VIEW'
+
+
+dbaccess -e sysmaster <<!EOF 2>$TMP_FILE_ERR 1>&2
+UNLOAD TO $TMP_FILE_1
+SELECT
+	sysscblst.sid,                              -- Session ID
+	CASE
+		WHEN systabnames.tabname LIKE 'th_build%' OR systabnames.tabname LIKE 'th_probe%' THEN
+			'HASH'
+		WHEN systabnames.tabname LIKE 'th_tmprun%' THEN
+			'SORT'
+		WHEN systabnames.tabname LIKE '_temp%' THEN
+			'VIEW'
+		WHEN BITVAL(sysptnhdr.flags, 32) = 1 THEN 
+			'TEMP'
+		ELSE
+			'GROUP'
+	END type,
+	sysptnhdr.partnum,
+	0,
+	0
+FROM
+	sysopendb, sysscblst, sysptnhdr, systabnames
+WHERE
+	sysscblst.sid = sysptnhdr.sid AND
+	sysptnhdr.partnum = systabnames.partnum AND
+	sysopendb.odb_sessionid = sysscblst.sid AND
+	sysopendb.odb_iscurrent = 'Y' AND
+	$SESSION_FILTER AND
+	$DATABASE_FILTER AND
+	$USER_FILTER ;
+!EOF
+
+if [ $? != 0 ]
+then
+	echo "${PROGNAME}: Error running query (get report data):" >&2
+	echo "${PROGNAME}: Error running query (get report data):" >>$TMP_FILE_ERR
+	cat $TMP_FILE_ERR >&2
+	exit 3
+fi
+
+if [ ! -s $TMP_FILE_1 ]
+then
+	return 1
+else
+	[ $IX_DEBUG_FILES ] && cat $TMP_FILE_1 >&2
+	return 0
+fi
+
+}
 
 
 #-------------------------------------------------------------------------------------------------
@@ -1215,7 +1291,7 @@ cleanup()
 [ $IX_DEBUG_ALL ] && set -x
 
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision: 2.0.9 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.41 $" | cut -f2 -d' '`
 TMP_FILE_1=/tmp/${PROGNAME}_$$_1.tmp
 TMP_FILE_CBS=/tmp/${PROGNAME}_$$_cbs.tmp
 TMP_FILE_ERR=/tmp/${PROGNAME}_$$_err.tmp
@@ -1259,11 +1335,11 @@ onstat -g dmp 0x1 dummy | egrep -e "Informix Dynamic |Must be.* to run this prog
 BEGIN {
 	DBSA=0
 }
-/Informix Dynamic/ { split($0, a, "Version"); split(a[2],b,".");VER=b[1]b[2] }
+/Informix Dynamic/ { split($0, a, "Version"); split(a[2],b," ");split(b[1],c,".");VER=c[1]c[2];gsub(/^[A-Z][A-Z]*|([A-Z][0-9]([A-Z][0-9])*$)/,"",c[3]);FIX=c[3]}
 /Must be/ { DBSA=1}
 END {
-	print VER " " DBSA
-}' | read VER DBSA
+	print VER " " FIX " " DBSA
+}' | read VER FIX DBSA
 
 
 if [ "X$DBSA" = "X1" ]
@@ -1374,94 +1450,98 @@ fi
 # Reduce session range with user, session list and database list
 #-------------------------------------------------------------------------------------
 
-get_session_list
-
-if [ $? != 0 ]
+if [ $VER -gt 1210 -o \( $VER = 1210 -a $FIX -ge 8 \) ]
 then
-	printf "${PROGNAME}: There are no sessions to process\n"
-	exit
-fi
+	get_report_data
+else
+	get_session_list
 
-#-------------------------------------------------------------------------------------
-# Process each session and gather details
-#-------------------------------------------------------------------------------------
-
-[ $IX_DEBUG_FILES ] && cat $TMP_FILE_SES >&2
-cat /dev/null > $TMP_FILE_1
-PREV_SID=0
-while read SID SQSCB SCB SORT_POOL_NAME CURRCB
-do
-	[ $IX_DEBUG_LOOPS ] && echo "SID: $SID CURRCB: $CURRCB" >&2
-	#------------ Because we can have several lines for same SID (different mem pools)
-	if [ $SID != $PREV_SID ]
+	if [ $? != 0 ]
 	then
-		#--------- HASH tables (and hash tables for GROUP BY?)
-		cat /dev/null > $TMP_FILE_CBS
-		for SDBLOCK in `onstat -g stm $SID | egrep -v -e "^$" -e "^IBM" -e "^session" -e "^sdblock" | $AWK '{if ( ($1 ~ /^[0-9a-f][0-9a-f]*/ ) && ( $2 ~ /^[0-9][0-9]*/ ) && ($3 ~ /^\*/ ) ) { print "0x"$1 } } '`
-		do
-		
-			[ $IX_DEBUG_LOOPS ] &&	echo SID: $SID SDBLOCK: $SDBLOCK >&2
-			SD_CBLIST=`onstat -g dmp $SDBLOCK sdblock  | egrep -e " sd_cblist  *= " | $AWK '{print $3}'`
-		
+		printf "${PROGNAME}: There are no sessions to process\n"
+		exit
+	fi
+
+	#-------------------------------------------------------------------------------------
+	# Process each session and gather details
+	#-------------------------------------------------------------------------------------
+
+	[ $IX_DEBUG_FILES ] && cat $TMP_FILE_SES >&2
+	cat /dev/null > $TMP_FILE_1
+	PREV_SID=0
+	while read SID SQSCB SCB SORT_POOL_NAME CURRCB
+	do
+		[ $IX_DEBUG_LOOPS ] && echo "SID: $SID CURRCB: $CURRCB" >&2
+		#------------ Because we can have several lines for same SID (different mem pools)
+		if [ $SID != $PREV_SID ]
+		then
+			#--------- HASH tables (and hash tables for GROUP BY?)
+			cat /dev/null > $TMP_FILE_CBS
+			for SDBLOCK in `onstat -g stm $SID | egrep -v -e "^$" -e "^IBM" -e "^session" -e "^sdblock" | $AWK '{if ( ($1 ~ /^[0-9a-f][0-9a-f]*/ ) && ( $2 ~ /^[0-9][0-9]*/ ) && ($3 ~ /^\*/ ) ) { print "0x"$1 } } '`
+			do
 			
+				[ $IX_DEBUG_LOOPS ] &&	echo SID: $SID SDBLOCK: $SDBLOCK >&2
+				SD_CBLIST=`onstat -g dmp $SDBLOCK sdblock  | egrep -e " sd_cblist  *= " | $AWK '{print $3}'`
+			
+				
 #DEU _temptable dups			onstat -g dmp $SD_CBLIST cblist_t,LL'(cbl_next)' | egrep -e " cbl_cb  *= " | $AWK '{ print $3 }' | sed 's/^0x0*/0x/g' >> $TMP_FILE_CBS
-			onstat -g dmp $SD_CBLIST cblist_t | egrep -e " cbl_cb  *= " | $AWK '{ print $3 }' | sed 's/^0x0*/0x/g' >> $TMP_FILE_CBS
-		done
-		echo $CURRCB | sed 's/0x0*/0x/g' >> $TMP_FILE_CBS
+				onstat -g dmp $SD_CBLIST cblist_t | egrep -e " cbl_cb  *= " | $AWK '{ print $3 }' | sed 's/^0x0*/0x/g' >> $TMP_FILE_CBS
+			done
+			echo $CURRCB | sed 's/0x0*/0x/g' >> $TMP_FILE_CBS
 			
 			
-		[ $IX_DEBUG_LOOPS ] && cat $TMP_FILE_CBS >&2
-		sort -u $TMP_FILE_CBS | egrep -v -e "0x0*$" | while read CB
-		do
-			[ $IX_DEBUG_STRUCTS ] && onstat -g dmp $CB conblock >&2 
-			onstat -g dmp $CB conblock | egrep -e "( cb_ithandle  *= | cb_tables  *= )" | $AWK '
+			[ $IX_DEBUG_LOOPS ] && cat $TMP_FILE_CBS >&2
+			sort -u $TMP_FILE_CBS | egrep -v -e "0x0*$" | while read CB
+			do
+				[ $IX_DEBUG_STRUCTS ] && onstat -g dmp $CB conblock >&2 
+				onstat -g dmp $CB conblock | egrep -e "( cb_ithandle  *= | cb_tables  *= )" | $AWK '
 /cb_ithandle/ {ITHANDLE=$3}
 /cb_tables/ {CBTABLES=$3}
 END {print ITHANDLE " " CBTABLES}' | read ITROOT CBTABLES
 		
-			get_tmp_structs_from_iterators $ITROOT | while read HASH_TYPE PARTNUM
-			do
-				echo "$SID|$HASH_TYPE|$PARTNUM|||" >> $TMP_FILE_1
+				get_tmp_structs_from_iterators $ITROOT | while read HASH_TYPE PARTNUM
+				do
+					echo "$SID|$HASH_TYPE|$PARTNUM|||" >> $TMP_FILE_1
+				done
 			done
-		done
 
-		#--------- TEMP tables
+			#--------- TEMP tables
 
-		[ $IX_DEBUG_STRUCTS ] && onstat -g dmp $SQSCB sqscb_t >&2 
-		onstat -g dmp $SQSCB sqscb_t | egrep -e " dicttab  *=" | read DUMMY EQUAL DICTTAB
-		echo $DICTTAB | egrep "^0x00*$" >/dev/null
-		if [ $? != 0 ]
-		then
-			[ $IX_DEBUG_STRUCTS ] && onstat -g dmp $DICTTAB 'ddtabdesc,LL(ddt_next)' >&2 
-			onstat -g dmp $DICTTAB 'ddtabdesc,LL(ddt_next)' | egrep -e "( ddt_partnum  *= | ddt_frags  *= |struct )"| $AWK '
+			[ $IX_DEBUG_STRUCTS ] && onstat -g dmp $SQSCB sqscb_t >&2 
+			onstat -g dmp $SQSCB sqscb_t | egrep -e " dicttab  *=" | read DUMMY EQUAL DICTTAB
+			echo $DICTTAB | egrep "^0x00*$" >/dev/null
+			if [ $? != 0 ]
+			then
+				[ $IX_DEBUG_STRUCTS ] && onstat -g dmp $DICTTAB 'ddtabdesc,LL(ddt_next)' >&2 
+				onstat -g dmp $DICTTAB 'ddtabdesc,LL(ddt_next)' | egrep -e "( ddt_partnum  *= | ddt_frags  *= |struct )"| $AWK '
 /struct / { if ( DDT_PARTNUM != "" ) { print DDT_PARTNUM " " DDT_FRAGS} }
 /ddt_partnum/ {DDT_PARTNUM=$NF}
 /ddt_frags/ {DDT_FRAGS=$NF}
 END {print DDT_PARTNUM " " DDT_FRAGS}' | while read TMP_PARTNUM TMP_FRAGS
-			do
-				if [ "X$TMP_PARTNUM" = "X0" ]
-				then
-					FRAG_START=`onstat -g dmp $TMP_FRAGS ddlfraglist_t | egrep -e " lf_frag  *= " | $AWK '{print $3}'`
-					echo $FRAG_START | egrep "^0x00*$" >/dev/null
-					if [ $? != 0 ]
+				do
+					if [ "X$TMP_PARTNUM" = "X0" ]
 					then
-						onstat -g dmp $FRAG_START 'ddlfrag_t,LL(lf_next)'| egrep -e " lf_fragid  *= " | $AWK -v SID=$SID '{print SID"|TEMP|"$NF"|||"}' >>$TMP_FILE_1
+						FRAG_START=`onstat -g dmp $TMP_FRAGS ddlfraglist_t | egrep -e " lf_frag  *= " | $AWK '{print $3}'`
+						echo $FRAG_START | egrep "^0x00*$" >/dev/null
+						if [ $? != 0 ]
+						then
+							onstat -g dmp $FRAG_START 'ddlfrag_t,LL(lf_next)'| egrep -e " lf_fragid  *= " | $AWK -v SID=$SID '{print SID"|TEMP|"$NF"|||"}' >>$TMP_FILE_1
+						fi
+					else
+						printf $SID"|TEMP|"$TMP_PARTNUM"|||\n" >>$TMP_FILE_1
 					fi
-				else
-					printf $SID"|TEMP|"$TMP_PARTNUM"|||\n" >>$TMP_FILE_1
-				fi
-			
-			done
+				
+				done
+			fi
 		fi
-	fi
+	
+		#--------- SORT tables
 
-	#--------- SORT tables
-
-	if [ "X$SORT_POOL_NAME" != "XNOSORT" ]
-	then
+		if [ "X$SORT_POOL_NAME" != "XNOSORT" ]
+		then
 #		onstat -g afr $SORT_POOL_NAME | $AWK -v SID=$SID '{if ($3 == "sort" ) {print SID"|SORT|0|0x"$1"|"$2}}' >> $TMP_FILE_1
 #		LOAD cannot process HEX numbers > 15 digits
-		onstat -g afr $SORT_POOL_NAME | $AWK -v SID=$SID '{if ($3 == "sort" ) {
+			onstat -g afr $SORT_POOL_NAME | $AWK -v SID=$SID '{if ($3 == "sort" ) {
 if (length($1) > 15 )
 {
 	CMD="echo \"ibase=16;"toupper($1)"\" | bc";
@@ -1473,9 +1553,10 @@ else
 }
 print SID"|SORT|0|0x"ADDR"|"$2}}' >> $TMP_FILE_1
 
-	fi
-	PREV_SID=$SID
-done < $TMP_FILE_SES
+		fi
+		PREV_SID=$SID
+	done < $TMP_FILE_SES
+fi
 
 [ $IX_DEBUG_FILES ] && cat $TMP_FILE_1 >&2
 
