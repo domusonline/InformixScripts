@@ -2,8 +2,8 @@
 # Copyright (c) 2002-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision 2.0.1 $
-# $Date 2016-02-22 02:38:48$
+# $Revision: 2.0.37 $
+# $Date: 2018-04-03 16:25:39 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -151,7 +151,7 @@ get_args()
 #INIT
 
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision 2.0.1 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.37 $" | cut -f2 -d' '`
 SESSION_LIST=""
 
 
@@ -608,12 +608,35 @@ do
 			continue
 		fi
 
-
-		# obtaining last read/write timestamps on session
-		line=`onstat -g ntt | ${AWK} -v "SESSION=${session}" '$3 ~ SESSION { print $0}'`
-		CONN_TIMESTAMP=`echo $line | cut -f4 -d' '`
-		READ_TIMESTAMP=`echo $line | cut -f5 -d' '`
-		WRITE_TIMESTAMP=`echo $line | cut -f6 -d' '`
+		line=`dbaccess sysmaster<<EOF 2>/dev/null |cut -f2- -d' ' 
+SELECT FIRST 1
+	DBINFO('utc_to_datetime', net_open_time)||"!"||DBINFO('utc_to_datetime', net_last_read)||"!"||DBINFO('utc_to_datetime', net_last_write)||"!"
+FROM
+	sysnetworkio
+WHERE
+	sid=$session
+ORDER BY 1
+EOF
+`
+		if [ "X${line}" = "X" ]
+		then
+			# obtaining last read/write timestamps on session
+			line=`onstat -g ntt | ${AWK} 'BEGIN {PREV_LINE="NOPRINT"} /netscb.*sid/,/END/ {if (NF <= 3 && NF >0 ) {print PREV_LINE " " $1 " " $2 " " $3;PREV_LINE="NOPRINT"} else {if  ( PREV_LINE != "NOPRINT") { print PREV_LINE};PREV_LINE=$0;}}' | ${AWK} -v "SESSION=${session}" '
+function convert_date(mydate)
+			{
+			if (mydate == "" )
+				return("");
+			split(mydate,a,"/");
+			MONTH=a[1];
+			DAY=a[2];
+			YEAR=a[3];
+			return("20"YEAR"-"MONTH"-"DAY" ");
+		}
+		$3 ~ SESSION { print convert_date($7) $4 "!" convert_date($8) $5 "!" convert_date($9) $6}'`
+		fi
+		CONN_TIMESTAMP=`echo $line | cut -f1 -d'!'`
+		READ_TIMESTAMP=`echo $line | cut -f2 -d'!'`
+		WRITE_TIMESTAMP=`echo $line | cut -f3 -d'!'`
 
 		onstat -g ses ${session} | ${AWK} -v "TZ_DIFF=${TZ_DIFF}" -v "PS_CMD=${PS_CMD}" -v "SESSION=${session}" -v "HOST=${HOSTNAME}" -v "PROC=${PROC}" -v "CONN_TIMESTAMP=${CONN_TIMESTAMP}" -v "READ_TIMESTAMP=${READ_TIMESTAMP}" -v "WRITE_TIMESTAMP=${WRITE_TIMESTAMP}" '
 #-------------------------------------------------------------
@@ -886,7 +909,8 @@ do
 		my_islocal = $1;
 		my_cwd = $2;
 		my_hostname = $3;
-		my_connected = sprintf("%s %s",$4,$5);
+		#my_connected = sprintf("%s %s",$4,$5);
+		my_connected = CONN_TIMESTAMP;
 
 		close(FILE_SESSION_UNL);
 		if ( my_islocal == 1)
@@ -920,12 +944,12 @@ do
 		printf("%-18s %-11s %-18s %-10s %-10s %-10s %-10s %-4s %-3s %-3s %-5s %-9s %-3s\n", my_database, my_fe_version,
 		my_stmt_type, my_iso_level, my_lock_mode, my_sql_err, my_isam_err, my_set_explain,my_optofc,my_pdq_priority,my_sqlstats, my_optcompind, my_directives);
 		print "";
-		print "TID      THREAD NAME  RSTCB            FLAGS   STATUS                    LAST READ  LAST WRITE";
+		print "TID      THREAD NAME  RSTCB            FLAGS   STATUS                    LAST READ           LAST WRITE";
 		for (f=1; f<=my_nthreads; f++ )
 		{
 			if ( f == 1 )
 			{
-				printf("%-8s %-12s %-16s %-7s %-25s %-10s %-9s\n", my_tid[f], my_thread_name[f], my_rstcb[f], my_flags[f], my_status[f], my_read_timestamp, my_write_timestamp );
+				printf("%-8s %-12s %-16s %-7s %-25s %-19s %-17s\n", my_tid[f], my_thread_name[f], my_rstcb[f], my_flags[f], my_status[f], my_read_timestamp, my_write_timestamp );
 			}
 			else
 			{
