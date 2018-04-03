@@ -2,8 +2,8 @@
 # Copyright (c) 2004-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision: 2.0.13 $
-# $Date 2016-12-12 00:32:18$
+# $Revision: 2.0.38 $
+# $Date: 2018-04-03 16:45:04 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -17,7 +17,7 @@ usage()
 
 
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision: 2.0.13 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.38 $" | cut -f2 -d' '`
 
 case $# in
 2)
@@ -106,7 +106,7 @@ case $IX_VERSION in
 12.10)
         IX_SUB_DIRS="SDK aaodir bin dbssodir demo doc etc extend gls gskit help incl isa lib license msg properties release snmp ssl tmp uninstall jdbc"
         IX_DIRS="SDK bin demo doc extend gls gskit help incl isa lib license msg properties release snmp jdbc"
-        OPTIONAL_DIRS="snmp jdbc"
+        OPTIONAL_DIRS="jvm OAT sdk_license snmp jdbc help"
         #ism as optional?
         ;;
 *)
