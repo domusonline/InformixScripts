@@ -1,0 +1,20 @@
+# Copyright (c) -2018 Fernando Nunes - domusonline@gmail.com
+# License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
+# $Author: Fernando Nunes - domusonline@gmail.com $
+# $Revision: 2.0.40 $
+# $Date: 2018-04-03 18:24:53 $
+# Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
+#             Although the author is/was an IBM employee, this software was created outside his job engagements.
+#             As such, all credits are due to the author.
+# File should be located in ~informix/etc
+# Example for setinfx.params file for setinfx. This file configures special options for setinfx. Lines can be:
+# admingroups: group1 group2 group3
+# +---> Optionally defines the groups which will "see" administrative environments
+# system_ld_library_path: /some/path /other/path
+# +---> Optionally defines the components of the system path for libraries. The problem is that once LD_LIBRARY_PATH is defined, it will be searched first.
+#       which can cause excessive search for basic system libraries. These components will be put ahead in the variable definition, before the Informix directories
+# path_informixdir_bin:  BEGIN|END
+# +---> Optionally defines if $INFORMIXDIR/bin will be put in the head (BEGIN) or back (END) of the $PATH list
+# All other lines will be used as a pattern (LINE.*:|LINE.*$) to remove (clean) components of PATH and LD_LIBRARY_PATH
+# /usr/informix/srvr (removes components like /usr/informix/srvr1210fc10)
+# /usr/informix/tool (removes components like /usr/informix/tool732fc2)

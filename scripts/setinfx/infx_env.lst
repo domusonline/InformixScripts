@@ -1,0 +1,27 @@
+# Copyright (c) -2018 Fernando Nunes - domusonline@gmail.com
+# License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
+# $Author: Fernando Nunes - domusonline@gmail.com $
+# $Revision: 2.0.40 $
+# $Date: 2018-04-03 18:24:53 $
+# Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
+#             Although the author is/was an IBM employee, this software was created outside his job engagements.
+#             As such, all credits are due to the author.
+#Example configuration file for setinfx. Fields separated by pipe (|):
+#File should be located in ~informix/etc
+#Environment Desc|$INFORMIXSERVER|$ONCONFIG|$INFORMIXDIR|SERVER_INFORMIXDIR / FGLDIR |$INFORMIXSQLHOSTS|ENV_TYPE[SD]||HOSTNAME / LOCAL|SCRIPT_TO_EXECUTE
+#SERVER_INFORMIXDIR is the directory where ther server is installed, for "D" Development environments
+# ENV_TYPE:
+#           D|d - Development Environments
+#           S|s - Server Environments
+#           Y - dYnamic 4GL 
+#           g - Genero environments
+# HOSTNAME can be replaed by "LOCAL" for a local environment
+# SCRIPT_TO_EXECUTE should point to a SHELL script in ~informix/etc which will be executed after setting the environment
+# NOTES!:
+# 	The 8th field should be empty! Maybe the script should be changed to ignore it and shift 9th and 10th...
+#	Any line starting with "inactive" will be counted but not shown. That's the correct way to remove an environment without disturbing the numbers od remaining
+#       And naturally any line staring with "#" is a comment line and is ignored.
+# Examples:
+# App1 Env (ADM)|ol_app1|onconfig.ol_app1|/usr/informix/srvr1210fc10_ol_app1|=|/usr/informix/etc/sqlhosts|S||LOCAL|app1_adm_extra.sh
+# App1 Env (DEV)|ol_app1||/usr/informix/tools732uc3|/usr/informix/srvr1210fc10_ol_app1|/usr/informix/etc/sqlhosts|D||LOCAL|app1_dev_extra.sh
+# App1 Env (DEV Genero)|ol_app1||/usr/informix/tools732uc3|/usr/informix/genero|/usr/informix/etc/sqlhosts|Y||LOCAL|app1_genero_extra.sh

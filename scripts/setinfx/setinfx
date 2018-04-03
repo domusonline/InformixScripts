@@ -1,9 +1,9 @@
 #!/bin/sh
-# Copyright (c) 2016 Fernando Nunes - domusonline@gmail.com
+# Copyright (c) -2018 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision 2.0.1 $
-# $Date 2016-02-22 02:38:48$
+# $Revision: 2.0.40 $
+# $Date: 2018-04-03 18:24:53 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -32,9 +32,9 @@ setinfx_set_clean_path()
 		# Creates a list of paths to clean
 		#-----------------------------------------------------
 		a=0;
-		idx=0;
+		idx=1;
 		params_file=sprintf("%s/'$INFX_PARAMS'","'$IFMXETC'");
-		while ( getline ifmxpath[++idx] < params_file )
+		while ( getline ifmxpath[idx] < params_file )
 		{
 			if  ( ifmxpath[idx] ~ /^[ 	]*[a-z_A-Z][a-z_A-Z]*[ 	]*:.*/ )
 			{
@@ -48,13 +48,14 @@ setinfx_set_clean_path()
 						if ( config_var[1] ~ /^path_informixdir_bin/ )
 							PATH_INFORMIXDIR_BIN=config_var[2];
 				idx--;
-				
 			}
 			else
 			{
 				a=1;
 			}
+			idx++;
 		}
+		idx--;
 		PATH_IDX=idx;
 		#-----------------------------------------------------
 		# Add SYSTEM_LIB_PATH to the above list...
@@ -256,7 +257,7 @@ SETINFX_LINHA_CONF=\
 			next
 		}
 		lnnum++;
-		if ( $7 !~ "[SsDdY]" ) { 
+		if ( $7 !~ "[SsDdYg]" ) { 
 			printf("Line %d : INVALID envtype %s\n",lnnum,$7) > "/dev/tty";
 			exit 2;
 		}
@@ -324,7 +325,9 @@ SETINFX_LINHA_CONF=\
 			}
 			if ( $7 == "Y" )
 				file=sprintf("%s/etc/D4GL-cr",$5);
-				cmd=sprintf("cat %s/etc/D4GL-cr",$5);
+#FIXME				cmd=sprintf("cat %s/etc/D4GL-cr",$5);
+			if ( $7 == "g" )
+				file=sprintf("%s/etc/genero-cr",$5);
 	
 			getline vers < file;
 			close(file);
@@ -456,7 +459,7 @@ s|S)
 		PATH="$INFORMIXDIR/bin:$SETINFX_CLEAN_PATH"
 	esac
 	;;
-D|Y)
+D|Y|g)
 	if [ "X$SETINFX_CLEAN_LD_LIB_PATH" != "XNULL" ]
 	then
 		SETINFX_CLEAN_LD_LIB_PATH="$SETINFX_CLEAN_LD_LIB_PATH:"
@@ -526,6 +529,34 @@ D|Y)
 		FGLLIBSYS="-ltli -lxti -lc -lm"
 		export FGLLIBSYS
 	fi 
+	if [ $SETINFX_ENVTYPE = "g" ]
+	then
+		USERNAME=$SETINFX_USER
+		[ -z "$FGLSERVER" ] && FGLSERVER=`who am i | cut -f2 -d'(' | cut -f1 -d')'`
+		export FGLSERVER
+		FGLGUI=1
+		export FGLGUI
+		GENERODIR=$SETINFX_LNK_DIR
+		FGLDIR=$GENERODIR/fgl
+		export GENERODIR FGLDIR
+		PATH=$SETINFX_CLEAN_PATH:$FGLDIR/bin:$INFORMIXDIR/bin
+
+		#------- Database frontend version
+
+		FGLDBS="ix711"
+		export FGLDBS
+
+		#------- Informix SQL libraries
+
+		FGLLIBSQL="-L$INFORMIXDIR/lib/tools -lfesql -los -lasf $INFORMIXDIR/lib/tools/libasf.a -los -lasf \
+		-lgen $INFORMIXDIR/lib/tools/libgls.a $INFORMIXDIR/lib/tools/libglx.a"
+		export FGLLIBSQL
+
+
+		#------- System libraries
+
+		FGLLIBSYS="-ltli -lxti -lc -lm"
+	fi
 	;;
 esac
 
@@ -628,7 +659,7 @@ case $0 in
 	;;
 *)
 
-	SETINFX_VERSION=`echo "$Revision 2.0.1 $" | cut -f2 -d' '`
+	SETINFX_VERSION=`echo "$Revision: 2.0.40 $" | cut -f2 -d' '`
 	if [ -z "${SETINFX_CONF}" ]
 	then
 		INFX_CONF=infx_env.lst
