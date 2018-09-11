@@ -2,8 +2,8 @@
 # Copyright (c) 2011-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision: 2.0.3 $
-# $Date 2016-04-12 16:11:06$
+# $Revision: 2.0.43 $
+# $Date: 2018-09-11 23:46:32 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -15,16 +15,17 @@ clean_up()
 
 ix_help()
 {
-        echo "${PROGNAME}: -V | -h | [ percentage_objects ]" >&1
-        echo "               -V shows script version" >&1
-        echo "               -h shows this help" >&1
-        echo "   percentage_objects is the percentage of objects we plan to keep in the cache" >&1
-        echo "Ex: ${PROGNAME} 50" >&1
+	echo "${PROGNAME}: -V | -h | [-d] [ percentage_objects ]"
+	echo "               -V shows script version"
+	echo "               -h shows this help"
+	echo "               -d display current values"
+	echo "   percentage_objects is the percentage of objects we plan to keep in the cache"
+	echo "Ex: ${PROGNAME} 50"
 }
 
 get_args()
 {
-	arg_ok="Vh"
+	arg_ok="Vhd"
 	while getopts ${arg_ok} OPTION
 	do
 		case ${OPTION} in
@@ -35,6 +36,9 @@ get_args()
 		V)      #show version
 			echo "${PROGNAME} ${VERSION}" >&1
 			exit 0
+			;;
+		d)      #display current values
+			DISPLAY_FLAG=1
 			;;
 		?)      # Error in the parsing of getopts
 			return 1
@@ -2408,6 +2412,7 @@ EOF
 		return
 	else
 		cat $TMPFILE | read NUM_TABLES_TOT NUM_TABLES
+		echo
 		echo "Total number of tables in the system is: ${NUM_TABLES_TOT}. Planned for ${PERCENTAGE}% of total: $NUM_TABLES"
 	fi
 	
@@ -2552,10 +2557,42 @@ EOF
 	echo DS_POOLSIZE $DS_POOLSIZE
 }
 
+display_current_values()
+{
+	dbaccess sysmaster <<EOF 1>${ERRFILE} 2>&1
+	UNLOAD TO $TMPFILE
+	SELECT
+		RPAD(cf_name,12,' ')::VARCHAR(11),
+		cf_effective
+	FROM
+		sysmaster:syscfgtab
+	WHERE
+		cf_name in (
+		'DD_HASHSIZE',
+		'DD_HASHMAX',
+		'DS_HASHSIZE',
+		'DS_POOLSIZE',
+		'PC_HASHSIZE',
+		'PC_POOLSIZE'
+		)
+	ORDER BY
+		cf_name;
+	
+EOF
+	if [ $? != 0 ]	
+	then
+		echo "${PROGNAME}: Error getting current effective cache parameters:" >&2
+		cat ${ERRFILE} >&2
+	fi
+	printf "\n\nParameter   Value\n"
+	printf "----------- ----------\n"
+	cat $TMPFILE | sed 's/\|/ /g'
+}
+
 #INIT
 
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision: 2.0.3 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.43 $" | cut -f2 -d' '`
 TMPFILE=/tmp/${PROGNAME}_$$.tmp
 ERRFILE=/tmp/${PROGNAME}_$$.err
 DATABASE_LIST=""
@@ -2573,3 +2610,8 @@ fi
 calc_dic_cache
 calc_dist_cache
 calc_proc_cache
+
+if [ "X${DISPLAY_FLAG}" = "X1" ]
+then
+	display_current_values
+fi
