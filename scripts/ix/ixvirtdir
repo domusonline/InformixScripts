@@ -2,8 +2,8 @@
 # Copyright (c) 2004-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision: 2.0.38 $
-# $Date: 2018-04-03 16:45:04 $
+# $Revision: 2.0.45 $
+# $Date: 2019-10-23 00:23:06 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -17,7 +17,15 @@ usage()
 
 
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision: 2.0.38 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.45 $" | cut -f2 -d' '`
+TMP_ERR_FILE=/tmp/$PROGNAME.stderr.$$
+
+clean_up()
+{
+	rm -f $TMP_ERR_FILE
+}
+
+trap clean_up 0
 
 case $# in
 2)
@@ -82,35 +90,40 @@ OPTIONAL_DIRS="dummy"
 case $IX_VERSION in
 7*)
 	IX_SUB_DIRS="aaodir bin dbssodir demo etc forms gls help incl ism lib msg release snmp"
-	IX_DIRS="bin demo forms gls help incl ism lib msg release snmp"
+	IX_LINK_DIRS="bin demo forms gls help incl ism lib msg release snmp"
+	IX_COPY_DIRS="aaodir dbssodir etc"
 	;;
 9*)
 	IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp"
-	IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp"
+	IX_LINK_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp"
+	IX_COPY_DIRS="aaodir dbssodir etc"
 	;;
 10.00|11.10)
 	IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp ids_license tmp"
-	IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp ids_license"
+	IX_LINK_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp ids_license"
+	IX_COPY_DIRS="aaodir dbssodir etc"
 	;;
 11.50)
 	IX_SUB_DIRS="aaodir bin dbssodir demo doc etc extend forms gls help incl ism lib msg release snmp ids_license gskit gsk ssl tmp"
-	IX_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp ids_license gskit gsk"
-	OPTIONAL_DIRS=snmp
+	IX_LINK_DIRS="bin demo doc extend forms gls help incl ism lib msg release snmp ids_license gskit gsk"
+	OPTIONAL_DIRS="snmp"
+	IX_COPY_DIRS="aaodir dbssodir etc"
 	;;
 11.70)
 	IX_SUB_DIRS="SDK aaodir bin dbssodir demo doc etc extend forms gls gskit help incl isa lib license msg properties release ssl tmp uninstall jdbc"
-	IX_DIRS="SDK bin demo doc extend forms gls gskit help incl isa lib license msg properties release ism jdbc"
-	OPTIONAL_DIRS="jdbc ism"
+	IX_LINK_DIRS="SDK bin demo doc extend forms gls gskit help incl isa lib license msg properties release ism jdbc"
+	OPTIONAL_DIRS="jdbc ism snmp"
+	IX_COPY_DIRS="aaodir dbssodir etc"
 	#ism as optional?
 	;;
-12.10)
-        IX_SUB_DIRS="SDK aaodir bin dbssodir demo doc etc extend gls gskit help incl isa lib license msg properties release snmp ssl tmp uninstall jdbc"
-        IX_DIRS="SDK bin demo doc extend gls gskit help incl isa lib license msg properties release snmp jdbc"
-        OPTIONAL_DIRS="jvm OAT sdk_license snmp jdbc help"
-        #ism as optional?
+12.10|14.10)
+	IX_SUB_DIRS="aaodir bin dbssodir demo doc ee_license etc extend gls gskit help hq incl isa jdbc jvm lib license msg OAT properties release SDK sdk_license snmp ssl tmp uninstall"
+	IX_LINK_DIRS="bin demo doc ee_license extend gls gskit help hq incl isa jdbc jvm lib license msg OAT properties release SDK sdk_license snmp"
+	OPTIONAL_DIRS="ee_license hq jdbc jvm OAT properties SDK sdk_license snmp"
+	IX_COPY_DIRS="aaodir dbssodir etc"
         ;;
 *)
-	echo "Version can only be 7, 9, 10, 11, 11.5, 11.7 or 12.1. Found:$IX_VERSION" >&2
+	echo "Version can only be 7, 9, 10, 11, 11.50, 11.70, 12.10 or 14.10. Found:$IX_VERSION" >&2
 	exit 1
 	;;
 esac
@@ -201,30 +214,55 @@ then
 	echo "Error changing to new INFORMIXDIR">&2
 fi
 
-for dir in $IX_DIRS
+for dir in $IX_LINK_DIRS
 do
-	if [ $MY_USER != "informix" ]
+	if [ -d $EXISTING_IXDIR/$dir ]
 	then
-		su informix -c "ln -s $EXISTING_IXDIR/$dir ."
-	else
-		ln -s $EXISTING_IXDIR/$dir .
+		if [ $MY_USER != "informix" ]
+		then
+			su informix -c "ln -s $EXISTING_IXDIR/$dir ."
+		else
+			ln -s $EXISTING_IXDIR/$dir .
+		fi
 	fi
 done
 
-mkdir ${NEW_IXDIR}/dbssodir ${NEW_IXDIR}/aaodir ${NEW_IXDIR}/etc
+for DIR in $IX_COPY_DIRS
+do
+	if [ -d $EXISTING_IXDIR/$DIR ]
+	then
+		mkdir $NEW_IXDIR/$DIR
+		if [ "X${DIR}" = "Xetc" ]
+		then
+			cp -pR $EXISTING_IXDIR/$DIR/. $NEW_IXDIR/$DIR
+		else
+			cp -pR $EXISTING_IXDIR/$DIR/* $NEW_IXDIR/$DIR
+		fi
+	fi
+done
 
-cp -pR $EXISTING_IXDIR/etc/* $NEW_IXDIR/etc
-cp -pR $EXISTING_IXDIR/dbssodir/* $NEW_IXDIR/dbssodir
-cp -pR $EXISTING_IXDIR/aaodir/* $NEW_IXDIR/aaodir
-
-if [ -d $EXISTING_IXDIR/ssl ]
-then
-	mkdir ${NEW_IXDIR}/ssl
-	cp -pR $EXISTING_IXDIR/ssl $NEW_IXDIR/ssl
-fi
 if [ -d $EXISTING_IXDIR/tmp ]
 then
 	mkdir ${NEW_IXDIR}/tmp
+fi
+
+#SSL is created and not copied because we may want to have separate dirs owned by different DBSA groups and with different contents
+if [ -d $EXISTING_IXDIR/ssl ]
+then
+	mkdir ${NEW_IXDIR}/ssl
+	
+	SSL_FILES=`find ${EXISTING_IXDIR}/ssl -type f | wc -l | awk '{print $1}'`
+	if [ $SSL_FILES -gt 0 ]
+	then
+		cat <<!END
+
+WARNING! ${NEW_IXDIR}/ssl directory was created.
+If existing dir ($EXISTING_IXDIR/ssl) already contained SSL configuration files you may need to copy some files manually
+Existing files in original dir (none was copied):
+!END
+		find ${EXISTING_IXDIR}/ssl -type f -exec echo cp -p {} ${NEW_IXDIR}/ssl \;
+		echo;echo
+	fi
 fi
 
 
@@ -286,13 +324,9 @@ case ${GROUPS_FLAG} in
 esac
 
 
-chmod 770 ${NEW_IXDIR}/dbssodir ${NEW_IXDIR}/aaodir
+chmod 770 ${NEW_IXDIR}/dbssodir ${NEW_IXDIR}/aaodir 
 chmod 775 ${NEW_IXDIR}/etc
-if [ -d $NEW_IXDIR/ssl ]
+if [ -d ${NEW_IXDIR}/tmp ]
 then
-	chmod 770 $NEW_IXDIR/ssl
-fi
-if [ -d $NEW_IXDIR/tmp ]
-then
-	chmod 770 $NEW_IXDIR/tmp
+	chmod 770 ${NEW_IXDIR}/tmp
 fi
