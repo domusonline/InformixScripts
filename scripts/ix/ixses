@@ -2,8 +2,8 @@
 # Copyright (c) 2002-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision: 2.0.42 $
-# $Date: 2018-09-11 22:59:28 $
+# $Revision: 2.0.44 $
+# $Date: 2019-10-22 21:51:02 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -151,7 +151,7 @@ get_args()
 #INIT
 
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision: 2.0.42 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.44 $" | cut -f2 -d' '`
 SESSION_LIST=""
 
 
@@ -830,17 +830,16 @@ function convert_date(mydate)
 					my_host_variables=sprintf("%s%s",my_host_variables, "\n");
 				}
 			}
-			
 
 #-------------------------------------------------------------
 # Last parsed SQL statement
 #-------------------------------------------------------------
-	/^Last /,/^$/ {my_last_sql_length=length(my_last_sql);my_line_length=length();if ((my_last_sql_length + + my_line_length) < 3000) my_last_sql=sprintf("%s\n%s", my_last_sql, $0); } \
+	/^Last parsed SQL statement/,/^$/ {my_last_sql_length=length(my_last_sql);my_line_length=length();if ((my_last_sql_length + + my_line_length) < 3000) my_last_sql=sprintf("%s\n%s", my_last_sql, $0); } \
 
 #-------------------------------------------------------------
 # Temp tables processing
 #-------------------------------------------------------------
-	/User-created/,/END/ {
+	/User-created/,/^$/ {
 		if ( $1 ~ "partnum" || $1 ~ "User-created" || $1 == "" )
 		{
 			next
@@ -870,6 +869,7 @@ function convert_date(mydate)
 		partnums[first]=dec_partnum;
 		first++;
 	}
+
 
    END {
 		if ( my_no_session == 1 )
