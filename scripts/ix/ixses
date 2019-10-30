@@ -2,8 +2,8 @@
 # Copyright (c) 2002-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision: 2.0.44 $
-# $Date: 2019-10-22 21:51:02 $
+# $Revision: 2.0.46 $
+# $Date: 2019-10-30 11:43:10 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -52,7 +52,7 @@ get_args()
 			fi
 			;;
 		U)   # set up the -u (list user sessions flag)
-			if [ "X${ALL_SESSIONS_FLAG}" != "X" "X" -o "X${GET_SESSION_SQL_FLAG}" != "X" -o "X${LIST_USER_SESSIONS_FLAG}" != "X" ]
+			if [ "X${ALL_SESSIONS_FLAG}" != "X" -o "X${GET_SESSION_SQL_FLAG}" != "X" -o "X${LIST_USER_SESSIONS_FLAG}" != "X" ]
 			then
 				printf "${PROGNAME}: Syntax error - Options -u, -a, and -q cannot be used with -U\n" >&2
 				return 1
@@ -61,7 +61,7 @@ get_args()
 			fi
 			;;
 		u)   # set up the -u (list user sessions flag)
-			if [ "X${ALL_SESSIONS_FLAG}" != "X" "X" -o "X${GET_SESSION_SQL_FLAG}" != "X" -o "X${LIST_USER_SESSIONS_FLAG}" != "X" ]
+			if [ "X${ALL_SESSIONS_FLAG}" != "X" -o "X${GET_SESSION_SQL_FLAG}" != "X" -o "X${LIST_USER_SESSIONS_FLAG}" != "X" ]
 			then
 				printf "${PROGNAME}: Syntax error - Options -U, -a, -l and -q cannot be used with -u\n" >&2
 				return 1
@@ -151,7 +151,7 @@ get_args()
 #INIT
 
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision: 2.0.44 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.46 $" | cut -f2 -d' '`
 SESSION_LIST=""
 
 
@@ -290,7 +290,7 @@ EOF
 		cat ${DBACCESS_TMP_FILE} >&2
 		exit 1
 	fi
-	sed 's/\\\|/PIPE/g' $TMP_FILE | sed -e :a -e '/\\$/N; s/\\\n/ /; ta' | $AWK -F'|' -v "my_sessionid=$GET_SESSION_SQL_SES" 'BEGIN { header = 0;got_last=0}
+	sed 's/[\][|]/PIPE/g' $TMP_FILE | sed -e :a -e '/\\$/N; s/\\\n/ /; ta' | $AWK -F'|' -v "my_sessionid=$GET_SESSION_SQL_SES" 'BEGIN { header = 0;got_last=0}
 	{
 	my_sql_line_type=$1;
 	my_stmtname=$2;
