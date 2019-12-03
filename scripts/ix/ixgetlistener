@@ -2,8 +2,8 @@
 # Copyright (c) 2002-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision: 2.0.10 $
-# $Date 2016-11-28 03:03:26$
+# $Revision: 2.0.48 $
+# $Date: 2019-12-03 21:48:15 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -99,7 +99,7 @@ get_args()
 #INIT
 
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision: 2.0.10 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.48 $" | cut -f2 -d' '`
 TMP_FILE_1=/tmp/$PROGNAME_$$_1
 TMP_FILE_2=/tmp/$PROGNAME_$$_2
 TMP_SESSION_LIST=/tmp/$PROGNAME_$$_seslst
@@ -195,10 +195,14 @@ then
 fi
 
 
-onstat -g ntt | egrep "(soctcplst)" | $AWK '{split($NF,aux,"|");print "0x"$1 " " aux[1] " " aux[2]}' | while read NETSCB HOST SERVICE
+onstat -g ntt | egrep "(soctcplst|socssllst)" | $AWK '{N=split($NF,aux,"|");if (N <= 1 ) {print "0x" $1 " DUMMY 0"} else {print "0x"$1 " " aux[1] " " aux[2]}}' | while read NETSCB HOST SERVICE
 do
-	ADDR=`onstat -g dmp $NETSCB netscb_t | grep server_tladdr | $AWK '{print $NF}'`
-	echo $NETSCB $HOST $SERVICE $ADDR
+	OUTPUT=`onstat -g dmp $NETSCB netscb_t | egrep "(server_tladdr|servicename)" | $AWK '/server_tladdr/ {ADDR=$NF}
+/servicename/ {gsub("\42","",$NF);SERVICENAME=$NF}
+END {print ADDR " " SERVICENAME}'`
+	ADDR=`echo $OUTPUT | cut -f1 -d' '`	
+	SERVICENAME=`echo $OUTPUT | cut -f2 -d' '`	
+	echo $NETSCB $HOST $SERVICE $ADDR $SERVICENAME
 done > $TMP_FILE_1
 
 
@@ -208,35 +212,52 @@ do
 	if [ $? = 0 ]
 	then
 		SERVER_TLADDR=`onstat -g dmp 0x$NETSCB netscb_t | grep server_tladdr | $AWK '{print $NF}'`
+#$AWK '{print $NF}'`
 		echo $SID $SERVER_TLADDR
 	fi
 done > $TMP_FILE_2
 
-dbaccess sysmaster <<EOF 2>$TMP_FILE_DBACCESS
+dbaccess sysmaster <<EOF 2>$TMP_FILE_DBACCESS 
 CREATE TEMP TABLE sessions
 (
 	sid INT8,
 	addr CHAR(20)
 ) WITH NO LOG;
+
+CREATE TEMP TABLE listeners_raw
+(
+	netscb CHAR(20),
+	host CHAR(20),
+	service CHAR(15),
+	addr CHAR(20),
+	servicename CHAR(80)
+) WITH NO LOG;
+
 CREATE TEMP TABLE listeners
 (
 	netscb CHAR(20),
 	host CHAR(20),
-	service CHAR(20),
-	addr CHAR(20)
+	service CHAR(15),
+	addr CHAR(20),
+	servicename CHAR(80)
 ) WITH NO LOG;
 
-LOAD FROM $TMP_FILE_1 DELIMITER ' ' INSERT INTO listeners;
+LOAD FROM $TMP_FILE_1 DELIMITER ' ' INSERT INTO listeners_raw;
 LOAD FROM $TMP_FILE_2 DELIMITER ' ' INSERT INTO sessions;
-
+INSERT INTO listeners SELECT t1.netscb, t2.host, t2.service, t1.addr,t1.servicename FROM listeners_raw t1, 
+(SELECT host,service,servicename FROM listeners_raw WHERE host != 'DUMMY') t2 WHERE t1.servicename = t2.servicename;
+ 
+UNLOAD TO $TMP_FILE_1
 SELECT
-	s.sid Session, NVL(l.host || ' '|| l.service,"Shared Memory") Listener
+	s.sid Session, l.host, NVL(l.service,"Shared Memory") Listener, servicename
 FROM
 	sessions s, OUTER listeners l
 WHERE
 	s.addr = l.addr;
 
 EOF
+
+awk -F'|' 'BEGIN {printf "%-12s %-25s %-13s %-27s\n------------ ------------------------- ------------- ---------------------------\n","Session","Hostname","Service", "INFORMIXSERVER"} {printf "%-12s %-25s %-13s %-27s\n",$1,$2,$3,$4}' $TMP_FILE_1
 
 if [ $? != 0 ]
 then
