@@ -2,8 +2,8 @@
 # Copyright (c) 2006-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision: 2.0.11 $
-# $Date 2016-11-28 03:16:17$
+# $Revision: 2.0.49 $
+# $Date: 2020-01-28 22:27:45 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -333,7 +333,7 @@ TEMP_FILE_1=/tmp/${PROGNAME}_tmp_1.$$
 TEMP_SQL_ERROR=/tmp/${PROGNAME}_sqlerr.$$
 TEMP_SQL_FILE=/tmp/${PROGNAME}_$$.sql
 trap clean_up 0
-VERSION=`echo "$Revision: 2.0.11 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.49 $" | cut -f2 -d' '`
 
 
 OCOUNT_FLAG=0
@@ -400,8 +400,9 @@ do
 		DBNAME=`echo ${TABLE} | cut -f1 -d':'`
 		TABNAME=`echo ${TABLE} | cut -f2 -d':'`
 	
+		ISOLATION_CLAUSE=`echo "SELECT 'OUTPUT:'||CASE is_logging WHEN 1 THEN 'SET ISOLATION TO DIRTY READ;' ELSE '' END FROM sysdatabases WHERE name = '"${DBNAME}"' " | dbaccess sysmaster 2>/dev/null | grep OUTPUT | cut -f2 -d':'`
 		dbaccess $DBNAME <<EOF 2>${TEMP_SQL_ERROR}
-	SET ISOLATION TO DIRTY READ;
+	$ISOLATION_CLAUSE
 	UNLOAD TO $TEMP_FILE DELIMITER ' '
 	SELECT lower(hex(partnum))
 	FROM systables
