@@ -1,16 +1,17 @@
-# Explain functions
+# Explain procedures
 
-A set of SQL scripts that will create ausiliary functions to obtain the query plans on any tool
+A set of SQL scripts that will create auxiliary procedures to obtain the query plans on any tool
 
 
 [http://informix-technology.blogspot.com](http://informix-technology.blogspot.com "Fernando Nunes's blog")
 
 ### Introdution
 
-Obtaining the query plan on Informix has always been a challenge. These functions propose a way to do it, on any tool, that will work with any Informix version starting with V10.
-It's based on the ability to retrieve a file as a BLOB. So the functions create the normal explain files and then there's one (get_explain()) that will retrieve that file as a BLOB
+Obtaining the query plan on Informix has always been a challenge. These procedures propose a way to do it, on any tool, that will work with any Informix version starting with V10.
+It's based on the ability to retrieve a file as a BLOB. So the procedures create the normal explain files and then there's one (get_explain()) that will retrieve that file as a BLOB
 
 ###Distribution and license
+
 These repository uses GPL V2 (unless stated in a specific script or folder). In short terms it means you can use the contents freely. If you change them and distribute the results, you must also make the "code" available (with the current contents this is redundant as the script is the code)- The full license text can be read here:
 
 [http://www.gnu.org/licenses/old-licenses/gpl-2.0.html](http://www.gnu.org/licenses/old-licenses/gpl-2.0.html "GNU GPL V2")
@@ -30,11 +31,19 @@ Nevertheless the author is insterested in improving these scripts. if you find a
 
 ### Description
 
-These scripts contain functions that can be created in a system database (like sysadmin) or on each individual database. Execution permissions and connect to a central database (if created in one) must be provided by the DBA and aren't currently included in the scripts.
+These scripts contain procedures that can be created in a system database (like sysadmin) or on each individual database. Execution and connect permissions to a central database (if created in one) must be provided by the DBA and aren't currently included in the scripts.
+The configuration relative to _where_ the files are created, and the filenames can be changed in the _set_explain_on and _set_explain_on_avoid_execute_ procedures. Default settings create them in /tmp and in a way where the session ID is included in the filename. This means a single user will have/see different files if using the procedures in different sessions. Otherwise they will interfere with each other (because the activation of the SET EXPLAIN will reset the file). Note that the files are not cleared. This means they will accumulate on the defined directory. A cleaning process should be put in place to avoid this (clearing files older than one day for example)
+To turn off explain simply use the SQL statement SET EXPLAIN OFF
 
-The functions are:
+Example of usage:
 
-* set_explai_on
+EXECUTE PROCEDURE set_expalin_on_avoid_execute();
+SELECT ... FROM ... WHERE ...;
+EXECUTE PROCEDURE get_explain();
+
+The procedures are:
+
+* set_explain_on
 
    Creates the procedure _set_explain_on_  
    This procedure initializes the explain file on a script defined directory (user permissions must be granted) and activates the explain
@@ -48,7 +57,7 @@ The functions are:
 * reset_explain
 
    Creates the function _reset_explain_
-   This function simply clears the previously defined explain file. If no file was created/activated by the previous functions, an error will be raised
+   This function simply clears the previously defined explain file. If no file was created/activated by the previous procedures, an error will be raised
 
 * get_explain
 
