@@ -1,15 +1,18 @@
 -- Copyright (c) 2021 Fernando Nunes - domusonline@gmail.com
 -- License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 -- $Author: Fernando Nunes - domusonline@gmail.com $
--- $Revision: 2.0.51 $
--- $Date: 2021-03-07 03:18:57 $
+-- $Revision: 2.0.53 $
+-- $Date: 2021-03-07 13:01:52 $
 -- Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 --             Although the author is/was an IBM employee, this software was created outside his job engagements.
 --             As such, all credits are due to the author.
 --
 
 -- This function retrieves the explain file
-CREATE PROCEDURE get_explain() RETURNING CLOB AS explain;
+
+
+-- DROP FUNCTION get_explain;
+CREATE FUNCTION get_explain() RETURNING CLOB AS explain_plans;
   DEFINE GLOBAL explain_file_name VARCHAR(255) DEFAULT NULL;
   DEFINE GLOBAL explain_file_dir VARCHAR(255) DEFAULT NULL;
   DEFINE exp_file VARCHAR(255);
@@ -21,4 +24,4 @@ CREATE PROCEDURE get_explain() RETURNING CLOB AS explain;
     LET v_ret = FILETOCLOB(exp_file,'server');
     RETURN v_ret;
   END IF;
-END PROCEDURE;
+END FUNCTION;
