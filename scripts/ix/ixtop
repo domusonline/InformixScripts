@@ -1,9 +1,9 @@
-#!/bin/ksh
+#!/bin/bash
 # Copyright (c) 2002-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision: 2.0.42 $
-# $Date: 2018-09-11 22:59:28 $
+# $Revision: 2.0.54 $
+# $Date: 2021-03-07 22:07:07 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -36,6 +36,7 @@ show_help()
 	echo "      <part_order_by> : field to order by: ">&2
 	echo "                       [Database|Partname|PartNumHex|Partnum|LockReqs|LkWai|DLk|LkT|IsamReads|">&2
 	echo "                       IsamWrite|IsamRWrit|IsamDel|BuffReads|BuffWrit|PagReads|PagWrite|SeqScans]">&2
+	echo " -P : Get TOP partitions on buffer cache" >&2
 	echo " -s : Get TOP I/O, buffer activity etc. per session" >&2
 	echo "      <ses_order_by>  : field to order by: ">&2 
 	echo "                       [IsamReads|IsamWrite|IsamRWrit|IsamDels|IsamCommt|IsamRB|LTx|BuffReads|">&2
@@ -57,7 +58,7 @@ show_version()
 }
 get_args()
 {
-	arg_ok="hVt:Cn:c:s:l:p:u:d:T:mH:rRIBLME:e:f:"
+	arg_ok="hVt:Cn:c:s:l:p:u:d:T:mH:rRIBLME:e:f:P"
 
 	while getopts ${arg_ok} OPTION
 	do
@@ -259,6 +260,14 @@ get_args()
 				;;
                         esac
 			;;
+		P)     #flag for cache TOP
+			if [ "X${CACHE_FLAG}" = "X1" ]
+			then
+				echo "Error: Option ${OPTION} already processed" >&2
+				exit 1
+			fi
+			CACHE_FLAG=1
+			;;
 		s)     #flag for session TOP
 			if [ "X"${SESSION_FLAG} = "X1" ]
 			then
@@ -420,6 +429,61 @@ get_args()
 	done
 }
 
+top_cache()
+{
+#Buffer pool page size:
+onstat -P | awk '
+	/Buffer pool page size:/ {BUFFSIZE=$NF}
+	/partnum/,/^$/ {print $1"|"$2"|"$3"|"$4"|"$5"|"$6"|"BUFFSIZE}' | egrep -v -e "partnum|\|\|\|\|" > $TEMP_FILE
+dbaccess sysmaster <<EOF 2>${TEMP_DBACCESS_FILE}
+CREATE TEMP TABLE run_all_cache_usage
+(
+        partnum INTEGER,
+        total INTEGER,
+        btree INTEGER,
+        data INTEGER,
+        other INTEGER,
+        dirty INTEGER,
+	buffsize INTEGER
+) WITH NO LOG;
+
+LOAD FROM $TEMP_FILE INSERT INTO run_all_cache_usage;
+
+UNLOAD TO $TEMP_FILE
+SELECT
+	$FIRST_CLAUSE
+        NVL(
+                (TRIM(t.dbsname)||':'||TRIM(TRAILING FROM t.tabname)),
+                'UNKNOWN:'||my.partnum
+        ),
+        my.total,
+        my.btree,
+        my.data,
+        my.other,
+        my.dirty,
+	my.buffsize
+FROM run_all_cache_usage my, outer systabnames t
+WHERE my.partnum = t.partnum
+ORDER BY 2 DESC;
+EOF
+
+	RC=$?
+	if [ $RC != 0 ]
+	then
+		printf "Error calling dbaccess (get buffer cache usage data): %s\nError message:\n" $RC >&2
+		cat ${TEMP_DBACCESS_FILE} >&2
+		exit 1
+	fi
+
+awk -F'|' 'BEGIN {
+printf "%-70s %-10s %-10s %-10s %-10s %-10s %-5s\n", "Database:Table", "Total", "BTree", "Data", "Other", "Dirty", "BSize"
+printf "---------------------------------------------------------------------- ---------- ---------- ---------- ---------- ---------- -----\n";
+}
+{
+        printf "%-70s %-10s %-10s %-10s %-10s %-10s %-5s\n", $1, $2, $3, $4, $5, $6, $7;
+}' $TEMP_FILE
+
+}
 
 
 top_partition()
@@ -862,7 +926,7 @@ EOF
 
 
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision: 2.0.42 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.54 $" | cut -f2 -d' '`
 
 TEMP_DIR=/tmp
 TEMP_FILE=${TEMP_DIR}/ixtop$$.tmp
@@ -931,7 +995,7 @@ else
 	FIRST_CLAUSE=""
 fi
 
-if [ "X${CONDITION_FLAG}" != "X1" -a  "X${SESSION_FLAG}" != "X1" -a "X${SESSION_L_FLAG}" != "X1" -a "X${MEMORY_FLAG}" != "X1" -a "X${PARTITION_FLAG}" != "X1" ]
+if [ "X${CONDITION_FLAG}" != "X1" -a  "X${SESSION_FLAG}" != "X1" -a "X${SESSION_L_FLAG}" != "X1" -a "X${MEMORY_FLAG}" != "X1" -a "X${PARTITION_FLAG}" != "X1" -a "X{CACHE_FLAG}" != "X1" ]
 then
 	CONDITION_FLAG=1
 fi
@@ -943,6 +1007,11 @@ then
 		THREAD_STATUS_EXPR="(running|ready)"
 	fi
 	top_condition
+fi
+
+if [ "X${CACHE_FLAG}" = "X1" ]
+then
+	top_cache
 fi
 
 if [ "X${SESSION_FLAG}" = "X1" ]
