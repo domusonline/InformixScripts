@@ -1,9 +1,9 @@
-#!/bin/ksh
+#!/bin/bash
 # Copyright (c) 2011-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision: 2.0.43 $
-# $Date: 2018-09-11 23:46:32 $
+# $Revision: 2.0.55 $
+# $Date: 2024-02-23 00:28:57 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -2411,14 +2411,14 @@ EOF
 		cat ${ERRFILE}
 		return
 	else
-		cat $TMPFILE | read NUM_TABLES_TOT NUM_TABLES
+		read NUM_TABLES_TOT NUM_TABLES < $TMPFILE
 		echo
 		echo "Total number of tables in the system is: ${NUM_TABLES_TOT}. Planned for ${PERCENTAGE}% of total: $NUM_TABLES"
 	fi
 	
 	DD_HASHMAX=10
-	expr ${NUM_TABLES} / ${DD_HASHMAX} | read AUX
-	get_prime_number ${AUX} | read DD_HASHSIZE
+	AUX=`expr ${NUM_TABLES} / ${DD_HASHMAX}`
+	DD_HASHSIZE=`get_prime_number ${AUX}`
 
 	echo "DD_HASHSIZE $DD_HASHSIZE"
 	echo "DD_HASHMAX $DD_HASHMAX"
@@ -2445,7 +2445,7 @@ EOF
 		then
 			return 1
 		else
-			cat ${TMPFILE} | awk -F'|' '{print $1}' | while read DATABASE_INFO
+			for DATABASE_INFO in `cat ${TMPFILE} | awk -F'|' '{print $1}' `
 			do
 				DATABASE_LIST="${DATABASE_LIST} "${DATABASE_INFO}
 			done
@@ -2468,7 +2468,8 @@ calc_proc_cache()
 	NUM_PROCS_TOTAL=0
 	for DATABASE_INFO in ${DATABASE_LIST}
 	do
-		echo $DATABASE_INFO | sed 's/:/ /g' | read DB_NAME DB_OWNER DB_COLLATE
+		echo $DATABASE_INFO | sed 's/:/ /g' > $TMPFILE
+	       	read DB_NAME DB_OWNER DB_COLLATE < $TMPFILE
 		export DB_LOCALE=$DB_COLLATE
 
 		dbaccess ${DB_NAME} <<EOF 1>${ERRFILE} 2>&1
@@ -2485,7 +2486,7 @@ EOF
 			exit 1
 		fi
 
-		cat ${TMPFILE} | read TMP_NUM_PROCS_TOTAL TMP_NUM_PROCS
+		read TMP_NUM_PROCS_TOTAL TMP_NUM_PROCS < $TMPFILE
 		NUM_PROCS=`expr ${NUM_PROCS} + ${TMP_NUM_PROCS}`
 		NUM_PROCS_TOTAL=`expr ${NUM_PROCS_TOTAL} + ${TMP_NUM_PROCS_TOTAL}`
 	done
@@ -2494,8 +2495,8 @@ EOF
 	bc <<EOF | read AUX1
 	$NUM_PROCS * 1.1 / $AUX
 EOF
-	get_prime_number $AUX1 | read PC_HASHSIZE
-	expr $PC_HASHSIZE \* 4 | read PC_POOLSIZE
+	PC_HASHSIZE=`get_prime_number $AUX1`
+	PC_POOLSIZE=`expr $PC_HASHSIZE \* 4`
 		
 	echo PC_HASHSIZE $PC_HASHSIZE
 	echo PC_POOLSIZE $PC_POOLSIZE
@@ -2516,7 +2517,8 @@ calc_dist_cache()
 	NUM_COLS_TOTAL=0
 	for DB_INFO in ${DATABASE_LIST}
 	do
-		echo $DB_INFO | sed 's/:/ /g' | read DB_NAME DB_OWNER DB_COLLATE
+		echo $DB_INFO | sed 's/:/ /g'  > $TMPFILE
+		read DB_NAME DB_OWNER DB_COLLATE < $TMPFILE
 		export DB_LOCALE=$DB_COLLATE
 		
 		dbaccess ${DB_NAME} <<EOF 1>${ERRFILE} 2>&1
@@ -2539,7 +2541,7 @@ EOF
 			exit 1
 		fi
 
-		cat ${TMPFILE} | read TMP_NUM_COLS_TOTAL TMP_NUM_COLS
+		read TMP_NUM_COLS_TOTAL TMP_NUM_COLS < ${TMPFILE}
 	
 		NUM_COLS=`expr ${NUM_COLS} + ${TMP_NUM_COLS}`
 		NUM_COLS_TOTAL=`expr ${NUM_COLS_TOTAL} + ${TMP_NUM_COLS_TOTAL}`
@@ -2547,11 +2549,12 @@ EOF
 	done
 	echo "Total number of columns with distributions is: ${NUM_COLS_TOTAL}. Planning for ${PERCENTAGE}%: $NUM_COLS"
 	AUX=4
-	bc <<EOF | read AUX1
+	AUX1=`bc <<EOF
 	$NUM_COLS * 1.1 / $AUX
 EOF
-	get_prime_number $AUX1 | read DS_HASHSIZE
-	expr $DS_HASHSIZE \* 4 | read DS_POOLSIZE
+`
+	DS_HASHSIZE=`get_prime_number $AUX1`
+	DS_POOLSIZE=`expr $DS_HASHSIZE \* 4`
 		
 	echo DS_HASHSIZE $DS_HASHSIZE
 	echo DS_POOLSIZE $DS_POOLSIZE
@@ -2592,7 +2595,7 @@ EOF
 #INIT
 
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision: 2.0.43 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.55 $" | cut -f2 -d' '`
 TMPFILE=/tmp/${PROGNAME}_$$.tmp
 ERRFILE=/tmp/${PROGNAME}_$$.err
 DATABASE_LIST=""
