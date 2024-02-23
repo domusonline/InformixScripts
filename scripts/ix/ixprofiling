@@ -2,8 +2,8 @@
 # Copyright (c) 2011-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision: 2.0.42 $
-# $Date: 2018-09-11 22:59:27 $
+# $Revision: 2.0.56 $
+# $Date: 2024-02-23 01:13:42 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -16,6 +16,7 @@ ix_help()
 	echo "     -h             : Get this help"
 	echo "     -V             : Get script version"
 	echo "     -s SID database: Get stats for session (SID) and database"
+	echo "     -F             : Flush and clear buffer cache (14.10.xC2+)"
 	echo "     -n             : Do NOT reset engine stats"
 	echo "     -z             : Reset engine stats using onstat (default - needs local database)"
 	echo "     -Z             : Reset engine stats using SQL Admin API (can work remotely )"
@@ -29,7 +30,7 @@ ix_help()
 
 get_args()
 {
-	arg_ok='Vhs:SzZnwitpeE:'
+	arg_ok='Vhs:SzZnwitpeE:F'
         
 	while getopts ${arg_ok} OPTION 2>/dev/null
 	do
@@ -125,6 +126,9 @@ EOF
 				fi
 			fi
 			EXPLAIN_FLAG=2
+			;;
+		F)      #Flush and reset buffer cache on versions equal or greater than 14.10.FC2
+			FLUSH_CACHE_FLAG=1
 			;;
 		?|*)
 			echo "$PROGNAME: Invalid option: $OPTION" >&2
@@ -548,11 +552,45 @@ WAIT_FLAG=0
 EXPLAIN_FLAG=0
 SCRIPT=$0
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision: 2.0.42 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.56 $" | cut -f2 -d' '`
 MY_STATS_FILE=/tmp/${PROGNAME}_partitions_$$.tmp
 MY_SQL_SCRIPT=/tmp/${PROGNAME}_$$.sql
 TMP_ERROR_FILE=/tmp/${PROGNAME}_$$.err
 RESETSTATS_FLAG=1
+AUX=`echo "SELECT 'LINE '|| DBINFO('version','major') || ' ' || DBINFO('version','minor') || ' ' || DBINFO('version','level') FROM sysdual;" | dbaccess sysmaster - 2>/dev/null | grep "^LINE" ` 
+
+IX_MAJOR=`echo $AUX | awk '{print $2}'`
+IX_MINOR=`echo $AUX | awk '{print $3}'`
+IX_LEVEL=`echo $AUX | awk '{print $4}'`
+
+if [ "X$FLUSH_CACHE_FLAG" = "X1" ]
+then
+	if [ $IX_MAJOR -lt 14 ]
+	then
+		echo "Option -F cannot be used in this database server version (<14.10.xC2)" >&2
+		FLUSH_CACHE_FLAG=0
+	else
+		if [ $IX_MAJOR -gt 14 ]
+		then
+			echo "ok" >/dev/null
+		else
+			#version 14
+			if [ $IX_MINOR -gt 10 ]
+			then
+				echo "ok" >/dev/null
+			else
+				#IX_MINOR = 10
+				if [ $IX_LEVEL = "C1" ]
+				then
+					echo "Option -F cannot be used in this database server version (<14.10.xC2)" >&2
+					FLUSH_CACHE_FLAG=0
+				fi
+			fi
+		fi
+	fi
+else
+	FLUSH_CACHE_FLAG=0
+fi
 trap clean_up 0
 
 get_args $*
@@ -571,7 +609,7 @@ fi
 if [ "X$SQL_SCRIPT_FLAG" = "X1" ]
 then
 
-	awk -v SCRIPT=$SCRIPT -v DATABASE=$DATABASE -v PID=$$ -v RESETSTATS=$RESETSTATS_FLAG -v ERROR_FILE=$TMP_ERROR_FILE -v WAIT_FLAG=$WAIT_FLAG -v IO_FLAG=$IO_FLAG -v PROFILE_FLAG=$PROFILE_FLAG -v TSTAMP_FLAG=$TSTAMP_FLAG -v T_TAB_NAME=$T_TAB_NAME -v EXPLAIN_FLAG=$EXPLAIN_FLAG -v EXPLAIN_FILE=$EXPLAIN_FILE '
+	awk -v SCRIPT=$SCRIPT -v DATABASE=$DATABASE -v PID=$$ -v FLUSH_CACHE_FLAG=$FLUSH_CACHE_FLAG -v RESETSTATS=$RESETSTATS_FLAG -v ERROR_FILE=$TMP_ERROR_FILE -v WAIT_FLAG=$WAIT_FLAG -v IO_FLAG=$IO_FLAG -v PROFILE_FLAG=$PROFILE_FLAG -v TSTAMP_FLAG=$TSTAMP_FLAG -v T_TAB_NAME=$T_TAB_NAME -v EXPLAIN_FLAG=$EXPLAIN_FLAG -v EXPLAIN_FILE=$EXPLAIN_FILE '
 		BEGIN {
 			if ( RESETSTATS == 1 )
 				RESETSTATS_CLAUSE="!onstat -z 2>" ERROR_FILE "  1>&2; if [ $? = 0 ]; then echo Engine statistics RESETed. Query results:;else echo Could not RESET engine stats!;cat " ERROR_FILE ";fi";
@@ -581,6 +619,13 @@ then
 				else
 					RESETSTATS_CLAUSE="";
 			printf "%s\n", RESETSTATS_CLAUSE;
+
+			if ( FLUSH_CACHE_FLAG == 1 )
+				FLUSH_CACHE_CLAUSE="!onmode -B reset"
+			else
+				FLUSH_CACHE_CLAUSE=""
+		
+			printf "%s\n", FLUSH_CACHE_CLAUSE
 
 			if ( WAIT_FLAG == 1 )
 				EXTRA_FLAGS="-w";
@@ -617,11 +662,11 @@ then
 				}
 				if (TSTAMP_FLAG == 1)
 				{
-					printf "%s\n!%s %s -S %s\n!echo;echo ====================================================================================================================================;echo QUERY BREAK;echo ====================================================================================================================================;echo\n%s\nUPDATE %s SET start = CURRENT YEAR TO FRACTION(3);\n-- QUERY\n",TIMING_SQL,SCRIPT, EXTRA_FLAGS, DATABASE,RESETSTATS_CLAUSE,T_TAB_NAME;
+					printf "%s\n!%s %s -S %s\n!echo;echo ====================================================================================================================================;echo QUERY BREAK;echo ====================================================================================================================================;echo\n%s\n%s\nUPDATE %s SET start = CURRENT YEAR TO FRACTION(3);\n-- QUERY\n",TIMING_SQL,SCRIPT, EXTRA_FLAGS, DATABASE,RESETSTATS_CLAUSE,FLUSH_CACHE_CLAUSE,T_TAB_NAME;
 				}
 				else
 				{
-					printf "%s\n!%s %s -S %s\n!echo;echo ====================================================================================================================================;echo QUERY BREAK;echo ====================================================================================================================================;echo\n%s\n-- QUERY\n",TIMING_SQL,SCRIPT, EXTRA_FLAGS, DATABASE,RESETSTATS_CLAUSE;
+					printf "%s\n!%s %s -S %s\n!echo;echo ====================================================================================================================================;echo QUERY BREAK;echo ====================================================================================================================================;echo\n%s\n%s\n-- QUERY\n",TIMING_SQL,SCRIPT, EXTRA_FLAGS, DATABASE,RESETSTATS_CLAUSE,FLUSH_CACHE_CLAUSE;
 				}
 
 				if ( (EXPLAIN_FLAG == 1) || (EXPLAIN_FLAG == 2) )
