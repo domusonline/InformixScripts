@@ -2,8 +2,8 @@
 # Copyright (c) 2011-2016 Fernando Nunes - domusonline@gmail.com
 # License: This script is licensed as GPL V2 ( http://www.gnu.org/licenses/old-licenses/gpl-2.0.html )
 # $Author: Fernando Nunes - domusonline@gmail.com $
-# $Revision: 2.0.57 $
-# $Date: 2024-03-07 13:46:06 $
+# $Revision: 2.0.58 $
+# $Date: 2025-11-27 00:59:12 $
 # Disclaimer: This software is provided AS IS, without any kind of guarantee. Use at your own risk.
 #             Although the author is/was an IBM employee, this software was created outside his job engagements.
 #             As such, all credits are due to the author.
@@ -72,16 +72,17 @@ get_args()
 
 get_prime_number_int()
 {
+TOP=$1
 while read PRIME
 do
 	OLD_PRIME=${PRIME}
-	if [ ${PRIME} -gt $OP ]
+	if [ ${PRIME} -gt $TOP ]
 	then
 		echo ${PRIME}
 		return 0
 	fi
 done
-echo "get_prime_number_int exceeded max prime included for value given($OP): $OLD_PRIME" >&2
+echo "get_prime_number_int exceeded max prime included for value given($TOP): $OLD_PRIME" >&2
 echo ${OLD_PRIME}
 return 0
 }
@@ -91,7 +92,7 @@ get_prime_number()
 
 #Starts at 31 to guarantee that we don't return a value lower than that
 OP=$1
-get_prime_number_int $OP <<EOF
+get_prime_number_int $OP <<EOF_PRIME
 31
 37
 41
@@ -2385,14 +2386,14 @@ get_prime_number_int $OP <<EOF
 20359
 20369
 20389
-EOF
+EOF_PRIME
 
 }
 
 
 calc_dic_cache()
 {
-	dbaccess sysmaster <<EOF 1>${ERRFILE} 2>&1 
+	dbaccess sysmaster <<EOF_TABLES 1>${ERRFILE} 2>&1 
 	UNLOAD TO $TMPFILE DELIMITER ' '
 	SELECT
 		COUNT(*)::INTEGER, (COUNT(*) * ( $PERCENTAGE / 100))::INTEGER
@@ -2402,7 +2403,7 @@ calc_dic_cache()
 		t.dbsname = d.name AND
 		t.partnum = p.partnum AND
 		p.partnum = p.lockid;
-EOF
+EOF_TABLES
 
 
 	if [ $? != 0 ]
@@ -2492,9 +2493,11 @@ EOF
 	done
 	echo "Total number of procedures is: ${NUM_PROCS_TOTAL}. Planning for ${PERCENTAGE}%: $NUM_PROCS"
 	AUX=4
-	bc <<EOF | read AUX1
+	AUX1=`bc <<EOF_PROC
 	$NUM_PROCS * 1.1 / $AUX
-EOF
+EOF_PROC
+`
+
 	PC_HASHSIZE=`get_prime_number $AUX1`
 	PC_POOLSIZE=`expr $PC_HASHSIZE \* 4`
 		
@@ -2588,14 +2591,14 @@ EOF
 		cat ${ERRFILE} >&2
 	fi
 	printf "\n\nParameter   Value\n"
-	printf "----------- ----------\n"
-	cat $TMPFILE | sed 's/\|/ /g'
+	printf -- "----------- ----------\n"
+	cat $TMPFILE | sed 's/|/ /g'
 }
 
 #INIT
 
 PROGNAME=`basename $0`
-VERSION=`echo "$Revision: 2.0.57 $" | cut -f2 -d' '`
+VERSION=`echo "$Revision: 2.0.58 $" | cut -f2 -d' '`
 TMPFILE=/tmp/${PROGNAME}_$$.tmp
 ERRFILE=/tmp/${PROGNAME}_$$.err
 DATABASE_LIST=""
